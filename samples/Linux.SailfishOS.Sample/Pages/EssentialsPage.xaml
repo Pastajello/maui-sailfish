@@ -16,7 +16,7 @@
             <Label x:Name="FilesLabel" FontSize="18" TextColor="White" Text="files: …" />
             <Label x:Name="StateLabel" FontSize="18" TextColor="White" Text="state: …" />
 
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
                 <Button Grid.Column="0" Text="Write prefs" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnWritePrefsClicked" />
                 <Button Grid.Column="1" Text="Read prefs" BackgroundColor="#37474F" TextColor="White" Clicked="OnReadPrefsClicked" />
                 <Button Grid.Row="1" Grid.Column="0" Text="Copy to clipboard" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnCopyClicked" />
