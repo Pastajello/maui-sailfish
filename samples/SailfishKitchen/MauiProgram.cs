@@ -13,7 +13,7 @@ namespace SailfishKitchen;
 
 /// <summary>
 /// Composition root: pages and view models are resolved from the container, so nothing needs a static.
-/// Environment variables (<c>./tools/sf-run.sh --env NAME=VALUE</c>) override settings for scripted runs:
+/// Environment variables (<c>./tools/sf run --env NAME=VALUE</c>) override settings for scripted runs:
 ///   KITCHEN_OFFLINE=1            serve the bundled seed catalog, never the network
 ///   KITCHEN_PREFER_OFFLINE=1     serve cached responses regardless of age
 ///   KITCHEN_PAGE_SIZE=24         rows per incremental page
@@ -26,7 +26,7 @@ namespace SailfishKitchen;
 /// </summary>
 public static class MauiProgram
 {
-	// On Sailfish the paths stay literal /tmp because tools/sf-run.sh tails them (TMPDIR would move them).
+	// On Sailfish the paths stay literal /tmp because tools/sf run tails them (TMPDIR would move them).
 	// iOS sandboxes /tmp, so they go to the app cache dir: xcrun simctl get_app_container booted com.maui.sailfishkitchen data
 #if IOS
 	internal static readonly string LogFilePath = Path.Combine(CacheDirectory(), "kitchen.log");

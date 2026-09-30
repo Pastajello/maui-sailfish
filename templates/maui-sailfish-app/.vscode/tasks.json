@@ -44,14 +44,14 @@
       "label": "sf: preflight (Debug)",
       "detail": "blocking gate for F5 debug: needs SF_TOOLS_DIR pointing at a maui-sailfish checkout's tools/ (or the packaged tools dir in the NuGet cache)",
       "type": "shell",
-      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-preflight.sh --for-debug",
+      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf doctor --for-debug",
       "problemMatcher": []
     },
     {
       "label": "sf: deploy & run (Debug)",
       "detail": "publish Debug under harbour-<dir>-debug, upload, install, launch, print the log tail. preLaunchTask of 'F5 DEBUG (deploy + attach)'.",
       "type": "shell",
-      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-deploy.sh --run",
+      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf deploy --run",
       "dependsOn": [
         "sf: preflight (Debug)"
       ],
@@ -61,14 +61,14 @@
       "label": "sf: push vsdbg to device",
       "detail": "one-time setup for step 2/2: puts the linux-arm64 vsdbg in /tmp/vsdbg/ (never in the RPM), verifies it runs there, relaxes yama ptrace_scope if needed",
       "type": "shell",
-      "command": "SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-debug-attach.sh --push-only",
+      "command": "SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf debug-attach --push-only",
       "problemMatcher": []
     },
     {
       "label": "sf: debug attach prep",
       "detail": "pushes vsdbg if needed and prints DEVICE_PID of the running Debug build for the '2/2 DEBUGGER attach (pid...)' configuration",
       "type": "shell",
-      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-debug-attach.sh",
+      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf debug-attach",
       "problemMatcher": []
     }
   ]

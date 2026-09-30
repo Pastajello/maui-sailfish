@@ -43,12 +43,20 @@
     <None Include="scaffold/**" Pack="true" PackagePath="buildTransitive/scaffold/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
-  <!-- The rpmbuild fallback and device tools ship in the package, so package consumers need no rpm toolchain or repo clone. -->
+  <!-- The device tools ship in the package (buildTransitive/net11.0/tools, same layout as the checkout's tools/),
+       so package consumers need no rpm toolchain or repo clone. Checkout-only commands (record, matrix, native
+       builds, ...) stay out; `sf` says so when one is asked for. -->
   <ItemGroup>
-    <None Include="../../tools/sf-rpmbuild.py" Pack="true"
-          PackagePath="buildTransitive/net11.0/tools/sf-rpmbuild.py" />
-    <None Include="../../tools/sf-lib.sh;../../tools/sf-setup.sh;../../tools/sf-pair.sh;../../tools/sf-deploy.sh;../../tools/sf-run.sh;../../tools/sf-run-remote.sh;../../tools/sf-remote-env.sh;../../tools/sf-kill.sh;../../tools/sf-kill-remote.sh;../../tools/sf-preflight.sh;../../tools/sf-verify.sh;../../tools/sf-rpmquery.py;../../tools/sf_rpm.py;../../tools/sf-debug-attach.sh;../../tools/sf-debug-pipe.sh;../../tools/sf-debug-dap-filter.py"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/%(Filename)%(Extension)" />
+    <None Include="../../tools/sf;../../tools/sf-debug-pipe.sh;../../tools/sf-setup.sh;../../tools/sf-deploy.sh;../../tools/sf-run.sh;../../tools/sf-preflight.sh;../../tools/sf-debug-attach.sh"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/" />
+    <None Include="../../tools/lib/sf-lib.sh"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/lib/" />
+    <None Include="../../tools/cmd/setup.sh;../../tools/cmd/pair.sh;../../tools/cmd/detect.sh;../../tools/cmd/doctor.sh;../../tools/cmd/deploy.sh;../../tools/cmd/verify.sh;../../tools/cmd/run.sh;../../tools/cmd/kill.sh;../../tools/cmd/debug-attach.sh;../../tools/cmd/screenshot.sh"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/cmd/" />
+    <None Include="../../tools/remote/sf-run-remote.sh;../../tools/remote/sf-kill-remote.sh;../../tools/remote/sf-remote-env.sh;../../tools/remote/sf-screenshot-remote.sh"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/remote/" />
+    <None Include="../../tools/py/sf-rpmbuild.py;../../tools/py/sf-rpmquery.py;../../tools/py/sf_rpm.py;../../tools/py/sf-debug-dap-filter.py"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/py/" />
   </ItemGroup>
 
   <!-- The native shim as a NuGet native asset; pack fails without it, since the app would die on start. -->

@@ -10,8 +10,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=sf-lib.sh
-. "$SCRIPT_DIR/sf-lib.sh"
+# shellcheck source=lib/sf-lib.sh
+. "$SCRIPT_DIR/lib/sf-lib.sh"
 
 [ $# -gt 0 ] || sf_die "usage: sf-debug-pipe.sh <remote-vsdbg-path> [args...]"
 command -v python3 >/dev/null 2>&1 ||
@@ -19,4 +19,4 @@ command -v python3 >/dev/null 2>&1 ||
 
 # The filter owns the ssh child; SF_SSH_OPTS is a flat list of -o options.
 SF_SSH_OPTS="$SF_SSH_OPTS" SF_SSH_TARGET="$SF_USER@$SF_HOST" \
-	exec python3 "$SCRIPT_DIR/sf-debug-dap-filter.py" "$@"
+	exec python3 "$SCRIPT_DIR/py/sf-debug-dap-filter.py" "$@"

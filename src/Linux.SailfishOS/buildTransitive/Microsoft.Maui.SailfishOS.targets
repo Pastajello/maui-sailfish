@@ -4,7 +4,7 @@
   Sailfish OS harbour-style RPM packaging for .NET MAUI apps.
       dotnet publish -f net11.0-sailfish                                   (RID, self-contained and RPM are leg defaults)
       dotnet publish -r linux-arm64 -p:SelfContained=true -p:CreateSailfishRpm=true   (plain net11.0 leg)
-  Opt out with -p:CreateSailfishRpm=false. Uses host rpmbuild when present, else tools/sf-rpmbuild.py.
+  Opt out with -p:CreateSailfishRpm=false. Uses host rpmbuild when present, else tools/py/sf-rpmbuild.py.
   -->
 
   <!-- ================= QML payload for PackageReference consumers ================= -->
@@ -22,7 +22,7 @@
        The gate lives in the Error condition because a Target Condition misbehaved across import contexts. -->
   <Target Name="_SailfishNativeHostCheck" AfterTargets="Publish">
     <Error Condition="'$(SailfishSkipNativeCheck)' != 'true' And '$(RuntimeIdentifier)' != '' And $([System.String]::Copy('$(RuntimeIdentifier)').Contains('linux')) And !Exists('$(OutDir)libsailfishhost.so') And !Exists('$(PublishDir)libsailfishhost.so')"
-           Text="libsailfishhost.so is missing from the publish output ($(PublishDir)). Build it with ./tools/sf-native-build.sh, or reference a Microsoft.Maui.SailfishOS package carrying runtimes/$(RuntimeIdentifier)/native/. Override with -p:SailfishSkipNativeCheck=true." />
+           Text="libsailfishhost.so is missing from the publish output ($(PublishDir)). Build it with tools/sf native-build, or reference a Microsoft.Maui.SailfishOS package carrying runtimes/$(RuntimeIdentifier)/native/. Override with -p:SailfishSkipNativeCheck=true." />
   </Target>
 
   <!-- ================= net11.0-sailfish TFM recognition ================= -->
@@ -343,7 +343,7 @@
     <Error Condition="'$(SailfishHarbour)' == 'true' And '$(_SailfishPermissions)' == ''"
            Text="SailfishHarbour=true needs a sandboxed app: set SailfishPermissions (semicolon-separated Sailjail permissions, e.g. Internet;Pictures) — Harbour rejects Sandboxing=Disabled." />
     <Error Condition="'$(SailfishHarbour)' == 'true' And !Exists('$(PublishDir)sailfish-launcher')"
-           Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with ./tools/sf-native-build.sh or reference a Microsoft.Maui.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
+           Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with tools/sf native-build or reference a Microsoft.Maui.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
 
     <Copy SourceFiles="@(_SailfishPublishFiles)"
           DestinationFiles="@(_SailfishPublishFiles->'$(_SailfishPayloadDir)/%(RecursiveDir)%(Filename)%(Extension)')"
@@ -371,7 +371,7 @@
                 if (bytes[i + j] != marker[j]) { hit = false; break; }
             if (hit) at = i;
         }
-        if (at < 0) { Log.LogError("sailfish-launcher has no rpath placeholder (rebuild it with ./tools/sf-native-build.sh)"); return false; }
+        if (at < 0) { Log.LogError("sailfish-launcher has no rpath placeholder (rebuild it with tools/sf native-build)"); return false; }
         var end = at;
         while (end < bytes.Length && bytes[end] != 0) end++;
         var value = System.Text.Encoding.ASCII.GetBytes(Rpath);
@@ -809,8 +809,8 @@ $(_SailfishInstallPrefix)
     </Exec>
     <PropertyGroup>
       <!-- Packaged: tools/ next to this file; in-repo: the repo root's tools/. -->
-      <_SailfishRpmFallbackPy Condition="Exists('$(MSBuildThisFileDirectory)tools/sf-rpmbuild.py')">$(MSBuildThisFileDirectory)tools/sf-rpmbuild.py</_SailfishRpmFallbackPy>
-      <_SailfishRpmFallbackPy Condition="'$(_SailfishRpmFallbackPy)' == ''">$(MSBuildThisFileDirectory)../../../tools/sf-rpmbuild.py</_SailfishRpmFallbackPy>
+      <_SailfishRpmFallbackPy Condition="Exists('$(MSBuildThisFileDirectory)tools/py/sf-rpmbuild.py')">$(MSBuildThisFileDirectory)tools/py/sf-rpmbuild.py</_SailfishRpmFallbackPy>
+      <_SailfishRpmFallbackPy Condition="'$(_SailfishRpmFallbackPy)' == ''">$(MSBuildThisFileDirectory)../../../tools/py/sf-rpmbuild.py</_SailfishRpmFallbackPy>
       <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' == '0'">rpmbuild</_SailfishRpmBuilder>
       <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' != '0'">python3 "$(_SailfishRpmFallbackPy)"</_SailfishRpmBuilder>
     </PropertyGroup>
@@ -858,28 +858,27 @@ $(_SailfishInstallPrefix)
   <!-- ================= Device run verb ================= -->
   <!-- -t:SailfishRun deploys over SSH and streams the device log; tools come from the repo clone or the package. -->
   <PropertyGroup>
-    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == '' and Exists('$(MSBuildThisFileDirectory)../../../tools/sf-run.sh')">$(MSBuildThisFileDirectory)../../../tools/</SailfishToolsDir>
+    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == '' and Exists('$(MSBuildThisFileDirectory)../../../tools/sf')">$(MSBuildThisFileDirectory)../../../tools/</SailfishToolsDir>
     <SailfishToolsDir Condition="'$(SailfishToolsDir)' == ''">$(MSBuildThisFileDirectory)tools/</SailfishToolsDir>
   </PropertyGroup>
 
-  <!-- No Publish dependency: sf-deploy.sh publishes itself, and a dependency would publish twice. -->
+  <!-- No Publish dependency: `sf deploy` publishes itself, and a dependency would publish twice. -->
   <Target Name="SailfishRun"
           Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
-    <Error Condition="!Exists('$(SailfishToolsDir)sf-run.sh')"
+    <Error Condition="!Exists('$(SailfishToolsDir)sf')"
            Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf-setup.sh&quot; --if-needed" />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf&quot; setup --if-needed" />
     <Message Importance="high" Text="SailfishRun: deploying $(SailfishPackageName) and launching on the device (tools: $(SailfishToolsDir))..." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; bash &quot;$(SailfishToolsDir)sf-deploy.sh&quot;" />
-    <Exec Command="SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; bash &quot;$(SailfishToolsDir)sf-run.sh&quot;" />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; bash &quot;$(SailfishToolsDir)sf&quot; deploy --run" />
   </Target>
 
   <!-- ================= Build-time Warning ================= -->
   <!-- One-time phone setup: -t:SailfishSetup (-p:SailfishSetupForce=true to redo). -->
   <Target Name="SailfishSetup"
           Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
-    <Error Condition="!Exists('$(SailfishToolsDir)sf-setup.sh')"
+    <Error Condition="!Exists('$(SailfishToolsDir)sf')"
            Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf-setup.sh&quot;$(_SailfishSetupForceArg)" />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf&quot; setup$(_SailfishSetupForceArg)" />
   </Target>
   <PropertyGroup>
     <_SailfishSetupForceArg Condition="'$(SailfishSetupForce)' == 'true'"> --force</_SailfishSetupForceArg>

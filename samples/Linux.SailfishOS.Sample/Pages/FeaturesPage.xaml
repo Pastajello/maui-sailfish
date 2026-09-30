@@ -3,8 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:pages="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Pages"
              x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.FeaturesPage"
-             Title="Features"
-             BackgroundColor="#101018">
+             Title="Features">
 
     <!-- Hub of feature galleries: one row per platform capability area. -->
     <CollectionView x:Name="FeatureList" SelectionMode="Single" SelectionChanged="OnFeatureSelected">

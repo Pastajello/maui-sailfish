@@ -1,0 +1,79 @@
+#!/bin/bash
+# sf - the one entry point for the MAUI Sailfish OS device tooling.
+# Usage: tools/sf <command> [args...]      tools/sf help      tools/sf <command> --help
+#
+# Works through a symlink too (e.g. ln -s "$PWD/tools/sf" ~/.local/bin/sf).
+# Device settings: ~/.config/maui-sailfish/connect.info or SF_HOST/SF_USER/SF_PASSWORD (see `sf setup`).
+
+set -euo pipefail
+
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+	dir="$(cd "$(dirname "$src")" && pwd)"
+	src="$(readlink "$src")"
+	case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+TOOLS="$(cd "$(dirname "$src")" && pwd)"
+
+# command|runner|file|summary   (runner: sh, py or cs; a file missing here is checkout-only)
+COMMANDS='
+setup|sh|cmd/setup.sh|phone setup: address, user, password, SSH key; --if-needed, --force
+pair|sh|cmd/pair.sh|SSH key pairing only (asks the password once)
+detect|sh|cmd/detect.sh|find a reachable phone and prove it runs Sailfish OS
+forget-device|sh|cmd/forget-device.sh|un-pin the phone'"'"'s host key (after reflashing)
+doctor|sh|cmd/doctor.sh|pre-flight checks before a deploy (--local, --fix, --for-debug)
+deploy|sh|cmd/deploy.sh|publish, build the RPM, upload, install, verify (--run, --screenshot, --clean, ...)
+verify|sh|cmd/verify.sh|prove the phone runs exactly the local build
+run|sh|cmd/run.sh|launch the installed app and show its log (--env, --diagnostics, --wait S)
+kill|sh|cmd/kill.sh|stop every instance of the app (--list)
+debug-attach|sh|cmd/debug-attach.sh|prepare vsdbg on the phone for VS Code attach
+screenshot|sh|cmd/screenshot.sh|compositor screenshot to a local PNG
+shots|sh|cmd/shots.sh|run the app and screenshot every SF-SHOT marker it logs
+rec|sh|cmd/rec.sh|record the screen: rec start [-f out.mp4], rec stop, rec status
+record|sh|cmd/record.sh|run the app (showcase tour by default) and record it to an MP4
+trace|sh|cmd/trace.sh|EventPipe profile of the app from its start
+matrix|sh|cmd/matrix.sh|on-device acceptance matrix (all legs or the named ones)
+package-test|sh|cmd/package-test.sh|RPM lifecycle test: install, update, launch, remove, restore
+native-build|sh|cmd/native-build.sh|zig cross-build of the Qt/Silica shim, secrets bridge and launcher
+sysroot|sh|cmd/sysroot.sh|assemble the Sailfish OS sysroot from public RPMs
+screenrec-build|sh|cmd/screenrec-build.sh|zig cross-build of the on-phone screen recorder
+pack-local|sh|cmd/pack-local.sh|pack this checkout into the local NuGet feed (+ template)
+workload-install|sh|cmd/workload-install.sh|teach the local SDK the net11.0-sailfish TFM
+page-load|py|analyze/sf-page-load.py|page-load timing from a `record --keep DIR` recording
+qml-profile|py|analyze/sf-qml-profile.py|QML profiler client (record / report)
+trace-analyze|cs|analyze/sf-trace-analyze.cs|analyzer for `trace` output (.nettrace)
+'
+
+usage() {
+	echo "usage: sf <command> [args...]   (sf <command> --help for its options)"
+	echo
+	printf '%s\n' "$COMMANDS" | while IFS='|' read -r name runner file summary; do
+		[ -n "$name" ] || continue
+		note=""
+		[ -f "$TOOLS/$file" ] || note=" (checkout only)"
+		printf '  %-17s %s%s\n' "$name" "$summary" "$note"
+	done
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+	help|-h|--help) usage; exit 0 ;;
+	preflight) cmd=doctor ;;   # the former sf-preflight.sh
+esac
+
+line="$(printf '%s\n' "$COMMANDS" | awk -F'|' -v c="$cmd" '$1 == c { print; exit }')"
+if [ -z "$line" ]; then
+	echo "sf: unknown command: $cmd" >&2
+	usage >&2
+	exit 2
+fi
+IFS='|' read -r _ runner file _ <<<"$line"
+path="$TOOLS/$file"
+[ -f "$path" ] || { echo "sf: '$cmd' needs a maui-sailfish checkout (not shipped in the NuGet package)" >&2; exit 2; }
+
+case "$runner" in
+	sh) exec bash "$path" "$@" ;;
+	py) exec python3 "$path" "$@" ;;
+	cs) exec dotnet run "$path" -- "$@" ;;
+esac

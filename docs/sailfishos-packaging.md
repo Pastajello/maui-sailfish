@@ -40,8 +40,8 @@ bundled inside the package and no runtime dependencies are declared.
 - `rpmbuild` on the build host:
   - macOS: `brew install rpm`
   - Linux: `sudo dnf install rpm-build` or `sudo apt install rpm`
-  - hosts without a package manager: nothing to install — `tools/sf-lib.sh`
-    (`sf_use_rpm_shims`) falls back to the pure-Python `tools/sf-rpmbuild.py`,
+  - hosts without a package manager: nothing to install — `tools/lib/sf-lib.sh`
+    (`sf_use_rpm_shims`) falls back to the pure-Python `tools/py/sf-rpmbuild.py`,
     which writes a byte-compatible RPM (cpio/xz payload) with the stdlib only
 
 > Note: the official Sailfish SDK (`sfdk`) is not required to *build* the RPM.
@@ -154,7 +154,7 @@ RID to RPM architecture mapping:
 From an app (template or package consumer): `dotnet build -f net11.0-sailfish
 -t:SailfishRun` publishes, installs and launches. The first run asks for the
 phone (address, SSH user, developer-mode password — Settings > Developer tools >
-Remote connection) through `tools/sf-setup.sh`, stores it in
+Remote connection) through `tools/sf setup`, stores it in
 `~/.config/maui-sailfish/connect.info` (0600; `known_hosts` next to it) and
 installs your SSH key; `-t:SailfishSetup` runs just that
 (`-p:SailfishSetupForce=true` to change the phone). Lookup order for the
@@ -184,10 +184,10 @@ acceptance test for the whole flow (payload audit → pkcon install/update/
 remove → desktop/icon/permission compliance → launcher-path launches) is
 
 ```bash
-./tools/sf-package-test.sh
+./tools/sf package-test
 ```
 
-For day-to-day iteration use `./tools/build_and_deploy.sh` (publish → upload →
+For day-to-day iteration use `tools/sf deploy --run --screenshot` (publish → upload →
 `rpm -Uvh --force` → verify → run → screenshot); it is faster than the
 PackageKit round-trip but bypasses the zypp stack.
 
@@ -236,7 +236,7 @@ app grid (2026-09-26) launches it through invoker + Sailjail: firejail with the
 `org.maui`/`harbour-sample` template, NoNewPrivs, its own mount namespace,
 data under `~/.config|.local/share/org.maui/harbour-sample`, the four icon
 sizes and the app's cover on the home screen. (sailjaild refuses launch prompts
-from an SSH session — `invalid uid -1` — so this path needs the tap.) The launcher (`tools/sf-native-build.sh`, also `SF_ARCH=armv7hl`)
+from an SSH session — `invalid uid -1` — so this path needs the tap.) The launcher (`tools/sf native-build`, also `SF_ARCH=armv7hl`)
 ships in the package next to the shim (`runtimes/<rid>/native/`).
 
 ## Known limitations

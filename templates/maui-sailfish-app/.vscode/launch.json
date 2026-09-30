@@ -44,7 +44,7 @@
       "type": "node-terminal",
       "request": "launch",
       // Step 1 of 2, does not debug; Debug installs as harbour-<dir>-debug next to Release.
-      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-deploy.sh --run",
+      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf deploy --run",
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "sf: preflight (Debug)"
     },

@@ -10,7 +10,7 @@
 ## 1. Current state
 
 The app is published as **self-contained CoreCLR**
-(`tools/sf-deploy.sh`, `dotnet publish -c Release -r linux-arm64
+(`tools/sf deploy`, `dotnet publish -c Release -r linux-arm64
 -p:SelfContained=true`). There is no Mono, no NativeAOT; trimming and ReadyToRun are
 available as opt-in (§2.2), but disabled by default. The whole runtime ships in the RPM:
 
@@ -75,7 +75,7 @@ Trimming really cuts MAUI: `Microsoft.Maui.Controls.dll`
 assembly (`Linux.SailfishOS.csproj`), none to `Microsoft.Maui.*`. This does **not**
 prove MAUI's AOT compatibility — the absence of warnings from assemblies the trimmer does not
 analyze deeply is not proof of cleanliness. The only decisive test
-is a run of `tools/sf-matrix.sh` (18 legs) on the device.
+is a run of `tools/sf matrix` (18 legs) on the device.
 
 Places ILLink actually flagged (`/tmp/pub-full.log`,
 `/tmp/pub-aot.log`):
@@ -122,8 +122,8 @@ sits in three files: `QtHostPageRenderer.cs`, `QtHostInput.cs`,
 | B6 | the sample does **not** have `InvariantGlobalization` (the former `SailfishQtProbe` had `true`); the only culture-sensitive format is `{0:P0}` in `Pages/TaskDetailPage.xaml:30` | Decision: `InvariantGlobalization`/`HybridGlobalization` in the sample and in `.targets` — otherwise trim/AOT pulls in ICU, which is not on the device |
 | B7 | `QtHost/QtHostNative.cs:37-158` — **30× `[DllImport]`**, 0× `LibraryImport` | The whole P/Invoke surface (48 sites, one library `sailfishhost`) | `[LibraryImport]` + `partial` + `[UnmanagedCallConv(CallConvs=[typeof(CallConvCdecl)])]` + `StringMarshalling.Utf8` (removes SYSLIB1054, source-gen marshalling). Reverse-P/Invoke delegates can stay — they are pinned to static fields (`QtHostRuntime.cs:68-72`) |
 | B8 | `QtHost/QtHostRuntime.cs:256,318,373,438,459,488` (`Marshal.AllocHGlobal/FreeHGlobal`), `:182,184,474` (`GCHandle.Alloc/ToIntPtr/FromIntPtr`) | eval/get_property/screen_info/diag/perf/last_error buffers + the `sailfish_host_post` trampoline | `NativeMemory.Alloc/Free` or `ArrayPool`+`Span` — silences interop analyzer warnings |
-| B9 | Locating `libsailfishhost.so`: **no** `NativeLibrary.SetDllImportResolver`. Relies on CoreCLR app-local probing — `.so` next to the binary, the launcher is a symlink `/usr/bin/<pkg> → ../share/<pkg>/<AssemblyName>`, the shim linked **without rpath** (`tools/sf-native-build.sh:38-47`), scripts do not export `LD_LIBRARY_PATH` | In AOT there is no apphost or `deps.json` → a resolver pointing at `Path.Combine(AppContext.BaseDirectory, "libsailfishhost.so")` or linking with `-Wl,-rpath,'$ORIGIN'` |
-| B10 | Resources from `AppContext.BaseDirectory`: `QtHostAdapters.cs:68` (`qml/adapters.json`), `SailfishMauiApplication.cs:319` (`qml/MauiShell.qml`), `QtHostImages.cs:74-97` (probing `images/`, `Resources/Images/`, system icons) | The code is trim-safe (plain `File.Exists`/`JsonDocument`) — the risk sits in MSBuild: the `Content` payload must physically reach publish in new configurations. A test exists: `tools/sf-package-test.sh:109,246` |
+| B9 | Locating `libsailfishhost.so`: **no** `NativeLibrary.SetDllImportResolver`. Relies on CoreCLR app-local probing — `.so` next to the binary, the launcher is a symlink `/usr/bin/<pkg> → ../share/<pkg>/<AssemblyName>`, the shim linked **without rpath** (`tools/sf native-build:38-47`), scripts do not export `LD_LIBRARY_PATH` | In AOT there is no apphost or `deps.json` → a resolver pointing at `Path.Combine(AppContext.BaseDirectory, "libsailfishhost.so")` or linking with `-Wl,-rpath,'$ORIGIN'` |
+| B10 | Resources from `AppContext.BaseDirectory`: `QtHostAdapters.cs:68` (`qml/adapters.json`), `SailfishMauiApplication.cs:319` (`qml/MauiShell.qml`), `QtHostImages.cs:74-97` (probing `images/`, `Resources/Images/`, system icons) | The code is trim-safe (plain `File.Exists`/`JsonDocument`) — the risk sits in MSBuild: the `Content` payload must physically reach publish in new configurations. A test exists: `tools/sf package-test:109,246` |
 
 **(c) Neutral — confirmed, do not touch**
 
@@ -181,16 +181,16 @@ the SDK **infers the host RID** (`obj/Release/net11.0/osx-arm64/…` is created)
 a trimmed publish on macOS succeeds, producing a payload that cannot
 be installed on the device. A `RuntimeIdentifier == ''` check does not catch this.
 
-**Tools** — `tools/sf-lib.sh`: `SF_PROFILE` (default `jit`) and
+**Tools** — `tools/lib/sf-lib.sh`: `SF_PROFILE` (default `jit`) and
 `sf_set_profile <jit|trim|trimr2r>` setting `SF_PROFILE_PROPS`, expanded unquoted
 into the `dotnet publish` line; an unknown profile ends with `sf_die`
-(verified: `SF_PROFILE=bogus` → exit 1). `tools/sf-deploy.sh` and
-`tools/sf-package-test.sh` got `--jit|--trim|--trimr2r` flags and log the profile
+(verified: `SF_PROFILE=bogus` → exit 1). `tools/sf deploy` and
+`tools/sf package-test` got `--jit|--trim|--trimr2r` flags and log the profile
 before publishing. `bash -n` clean on all three. Along the way fixed the
-`--help` ranges (`sed -n '2,35p'`): in `sf-package-test.sh` the old range `2,36p`
+`--help` ranges (`sed -n '2,35p'`): in `sf package-test` the old range `2,36p`
 printed `set -euo pipefail`, i.e. it was broken **before** this change.
 
-**Packaging test** — `payload_audit()` in `sf-package-test.sh` had a hard threshold
+**Packaging test** — `payload_audit()` in `sf package-test` had a hard threshold
 `n_dll >= 100`, which would FAIL on a healthy trimmed payload (91 assemblies).
 The threshold is per profile: `jit` → 100, `trim`/`trimr2r` → 60 (measured 225 / 91).
 QML threshold (`>= 30`) unchanged — 36 in every profile.
@@ -248,7 +248,7 @@ semantics unchanged (no settle within the window is still FAIL). The second full
 `trimr2r` sweep is gate G1.
 
 At G1b a second, independent tooling defect came up: `payload_audit` in
-`sf-package-test.sh` read the payload list via `sf-rpm2cpio.py | cpio -it`,
+`sf package-test` read the payload list via `sf-rpm2cpio.py | cpio -it`,
 which stopped working when brew rpm 6.1 switched payload compression to zstd
 (macOS `cpio`: "Unrecognized archive format"). Listing now goes through
 `rpm -qpl` (the rpm reader) with the previous pipeline as a fallback and
@@ -293,7 +293,7 @@ Apple clang will not link this.
 A Linux builder is needed (container, CI or a remote machine) with .NET 11 +
 clang/llvm (with `llvm-objcopy`) and an aarch64 glibc sysroot. This **breaks the
 README principle** ("There is no on-device build and no SDK container in the loop"):
-`zig` was enough for the C++ shim, because `tools/sf-native-build.sh` calls `zig c++`
+`zig` was enough for the C++ shim, because `tools/sf native-build` calls `zig c++`
 directly — but ILC calls `clang` with hard-coded flags, so zig will not replace it
 without patching the ILCompiler targets.
 
@@ -340,9 +340,9 @@ the JIT and full diagnostics.
 - [x] 1.1 Payload flags — as `SailfishTrim` / `SailfishTrimMode` / `SailfishReadyToRun` in `Microsoft.Maui.SailfishOS.targets`, **not** in `Directory.Build.props` (there they would hit the `src/Linux.SailfishOS` library). Default `false` = the Q22A payload. `DebugType` left for the decision at 1.7. Details: §2.2.
 - [x] 1.2 — closed 2026-09-15 as a no-action on the backend side: the backend's reflection roots eliminated (page registry 2.3, `Quote` 2.5, `SelfTextLabel` 2.7); the only remaining roots are owned by the app (`ItemDisplayBinding` models, see the suppression in 2.4) and do not require `ILLink.Descriptors.xml` in the backend.
 - [x] 1.3 Validation in `.targets`: `_ValidateSailfishReleaseProfile` (PublishAot, missing RID, non-Linux RID, missing `SelfContained`) + profile message. All five paths run — table in §2.2.
-- [x] 1.4 `tools/sf-lib.sh` (`SF_PROFILE`, `sf_set_profile`) + `--jit|--trim|--trimr2r` flags in `sf-deploy.sh` and `sf-package-test.sh`; the `n_dll` threshold in `payload_audit()` made per profile (100 / 60), because the old hard threshold of 100 would fail a healthy trimmed payload.
-- [x] 1.5 **GATE G1:** full sweep `./tools/sf-matrix.sh` on `trimr2r` = **18/18 PASS** (2026-09-15 20:23, after the settle windows; the first sweep gave 16/18 due to a harness race, §2.3). Full sweep on `jit` also 18/18. **Repeated 2026-09-15 ~21:45 on the default path after the Phase 2 batch: 18/18 PASS.**
-- [x] 1.6 **GATE G1b:** `./tools/sf-package-test.sh --trimr2r` = **ALL PASS** (payload audit A/B, pkcon fresh/update/uninstall/restore, desktop-file-validate, modes, direct-exec topmost + appid; `windowmodel`/`sailjail` are informational probes per the comment in the script, `direct` is what is graded). **Repeated on the default path: ALL PASS.**
+- [x] 1.4 `tools/lib/sf-lib.sh` (`SF_PROFILE`, `sf_set_profile`) + `--jit|--trim|--trimr2r` flags in `sf deploy` and `sf package-test`; the `n_dll` threshold in `payload_audit()` made per profile (100 / 60), because the old hard threshold of 100 would fail a healthy trimmed payload.
+- [x] 1.5 **GATE G1:** full sweep `./tools/sf matrix` on `trimr2r` = **18/18 PASS** (2026-09-15 20:23, after the settle windows; the first sweep gave 16/18 due to a harness race, §2.3). Full sweep on `jit` also 18/18. **Repeated 2026-09-15 ~21:45 on the default path after the Phase 2 batch: 18/18 PASS.**
+- [x] 1.6 **GATE G1b:** `./tools/sf package-test --trimr2r` = **ALL PASS** (payload audit A/B, pkcon fresh/update/uninstall/restore, desktop-file-validate, modes, direct-exec topmost + appid; `windowmodel`/`sailjail` are informational probes per the comment in the script, `direct` is what is graded). **Repeated on the default path: ALL PASS.**
 - [x] 1.7 Measurement after: `perf` leg on both profiles, same device, RC1 — table in §2.4. Conclusion: `trimr2r` wins on memory, CPU and size (RSS −10%, RPM −30%); first-frame sits within the noise band (jit 66/85 ms, trimr2r 78/79 ms), so it is inconclusive. **Decision 2026-09-15: `trimr2r` becomes the default Release profile** — the targets set `SailfishTrim`/`SailfishReadyToRun=true` for Release by default, `sf-lib.sh` has `SF_PROFILE` defaulting to `trimr2r`, and `--jit` is the escape hatch; another full sweep and G1b on the default path recorded below.
 
 ### Phase 2 — code for trimming/AOT (items from §2.1)
@@ -362,9 +362,9 @@ the JIT and full diagnostics.
 - [ ] 2.14 Audit of reflection-based STJ paths **inside MAUI** (not our code). *(2026-09-28: the `IsReflectionEnabledByDefault` switch is no longer in the repo — to recheck whether the audit is still needed.)* Until it is clean, the sample's `runtimeconfig.template.json` keeps `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault=true` as a deliberate opt-in — it protects against exactly the class of bug that bricked the bridge (§2.3). After the audit: remove the switch and repeat the full sweep.
 
 ### Phase 3 — debuggability
-- [x] 3.1 — closed 2026-09-15: `sf-run.sh --diagnostics` forwards `SF_DIAGNOSTICS=1`, and `sf-run-remote.sh` sets `DOTNET_EnableDiagnostics` conditionally (default 0, so unattended sweeps leave no socket). Verified on the device per PID of the current process: with the flag exactly 1 socket `/tmp/dotnet-diagnostic-<pid>-*`, without the flag 0.
-- [x] 3.2 — verified 2026-09-15: the Debug publish **does not contain** the `System.Reflection.Metadata.MetadataUpdater.IsSupported` key (i.e. runtime default `true`), and Release has an explicit `false`; the runtime hot reload knobs (`DOTNET_MODIFIABLE_ASSEMBLIES=debug`, `DOTNET_STARTUP_HOOKS`) go through `sf-run.sh --env`.
-- [x] 3.3 vsdbg on SFOS (glibc/libstdc++/ptrace) — **GO 2026-09-20** (the NO-GO from 2026-09-16 invalidated: it was measured with our own DAP client, which vsdbg rejects via a licensing gate; empty breakpoints were SHA384/SHA512 checksums, stripped by `tools/sf-debug-dap-filter.py`). Details: [`architecture.md`](architecture.md) (managed debugging).
+- [x] 3.1 — closed 2026-09-15: `sf run --diagnostics` forwards `SF_DIAGNOSTICS=1`, and `sf-run-remote.sh` sets `DOTNET_EnableDiagnostics` conditionally (default 0, so unattended sweeps leave no socket). Verified on the device per PID of the current process: with the flag exactly 1 socket `/tmp/dotnet-diagnostic-<pid>-*`, without the flag 0.
+- [x] 3.2 — verified 2026-09-15: the Debug publish **does not contain** the `System.Reflection.Metadata.MetadataUpdater.IsSupported` key (i.e. runtime default `true`), and Release has an explicit `false`; the runtime hot reload knobs (`DOTNET_MODIFIABLE_ASSEMBLIES=debug`, `DOTNET_STARTUP_HOOKS`) go through `sf run --env`.
+- [x] 3.3 vsdbg on SFOS (glibc/libstdc++/ptrace) — **GO 2026-09-20** (the NO-GO from 2026-09-16 invalidated: it was measured with our own DAP client, which vsdbg rejects via a licensing gate; empty breakpoints were SHA384/SHA512 checksums, stripped by `tools/py/sf-debug-dap-filter.py`). Details: [`architecture.md`](architecture.md) (managed debugging).
 - [x] 3.4 — recorded: §3.2 and §2.3 of this document and the `_ValidateSailfishAotPolicy` guard message state explicitly that the AOT payload has no DAC/DBI (no vsdbg/SOS/`dotnet-trace`/hot reload), so it is not for debugging.
 
 ### Phase 4 — NativeAOT (only behind gate G2)
@@ -376,10 +376,10 @@ if a future budget (cold start/RSS) demands it — then items 2.6/2.8/2.9
 and 4.x return with it.
 - [x] 4.1 **GATE G2 resolved 2026-09-15:** `trimr2r` delivers (RSS −10%, CPU −4%, RPM −30%; the budget from 0.3 was not formalized, so the decision rests on the §2.4 measurements) → NativeAOT deferred, items 4.2–4.9 frozen until Phase 4 possibly returns.
 - [ ] 4.2 Linux builder: .NET 11 + clang/llvm (with `llvm-objcopy`) + aarch64 glibc sysroot; verify that `PublishAot=true` produces an ELF.
-- [ ] 4.3 Verify that `tools/sf-native-build.sh` (zig) works in the same environment — or move the shim build to the builder.
+- [ ] 4.3 Verify that `tools/sf native-build` (zig) works in the same environment — or move the shim build to the builder.
 - [ ] 4.4 **11× IL3050** (`RequiresDynamicCode`) = items A1–A6 from §2.1; without closing them the AOT binary will not start — these are not cosmetic warnings.
-- [ ] 4.5 **B9** — in AOT there is no apphost or `deps.json`, and `libsailfishhost.so` is today found only via CoreCLR app-local probing (no `SetDllImportResolver`, shim linked without rpath). Add a resolver on `AppContext.BaseDirectory` or `-Wl,-rpath,'$ORIGIN'` in `tools/sf-native-build.sh`.
-- [ ] 4.6 **B10** — `qml/`, `qml/adapters.json`, `images/` read from `AppContext.BaseDirectory`: the code is trim-safe, but the flow of `Content` items through the AOT publish must be confirmed (`tools/sf-package-test.sh:109,246`).
+- [ ] 4.5 **B9** — in AOT there is no apphost or `deps.json`, and `libsailfishhost.so` is today found only via CoreCLR app-local probing (no `SetDllImportResolver`, shim linked without rpath). Add a resolver on `AppContext.BaseDirectory` or `-Wl,-rpath,'$ORIGIN'` in `tools/sf native-build`.
+- [ ] 4.6 **B10** — `qml/`, `qml/adapters.json`, `images/` read from `AppContext.BaseDirectory`: the code is trim-safe, but the flow of `Content` items through the AOT publish must be confirmed (`tools/sf package-test:109,246`).
 - [ ] 4.7 Crash reporting without DAC: base it on the existing trace log, not on mini-dumps.
 - [ ] 4.8 Tuning: `IlcOptimizationPreference=Speed`, `IlcFoldIdenticalMethodBodies`, `DebuggerSupport=false`, `UseSystemResourceKeys=true`.
 - [ ] 4.9 Matrix 18/18 + startup/RSS measurement on the AOT binary vs `Release`-R2R.
@@ -392,7 +392,7 @@ and 4.x return with it.
 ## 6. Risks
 
 - **Trimming without an on-device run = silent loss of features.** MAUI reaches for
-  types via reflection; `sf-matrix.sh` is the only proof. G1 is mandatory.
+  types via reflection; `sf matrix` is the only proof. G1 is mandatory.
 - **.NET 11 before GA** — trimmer/R2R behavior may change; the numbers from §2
   are dated 2026-09-15.
 - **R2R costs +12 MB** for a startup gain. If measurement 0.1/1.7 shows that
@@ -430,8 +430,8 @@ SDK `11.0.100-rc.1.26425.128`; there is no GA yet.
       -p:SelfContained=true` → exit 0, `runtimeconfig.json` =
       `Microsoft.NETCore.App 11.0.0-rc.1.26425.128`, `libcoreclr.so`
       5 236 616 B, `libclrjit.so` 3 763 272 B, payload 94 MB / 248 files.
-- [x] 7.4 *(closed: subsequent sweeps on RC1, most recently 25/25 legs 2026-09-25)* **On-device re-acceptance** (`tools/sf-matrix.sh` 18/18 +
-      `tools/sf-package-test.sh`) — the runtime under the app changed
+- [x] 7.4 *(closed: subsequent sweeps on RC1, most recently 25/25 legs 2026-09-25)* **On-device re-acceptance** (`tools/sf matrix` 18/18 +
+      `tools/sf package-test`) — the runtime under the app changed
       (preview.7 → rc.1). Until this passes, evidence from Q4–Q22A applies to the
       preview.7 runtime.
 - [x] 7.5 Updated descriptions: `README.md` (Prerequisites) and the plans of that time

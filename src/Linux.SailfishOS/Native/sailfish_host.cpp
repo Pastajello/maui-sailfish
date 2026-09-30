@@ -1,7 +1,7 @@
 // sailfish_host.cpp — implementation of the Qt Quick/Silica host C ABI (see sailfish_host.h).
 //
-// Cross-built with zig for aarch64 Sailfish OS (tools/sf-native-build.sh, sysroot from
-// tools/sf-sysroot.sh). No moc: the shim overrides eventFilter/event and connects lambdas
+// Cross-built with zig for aarch64 Sailfish OS (tools/sf native-build, sysroot from
+// tools/sf sysroot). No moc: the shim overrides eventFilter/event and connects lambdas
 // to existing Qt metaobjects instead of declaring Q_OBJECT.
 
 #include "sailfish_host.h"
@@ -1696,7 +1696,7 @@ int sailfish_host_grab_png(const char *path)
     return 0;
 }
 
-// Showcase recorder (tools/sf-record.sh): on the render thread after each frame, at most fps
+// Showcase recorder (tools/sf record): on the render thread after each frame, at most fps
 // times a second, glReadPixels the frame and let a pool thread write <dir>/<ms>.png with alpha.
 // Frames only render on change, so file names carry the timing. Diagnostics only.
 namespace {

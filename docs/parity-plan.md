@@ -7,7 +7,7 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
 
 ## Status (2026-09-28)
 
-- **On-device matrix:** `tools/sf-matrix.sh` 25/25 legs PASS (2026-09-25), every verdict from the leg's own
+- **On-device matrix:** `tools/sf matrix` 25/25 legs PASS (2026-09-25), every verdict from the leg's own
   marker.
 - **Handler parity:** 1073/1073 keys of the official MAUI mappers (100%, since 2026-09-28,
   [`handler-parity.md`](handler-parity.md), measured on remapped mappers). `Border` (obsolete
@@ -181,8 +181,8 @@ As of 2026-09-28, checked against the code and git history. Smaller defects and 
 - One window only: the renderer is a static `Current`; the window DI scope exists (A6), multi-window does not.
 
 **Performance** (page-load acceptance: push animation starts ≤ 150 ms after the tap with complete content,
-no empty frames, pop reveals a ready page even 2+ levels back; check with `tools/sf-record.sh … --keep DIR` +
-`tools/sf-page-load.py DIR --max-settled 700`)
+no empty frames, pop reveals a ready page even 2+ levels back; check with `tools/sf record … --keep DIR` +
+`tools/sf page-load DIR --max-settled 700`)
 - Going back 2+ levels: re-measure with the per-page cache (A5, LRU of 4); before it, 847 ms for two levels.
 - Idle preload of adapter QML components after the first page (`Qt.createComponent` over `adapters.json`),
   so the first visit is as fast as the second (−50 to −300 ms).
@@ -204,7 +204,7 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   (`QtHostVisualState.TransformLimit`); to check: hit-test of rotated/scaled hosts and Button colors
   reverting to Silica defaults after setting `null`.
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
-  today `tools/sf-workload-install.sh`).
+  today `tools/sf workload-install`).
 
 **Deliberately open** (not touched without a new decision)
 - Camera photos (Sailfish has no in-app capture API), Geocoding, TextToSpeech, Contacts.
@@ -219,4 +219,4 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
 - No sfdk integration (RPM from host rpmbuild or `sf-rpmbuild.py`) — known limitation.
 - VS Code extension (repo `sailfishos_maui_tools`): a confirmed breakpoint in an F5 session from the extension,
   Hot Reload (gate: whether the `net11.0-sailfish` head build works under `dotnet watch`), shim/sysroot preflight and checking which
-  build is on the phone (equivalents of `sf-preflight.sh` / `sf-verify.sh`).
+  build is on the phone (equivalents of `sf doctor` / `sf verify`).

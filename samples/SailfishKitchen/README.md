@@ -34,14 +34,14 @@ To build it against this checkout, pack the checkout into the local feed
 first, and again after every backend change:
 
 ```bash
-tools/sf-pack-local.sh                                  # package + template → ~/.local/share/maui-sailfish/feed
+tools/sf pack-local                                  # package + template → ~/.local/share/maui-sailfish/feed
 
 cd samples/SailfishKitchen
 dotnet build -f net11.0-sailfish -t:SailfishRun         # build, deploy, launch on the phone
 dotnet publish -f net11.0-sailfish                      # the harbour RPM (bin/SailfishRpm/)
 
-SF_SAMPLE_DIR=$PWD ../../tools/sf-deploy.sh             # repo tooling: RPM → device + verify
-SF_SAMPLE_DIR=$PWD ../../tools/sf-run.sh --env KITCHEN_OFFLINE=1
+SF_SAMPLE_DIR=$PWD ../../tools/sf deploy             # repo tooling: RPM → device + verify
+SF_SAMPLE_DIR=$PWD ../../tools/sf run --env KITCHEN_OFFLINE=1
 ```
 
 F5 in VS Code: with the [MAUI Sailfish Tools](https://github.com/Pastajello-Organization/sailfishos_maui_tools)
@@ -52,7 +52,7 @@ DEBUG (deploy + attach, choose app...)` configurations work too: `sf-lib.sh`
 derives `harbour-sailfishkitchen` / `SailfishKitchen` from the directory name,
 and the csproj's `ApplicationId` last segment matches it.
 
-Environment knobs (inject with `sf-run.sh --env NAME=VALUE`), mirroring the
+Environment knobs (inject with `sf run --env NAME=VALUE`), mirroring the
 backend's own diagnostics culture:
 
 | Variable | Effect |
@@ -247,8 +247,8 @@ to its root cause; each fix is device-verified by screenshot or diag witness.
   the other sample's generated XAML) plus, on macOS, the iOS SDK's machine-level
   notice about a deprecated Xamarin settings plist; the sample itself is
   warning-clean under the trim + AOT analyzers.
-- Device (`sf-deploy.sh`): RPM `harbour-sailfishkitchen-…aarch64`, 236 payload
-  files, `sf-verify.sh` → `VERIFY PASSED`.
+- Device (`sf deploy`): RPM `harbour-sailfishkitchen-…aarch64`, 236 payload
+  files, `sf verify` → `VERIFY PASSED`.
 - Device screenshots: home (category grid with live photos, suggestion card,
   cuisine picker), catalog (2-column incremental grid, "12 recipes loaded",
   Load more), plus search/favorites/settings reachable via `KITCHEN_START_PAGE`.
@@ -258,7 +258,7 @@ to its root cause; each fix is device-verified by screenshot or diag witness.
   natively — `docs/screenshots/kitchen-ios-home.png`,
   `docs/screenshots/kitchen-ios-catalog.png`; the device counterpart after the
   fixes above is `docs/screenshots/kitchen-sailfish-catalog.png`.
-- Qt-host diagnostics (`sf-run.sh --env MAUI_SAILFISH_QT_HOST_DIAG=1`): zero
+- Qt-host diagnostics (`sf run --env MAUI_SAILFISH_QT_HOST_DIAG=1`): zero
   `ADAPTER load failed`, pulley menus witnessed attached to an interactive
   flickable on every Kitchen page, image snapshots crossing with
   `aspect=AspectFill`.

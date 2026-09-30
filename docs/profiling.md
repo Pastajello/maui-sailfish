@@ -22,16 +22,16 @@ Method names resolve in a trim + R2R build too.
 **The Qt/QML side of the GUI thread** is seen by EventPipe only as "time in `sailfish_host_exec`".
 Synchronous QML calls from managed code (`sailfish_host_eval`) it measures directly. The rest
 comes from the QML Profiler: JS time per function, bindings, signals and object creation, via
-a switch in the shim and `tools/sf-qml-profile.py` (§4.4). Frame times come from
+a switch in the shim and `tools/sf qml-profile` (§4.4). Frame times come from
 `QSG_RENDER_TIMING`. A native sampler still requires installing tools (§4.5).
 
 | Method | Status | Notes |
 |---|---|---|
-| EventPipe to file (§4.1, `tools/sf-trace.sh`) | **works** | from app start, no tools on the phone |
+| EventPipe to file (§4.1, `tools/sf trace`) | **works** | from app start, no tools on the phone |
 | `dotnet-trace` / `dotnet-counters` / `dotnet-gcdump` via `ssh -L` (§4.2) | **works** | attach to a running app; the `-R` variant (trace from start) was not tested |
 | `dotnet-trace` on the phone (§4.3) | not needed | the tunnel works |
 | `QSG_RENDER_TIMING` (§4.4) | **works** | only with `MAUI_SAILFISH_QT_HOST_DIAG=1` |
-| QML Profiler (§4.4, `tools/sf-qml-profile.py`) | **works** | `MAUI_SAILFISH_QML_PROFILER=<port>` + `qt5-qtdeclarative-plugin-qmlinspector`; `qmlprofiler` 5.6 on the phone does not work |
+| QML Profiler (§4.4, `tools/sf qml-profile`) | **works** | `MAUI_SAILFISH_QML_PROFILER=<port>` + `qt5-qtdeclarative-plugin-qmlinspector`; `qmlprofiler` 5.6 on the phone does not work |
 | native sampling: sysprof / operf / perf (§4.5) | unavailable | no tools, `perf_event_paranoid=3` (root needed) |
 | `dotnet-trace collect-linux` | **ruled out** | kernel without `CONFIG_USER_EVENTS` |
 
@@ -56,9 +56,9 @@ a switch in the shim and `tools/sf-qml-profile.py` (§4.4). Frame times come fro
 | CoreCLR `11.0.0-rc.1.26425.128`, self-contained, `linux-arm64`, JIT + R2R + trim `partial`; NativeAOT blocked | `*.runtimeconfig.json`, `docs/aot-and-trimming.md` |
 | Trimmed Release does not disable EventSource (no `EventSource.IsSupported=false`) or Meter (no `System.Diagnostics.Metrics.Meter.IsSupported`). Effect: MAUI layout instrumentation works too | `SailfishKitchen.runtimeconfig.json` (Release) |
 | The RPM strips apphost, `createdump`, `libcoreclrtraceptprovider.so` (LTTng) and the launcher. EventPipe stays, `perfcollect` is ruled out | `Microsoft.Maui.SailfishOS.targets:323-326` |
-| `sf-run-remote.sh` sets **`DOTNET_EnableDiagnostics=0`** by default, which also disables EventPipe. `--env DOTNET_EnableDiagnostics=1` gets overridden, pass **`--diagnostics`** | `tools/sf-run-remote.sh:176-183` |
-| `sf-run` launches `/usr/bin/<pkg>` from SSH, without booster and sailjail. So startup differs from launching from the icon | `tools/sf-run-remote.sh` |
-| Shim without symbols; `SF_NATIVE_KEEP_SYMBOLS=1` keeps them (for a native sampler) | `tools/sf-native-build.sh:42-45` |
+| `sf-run-remote.sh` sets **`DOTNET_EnableDiagnostics=0`** by default, which also disables EventPipe. `--env DOTNET_EnableDiagnostics=1` gets overridden, pass **`--diagnostics`** | `tools/remote/sf-run-remote.sh:176-183` |
+| `sf-run` launches `/usr/bin/<pkg>` from SSH, without booster and sailjail. So startup differs from launching from the icon | `tools/remote/sf-run-remote.sh` |
+| Shim without symbols; `SF_NATIVE_KEEP_SYMBOLS=1` keeps them (for a native sampler) | `tools/sf native-build:42-45` |
 | The shim passes only `argv[0]` to Qt, so `-qmljsdebugger=` will not work. Instead there is `MAUI_SAILFISH_QML_PROFILER=<port>[,block]`: `QQmlDebuggingEnabler` + `startTcpDebugServer` on 127.0.0.1, off by default | `Native/sailfish_host.cpp` (`sailfish_host_init`) |
 | `qCDebug` from Qt (incl. frame times) reaches the log only with `MAUI_SAILFISH_QT_HOST_DIAG=1` | `Native/sailfish_host.cpp` (`message_handler` → `log_line(0, …)`) |
 
@@ -81,14 +81,14 @@ The Jolla 5.2.0.17 (aarch64) repository provides: `qt5-qtdeclarative-plugin-qmli
 ### On the Mac
 
 `dotnet tool install -g dotnet-trace dotnet-counters dotnet-gcdump` (version used
-10.0.745401). The analyzer `tools/sf-trace-analyze.cs` downloads the
+10.0.745401). The analyzer `tools/analyze/sf-trace-analyze.cs` downloads the
 `Microsoft.Diagnostics.Tracing.TraceEvent` package from NuGet on first run.
 
 ## 4. Methods
 
-We profile the Release build (the default `sf-deploy.sh` profile) and always with `--diagnostics`.
+We profile the Release build (the default `sf deploy` profile) and always with `--diagnostics`.
 
-### 4.1 EventPipe to file: `tools/sf-trace.sh`
+### 4.1 EventPipe to file: `tools/sf trace`
 
 The runtime opens a session at startup and writes a `.nettrace`. Nothing needs to be
 installed on the phone. The scenario should end the app itself (a tour with `Application.Quit`),
@@ -96,21 +96,21 @@ because a clean exit writes the rundown with method names.
 
 ```sh
 SF_SAMPLE_DIR=$PWD/samples/SailfishKitchen \
-  tools/sf-trace.sh /tmp/prof-kitchen --env KITCHEN_TOUR=beef --env KITCHEN_OFFLINE=1
+  tools/sf trace /tmp/prof-kitchen --env KITCHEN_TOUR=beef --env KITCHEN_OFFLINE=1
 # → trace.nettrace, trace.speedscope.json (speedscope.app), device.log, analysis.txt
-dotnet run tools/sf-trace-analyze.cs -- /tmp/prof-kitchen/trace.nettrace anchor=DemoTour \
+dotnet run tools/analyze/sf-trace-analyze.cs -- /tmp/prof-kitchen/trace.nettrace anchor=DemoTour \
   window=6500:11100 phase=QtHostListAdapter.ResyncDelegates focus=sailfish_host_eval
 ```
 
 The script does the same as the manual steps:
 
 ```sh
-./tools/sf-run.sh --diagnostics \
+./tools/sf run --diagnostics \
   --env DOTNET_EnableEventPipe=1 \
   --env DOTNET_EventPipeOutputPath=/tmp/sf-trace.nettrace \
   --env DOTNET_EventPipeOutputStreaming=1 \
   --env 'DOTNET_EventPipeConfig=Microsoft-DotNETCore-SampleProfiler:0:5,Microsoft-Windows-DotNETRuntime:0x100003801D:4'
-# … the app exits on its own, or tools/sf-kill.sh (SIGTERM) …
+# … the app exits on its own, or tools/sf kill (SIGTERM) …
 scp defaultuser@<ip>:/tmp/sf-trace.nettrace .
 dotnet-trace convert sf-trace.nettrace --format Speedscope   # or Chromium → Perfetto
 ```
@@ -151,7 +151,7 @@ Not needed, because the tunnel works. If needed: the single-file
 **Frame times (works, no code changes):**
 
 ```sh
-./tools/sf-run.sh --env QSG_RENDER_TIMING=1 --env 'QT_LOGGING_RULES=qt.scenegraph.time.*=true' \
+./tools/sf run --env QSG_RENDER_TIMING=1 --env 'QT_LOGGING_RULES=qt.scenegraph.time.*=true' \
   --env MAUI_SAILFISH_QT_HOST_DIAG=1 --env MAUI_SAILFISH_QT_HOST_PERF_DIAG=1 …
 ```
 
@@ -167,11 +167,11 @@ Not needed, because the tunnel works. If needed: the single-file
 
 ```sh
 # once on the phone: devel-su pkcon install qt5-qtdeclarative-plugin-qmlinspector
-./tools/sf-run.sh --env MAUI_SAILFISH_QML_PROFILER=3768 --env KITCHEN_TOUR_DELAY_MS=6000 … &
+./tools/sf run --env MAUI_SAILFISH_QML_PROFILER=3768 --env KITCHEN_TOUR_DELAY_MS=6000 … &
 # wait until the port listens: ssh … 'netstat -ltn | grep 127.0.0.1:3768'
 ssh -N -L 13768:127.0.0.1:3768 defaultuser@<ip> &
-tools/sf-qml-profile.py record 127.0.0.1 13768 55 qml.json   # until the app exits or 55 s
-tools/sf-qml-profile.py report qml.json 30
+tools/sf qml-profile record 127.0.0.1 13768 55 qml.json   # until the app exits or 55 s
+tools/sf qml-profile report qml.json 30
 ```
 
 - The QML debug server starts in `sailfish_host_init`, before the first `QQmlEngine`,
@@ -212,14 +212,14 @@ tools/sf-qml-profile.py report qml.json 30
 
 ### 4.7 Existing instrumentation (the primary metric)
 
-`sf-record.sh` + `sf-page-load.py`, `NAV-TIMELINE` / `PAINT-SLOW`
+`sf record` + `sf-page-load.py`, `NAV-TIMELINE` / `PAINT-SLOW`
 (`MAUI_SAILFISH_QT_HOST_DIAG=1`), the `perf` leg in `sf-matrix`, and in Kitchen the lines
 `TOUR +ms … | ui-stall max N ms` (probe: a 16 ms timer on the UI thread). The profiler breaks these
 numbers down into causes, but does not replace them.
 
 ## 5. How to read EventPipe results
 
-- **The UI thread** is the one with `sailfish_host_exec` on the stack. `tools/sf-trace-analyze.cs`
+- **The UI thread** is the one with `sailfish_host_exec` on the stack. `tools/analyze/sf-trace-analyze.cs`
   splits its samples into three groups:
   - `qt` — the leaf is `sailfish_host_exec`: the Qt event loop, **work or idle**
     (EventPipe cannot tell them apart);
@@ -241,12 +241,12 @@ numbers down into causes, but does not replace them.
   We count GC pauses only from the latter.
 - **JIT:** `Method/JittingStarted` requires level 5. At level 4 the analyzer counts
   only background tier-up batches (`BackgroundJitStart`). JIT rate comes from `dotnet-counters`.
-- **Stale log.** `sf-run.sh` clears `/tmp/sf_run.log` only right before launch, ~10 s
+- **Stale log.** `sf run` clears `/tmp/sf_run.log` only right before launch, ~10 s
   after invocation. A script that searches the log for a tour step during that time will find lines
   from the previous run. That is how the "screenshots without the app" in the first version of the results came about:
-  a screenshot taken before the new instance started. `sf-trace.sh` clears the log and waits for
+  a screenshot taken before the new instance started. `sf trace` clears the log and waits for
   `LAUNCHED_PID`.
-- **A screenshot disturbs the measurement.** `sf-screenshot.sh` (lipstick, a few seconds and the
+- **A screenshot disturbs the measurement.** `sf screenshot` (lipstick, a few seconds and the
   "Screenshot captured" banner) during the tour gave a 600–700 ms stall in the next step, whereas without
   a screenshot it was 70–90 ms. We check visibility in a separate run, and measure stall and frames
   without screenshots.
@@ -265,7 +265,7 @@ The backend cannot speed these up:
 
 ## 7. Next steps
 
-1. `tools/sf-qml-profile.py` together with the tunnel and waiting for the port as a single script (today
+1. `tools/sf qml-profile` together with the tunnel and waiting for the port as a single script (today
    these are three steps from §4.4).
 2. A native sampler (sysprof/operf or a self-built `perf`) with `DOTNET_PerfMapEnabled=3`, if
    the QML Profiler is not enough.

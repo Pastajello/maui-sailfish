@@ -64,7 +64,7 @@ internal static class DemoTour
 		Log("done");
 		probe.Stop();
 #if SAILFISH
-		// Ends the device recording (tools/sf-record.sh stops when the app exits).
+		// Ends the device recording (tools/sf record stops when the app exits).
 		Application.Current?.Quit();
 #endif
 	}

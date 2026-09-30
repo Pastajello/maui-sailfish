@@ -5,18 +5,17 @@ TestResults/
 *.nupkg
 *.snupkg
 
-# Native shim build output (tools/sf-native-build.sh; the csproj packs it only when present)
+# Native shim build output (tools/sf native-build; the csproj packs it only when present)
 /artifacts/
 
-# Device tooling state: sysroot, RPM cache, pinned host keys, ad-hoc captures
+# Device tooling state: sysroot, RPM cache, pinned host keys
 /tools/.sysroot/
 /tools/.cache/
 /tools/.known_hosts
-/tools/screenshots/
 __pycache__/
 *.pyc
 
-# Sailfish device credentials (tools/sf-lib.sh reads connect.info from the repo root or a project dir)
+# Sailfish device credentials (tools/lib/sf-lib.sh reads connect.info from the repo root or a project dir)
 connect.info
 
 # IDE / user-specific files

@@ -34,7 +34,7 @@
     </Content>
   </ItemGroup>
 
-  <!-- Native host shim, built by tools/sf-native-build.sh and shipped next to the app binary
+  <!-- Native host shim, built by tools/sf native-build and shipped next to the app binary
        so DllImport("sailfishhost") resolves it. -->
   <ItemGroup>
     <Content Include="..\..\artifacts\native\aarch64\libsailfishhost.so" CopyToOutputDirectory="PreserveNewest"

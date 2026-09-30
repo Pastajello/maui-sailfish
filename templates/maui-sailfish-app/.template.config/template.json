@@ -5,7 +5,7 @@
   "identity": "Microsoft.Maui.Platforms.SailfishOS.App",
   "name": ".NET MAUI App (with Sailfish OS)",
   "shortName": "maui-sailfish",
-  "description": "The .NET MAUI app template (XAML, Shell, Resources, Platforms) with a Sailfish OS head: the same project builds for Android, iOS, Mac Catalyst, Windows and Sailfish OS (Qt/Silica host, harbour RPM). The Sailfish backend comes from the Microsoft.Maui.SailfishOS NuGet package. One-time machine setup: install the workload manifest (tools/sf-workload-install.sh) and add a NuGet source for the package feed. Use --sailfish-only on a machine without the MAUI workloads.",
+  "description": "The .NET MAUI app template (XAML, Shell, Resources, Platforms) with a Sailfish OS head: the same project builds for Android, iOS, Mac Catalyst, Windows and Sailfish OS (Qt/Silica host, harbour RPM). The Sailfish backend comes from the Microsoft.Maui.SailfishOS NuGet package. One-time machine setup: install the workload manifest (tools/sf workload-install) and add a NuGet source for the package feed. Use --sailfish-only on a machine without the MAUI workloads.",
   "tags": {
     "language": "C#",
     "type": "project"

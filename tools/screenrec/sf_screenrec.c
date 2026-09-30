@@ -40,7 +40,7 @@
  * writes OUT.frames.tsv: frame, compositor ms, arrival CLOCK_MONOTONIC ms,
  * pts ms, encoded (0 = dropped) — for lining frames up with app logs.
  *
- * Built by tools/sf-screenrec-build.sh (zig cc, sysroot from sf-sysroot.sh).
+ * Built by tools/sf screenrec-build (zig cc, sysroot from sf sysroot).
  */
 #define _GNU_SOURCE
 #include <dirent.h>
@@ -912,10 +912,19 @@ int main(int argc, char **argv)
 	wl_proxy_marshal_flags(S.recorder, 2, NULL, 1, 0);   /* repaint: a first frame right away */
 
 	int rc = 0;
+	/* Only repainted frames are recorded, so on a still screen the last frame can be
+	 * seconds old and the video would end there. A stop therefore asks for one more
+	 * repaint and waits (up to 300 ms) for that frame, stamped with the stop time. */
+	int64_t stop_at = 0;
+	long frames_at_stop = 0;
 	while (!g_stop) {
-		if (max_seconds > 0 && mono_ms() - start >= (int64_t)max_seconds * 1000)
-			break;
-		if (stop_file && access(stop_file, F_OK) == 0)
+		if (!stop_at && ((max_seconds > 0 && mono_ms() - start >= (int64_t)max_seconds * 1000)
+		                 || (stop_file && access(stop_file, F_OK) == 0))) {
+			stop_at = mono_ms();
+			frames_at_stop = S.frames;
+			wl_proxy_marshal_flags(S.recorder, 2, NULL, 1, 0);   /* repaint */
+		}
+		if (stop_at && (S.frames > frames_at_stop || mono_ms() - stop_at >= 300))
 			break;
 		if (S.pending_request && (S.fps_cap <= 0 || mono_ms() >= S.next_slot_ms)) {
 			S.next_slot_ms = 0;

@@ -10,5 +10,5 @@ obj/
 # OS-generated files
 .DS_Store
 
-# Sailfish device credentials (tools/sf-lib.sh reads a project-local connect.info)
+# Sailfish device credentials (tools/lib/sf-lib.sh reads a project-local connect.info)
 connect.info

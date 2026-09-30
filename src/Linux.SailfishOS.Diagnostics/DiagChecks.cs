@@ -1,7 +1,7 @@
 namespace Microsoft.Maui.SailfishOS.Platform;
 
 /// <summary>
-/// One diagnostics leg's check list. The CHECK and ACCEPTANCE line formats are what tools/sf-matrix.sh and
+/// One diagnostics leg's check list. The CHECK and ACCEPTANCE line formats are what tools/sf matrix and
 /// the device logs are read by, so they must stay byte-identical.
 /// </summary>
 internal sealed class DiagChecks(string tag)

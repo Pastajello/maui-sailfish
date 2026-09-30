@@ -6,7 +6,7 @@ Android or iOS heads: one more target framework and, optionally, a `Platforms/Sa
 ## 1. One-time machine setup
 
 ```bash
-./tools/sf-workload-install.sh          # teaches the SDK the net11.0-sailfish TFM (from a clone)
+./tools/sf workload-install          # teaches the SDK the net11.0-sailfish TFM (from a clone)
 dotnet nuget add source <feed> --name maui-sailfish   # where Microsoft.Maui.SailfishOS is published
 ```
 

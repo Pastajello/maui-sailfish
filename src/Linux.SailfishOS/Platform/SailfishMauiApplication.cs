@@ -393,7 +393,7 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 			var path = Path.Combine(AppContext.BaseDirectory, "qml", "maui-appmeta.json");
 			using var doc = System.Text.Json.JsonDocument.Parse(File.Exists(path) ? File.ReadAllText(path) : "{}");
 			var root = doc.RootElement;
-			// MAUI_SAILFISH_ORIENTATION overrides the baked value (tools/sf-matrix.sh pins Portrait: its injected
+			// MAUI_SAILFISH_ORIENTATION overrides the baked value (tools/sf matrix pins Portrait: its injected
 			// gestures use portrait window coordinates).
 			var orientation = SailfishEnv.Get("MAUI_SAILFISH_ORIENTATION") is { Length: > 0 } forced
 				? forced

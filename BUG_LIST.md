@@ -2,7 +2,7 @@
 
 Checklist of Qt/Silica host defects. Source of findings: rendering comparison with the
 iOS leg (`samples/SailfishKitchen`, same XAML) and on-device diag
-(`sf-run.sh --env MAUI_SAILFISH_QT_HOST_DIAG=1`). Add new bugs to the
+(`sf run --env MAUI_SAILFISH_QT_HOST_DIAG=1`). Add new bugs to the
 matching group in the **Open** section; after the fix is verified on the device, remove the entry and record the
 cause and proof in the commit message. Classification rule: we fix what
 breaks the app's intent (properties/styles set explicitly); native Silica chrome
@@ -54,14 +54,14 @@ Collected from the old "To do" list, from `BUG_LIST_S1.md` (analysis of the 2026
       only `GridSpan`); card thumbnails interrupted by `Shutdown` stay placeholders after returning.
 
 **Tools and packaging**
-- [ ] **`sf-record.sh` starts ~15 s after the app** and misses the start of the run (workaround: `KITCHEN_TOUR_DELAY_MS`).
-- [ ] **Workload manifest without a clone:** `sf-pack-local.sh` does not pack it into the feed, and the package does not contain
-      `sf-workload-install.sh`.
+- [ ] **`sf record` starts ~15 s after the app** and misses the start of the run (workaround: `KITCHEN_TOUR_DELAY_MS`).
+- [ ] **Workload manifest without a clone:** `sf pack-local` does not pack it into the feed, and the package does not contain
+      `sf workload-install`.
 - [ ] **Noisy rpmbuild log** during `dotnet publish`.
-- [ ] **`sf-run.sh` / `sf-deploy.sh` sometimes hang on ssh after the app exits** (2026-09-28, 3× in one
+- [ ] **`sf run` / `sf deploy` sometimes hang on ssh after the app exits** (2026-09-28, 3× in one
       session): the app ends cleanly (`event loop exited rc=0`), but the local `expect`+`ssh` keeps waiting;
       the matrix stalls on the leg until the ssh process is killed by hand. No session timeout in `sf-run-remote.sh`.
-- [ ] **`sf-shots.sh` saves the screenshot one marker too late** (state `f3-o-library` in file `f3-n2-rtl.png`).
+- [ ] **`sf shots` saves the screenshot one marker too late** (state `f3-o-library` in file `f3-n2-rtl.png`).
 - [ ] **Kitchen, slow tour (`KITCHEN_TOUR_DELAY_MS=4000`): Silica errors `PulleyMenuBase.qml … 'dragging'/'contentY' of
       null`** when returning from the recipe detail (2026-09-29, build with A5): the pulley menu of the popped page loses its
       flickable before itself. In the fast tour and in tours from before A5 — 0 occurrences; not checked whether this is new (the

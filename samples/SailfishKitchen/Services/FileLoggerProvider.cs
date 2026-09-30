@@ -6,7 +6,7 @@ namespace SailfishKitchen.Services;
 
 /// <summary>
 /// Appends log records to a file, because the Sailfish launcher gives a harbour app no usable stdout;
-/// <c>tools/sf-run.sh</c> tails it.
+/// <c>tools/sf run</c> tails it.
 /// </summary>
 public sealed class FileLoggerProvider : ILoggerProvider
 {

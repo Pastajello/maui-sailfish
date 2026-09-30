@@ -227,8 +227,8 @@ This cannot be done today:
 - **QML plugins (`qmldir` + `plugin`) from the app directory do not work.** The engine gets only system paths
   ([sailfish_host.cpp:1083](../src/Linux.SailfishOS/Native/sailfish_host.cpp#L1083)). Under the Harbour booster
   `applicationDirPath` points at the booster, not the package.
-- **No toolchain.** [tools/sf-native-build.sh](../tools/sf-native-build.sh) (zig + sysroot from
-  [tools/sf-sysroot.sh](../tools/sf-sysroot.sh)) builds only the shim. The sysroot has QtCore/Gui/Qml/Quick/Network headers
+- **No toolchain.** [tools/sf native-build](../tools/sf native-build) (zig + sysroot from
+  [tools/sf sysroot](../tools/sf sysroot)) builds only the shim. The sysroot has QtCore/Gui/Qml/Quick/Network headers
   and `sailfishapp`, and adding another `-devel` (e.g. `nemo-qml-plugin-dbus-qt5-devel`) requires editing the script.
   The alternative is the full Sailfish SDK (`sfdk`).
 
@@ -244,7 +244,7 @@ This cannot be done today:
 | L6 | No QML import paths from the package | QML modules with a C++ plugin and a library's `qmldir` modules do not work | [sailfish_host.cpp:1083](../src/Linux.SailfishOS/Native/sailfish_host.cpp#L1083) |
 | L7 | RPM: `AutoReqProv: no`, `Requires:` hard-coded only for Secrets | the app cannot declare e.g. `nemo-qml-plugin-configuration-qt5`, so on a clean system the QML import fails | [Microsoft.Maui.SailfishOS.targets:761](../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets#L761) |
 | L8 | No MSBuild items for native `.so` files and QML modules (rpath, strip, Harbour validation) | everyone looks after location, permissions and dependencies themselves | targets, `_PrepareSailfishRpmStaging` |
-| L9 | No toolchain and sysroot for the app's native code | you have to recreate `sf-native-build.sh` or set up `sfdk` | [tools/sf-native-build.sh](../tools/sf-native-build.sh) |
+| L9 | No toolchain and sysroot for the app's native code | you have to recreate `sf native-build` or set up `sfdk` | [tools/sf native-build](../tools/sf native-build) |
 | L10 | No documentation or example beyond adapters | this section was until now knowledge from the code | — |
 
 ## 4. How to implement it
@@ -338,9 +338,9 @@ int   sailfish_host_add_import_path(const char *path);
 
 ### Phase 3: toolchain for native code (L9, L10)
 
-- `tools/sf-native-cc.sh` (or MSBuild `SailfishNativeCompile`) as a generalization of `sf-native-build.sh`: zig
+- `tools/sf-native-cc.sh` (or MSBuild `SailfishNativeCompile`) as a generalization of `sf native-build`: zig
   with the same sysroot, flags `-fPIC -shared -std=c++14 -Wl,-s -Wl,-rpath,'$ORIGIN'` and linking against Qt 5.6.3.
-- `sf-sysroot.sh --devel <rpm>...` pulls additional `-devel` packages from the release repository (the RPM download
+- `sf sysroot --devel <rpm>...` pulls additional `-devel` packages from the release repository (the RPM download
   mechanism already exists).
 - A `dotnet new sailfish-native-lib` template: C++ (`QQuickItem` + `extern "C"`), a C# project with `LibraryImport`,
   a QML adapter and `buildTransitive`.

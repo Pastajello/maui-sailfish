@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The on-device acceptance legs (tools/sf-matrix.sh, MAUI_SAILFISH_QT_HOST_*_DIAG):
+  <!-- The on-device acceptance legs (tools/sf matrix, MAUI_SAILFISH_QT_HOST_*_DIAG):
        split out of the backend so production apps ship none of it. Referenced
        by the sample (the matrix harness) and Kitchen; apps opt in with
        SailfishDiagnostics.Register(). Drives backend internals through

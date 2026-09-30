@@ -8,7 +8,7 @@ public sealed class ConsoleCollection
 {
 }
 
-/// <summary>tools/sf-matrix.sh greps "&lt;tag&gt;: ACCEPTANCE", "=> OK", "failed=[1-9]" and "CHECK FAIL" out of the
+/// <summary>tools/sf matrix greps "&lt;tag&gt;: ACCEPTANCE", "=> OK", "failed=[1-9]" and "CHECK FAIL" out of the
 /// device log, so these lines are contract.</summary>
 [Collection("console")]
 public class DiagChecksTests

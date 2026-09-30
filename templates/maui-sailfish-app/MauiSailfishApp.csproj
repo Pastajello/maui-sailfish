@@ -6,7 +6,7 @@
 		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
 		<!-- Sailfish OS (Qt/Silica host); needs the one-time workload manifest install
-		     (tools/sf-workload-install.sh). -->
+		     (tools/sf workload-install). -->
 		<TargetFrameworks>$(TargetFrameworks);net11.0-sailfish</TargetFrameworks>
 
 		<!-- Note for MacCatalyst:
@@ -17,7 +17,7 @@
 		<!-- For example: <RuntimeIdentifiers>maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
 <!--#else -->
 		<!-- Sailfish OS only: no MAUI workloads needed; add other heads later like any
-		     MAUI app. Needs the one-time workload manifest install (tools/sf-workload-install.sh). -->
+		     MAUI app. Needs the one-time workload manifest install (tools/sf workload-install). -->
 		<TargetFrameworks>net11.0-sailfish</TargetFrameworks>
 <!--#endif -->
 

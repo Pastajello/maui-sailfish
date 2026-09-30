@@ -74,9 +74,9 @@ verifies that nothing was missed (`timerWithWork`, 0 on the device matrix).
 **Collections stay native.** `CollectionView`/`ListView` ride the virtualized Silica `ListView`: QML owns
 delegates, flicking and the viewport; MAUI owns item content, selection and scroll state.
 
-**Every change is proven on the device.** Build, deploy (`tools/sf-deploy.sh`), prove the device runs this
-build (`tools/sf-verify.sh`), run the self-verifying diagnostic leg (`tools/sf-matrix.sh <leg>`), look at a
-compositor screenshot (`tools/sf-screenshot.sh`). A host-only test does not close a device-visible change.
+**Every change is proven on the device.** Build, deploy (`tools/sf deploy`), prove the device runs this
+build (`tools/sf verify`), run the self-verifying diagnostic leg (`tools/sf matrix <leg>`), look at a
+compositor screenshot (`tools/sf screenshot`). A host-only test does not close a device-visible change.
 
 **MAUI navigation idioms map to native Sailfish ones.** Silica has one `pageStack` per window; container
 handlers (Shell, TabbedPage, FlyoutPage, NavigationPage) say what to show and the `NavigationCoordinator` runs one
@@ -92,9 +92,9 @@ operation at a time on that stack, completing it only when the native stack show
 
 **No Sailfish SDK needed.** Qt 5.6.3 headers (with the generated `qconfig.h`), `libsailfishapp-devel` and the
 Silica plugin headers come from the public release repository
-(`https://releases.jolla.com/releases/<version>/jolla/aarch64/`, no authentication). `tools/sf-sysroot.sh`
+(`https://releases.jolla.com/releases/<version>/jolla/aarch64/`, no authentication). `tools/sf sysroot`
 assembles the sysroot from those RPMs plus runtime `.so` files, and `zig c++ -target aarch64-linux-gnu`
-cross-builds the shim on macOS or Linux (`tools/sf-native-build.sh`).
+cross-builds the shim on macOS or Linux (`tools/sf native-build`).
 
 **glibc, not musl.** Sailfish OS 5.2 has glibc 2.34, so the RID is `linux-arm64` (`linux-arm` for armv7hl).
 
@@ -118,8 +118,8 @@ pulley menu, and there is no `MultiEffect` (shadow/clip use `OpacityMask` + `Dro
 **Managed debugging works** with vsdbg (linux-arm64) and the real VS Code client:
 - vsdbg rejects a custom DAP client through a licensing handshake, so only VS Code itself can drive it.
 - VS Code sends SHA384/SHA512 breakpoint checksums that vsdbg does not support, and vsdbg then rejects the whole
-  `setBreakpoints` request (`ErrorCode 3001`). `tools/sf-debug-dap-filter.py` (hooked into `tools/sf-debug-pipe.sh`)
+  `setBreakpoints` request (`ErrorCode 3001`). `tools/py/sf-debug-dap-filter.py` (hooked into `tools/sf-debug-pipe.sh`)
   strips them; the VS Code extension has the same filter.
-- Device side: the CLR diagnostic port (`DOTNET_EnableDiagnostics=1`, `sf-run.sh --diagnostics`), the PDB and
+- Device side: the CLR diagnostic port (`DOTNET_EnableDiagnostics=1`, `sf run --diagnostics`), the PDB and
   `libmscordaccore.so` / `libmscordbi.so` in the untrimmed Debug package (`<pkg>-debug`), `kernel.yama.ptrace_scope=0`.
 - Release attaches only without Just My Code: vsdbg treats trimmed ReadyToRun code as "not yours".

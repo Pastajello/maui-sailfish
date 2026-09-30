@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
     <!-- Runs on the build host (no device): pure managed contracts only —
          bridge serialization and the QML adapter library contract. Device
-         behaviour stays covered by tools/sf-matrix.sh. -->
+         behaviour stays covered by tools/sf matrix. -->
   </PropertyGroup>
 
   <ItemGroup>

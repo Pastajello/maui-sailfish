@@ -75,7 +75,7 @@ internal static class QtHostNative
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_grab_png(string path);
 
-	/* Records the app window's frames as JPEGs (used by tools/sf-record.sh). */
+	/* Records the app window's frames as JPEGs (used by tools/sf record). */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_record_start(string dir, int fps, int scalePct);
 

@@ -147,7 +147,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private readonly DiagChecks _qtErrorChecks = new("QT ERROR DIAG");
 
 	/// <summary>
-	/// Logs "SF-SHOT &lt;name&gt;" and holds for MAUI_SAILFISH_SHOT_HOLD_MS (tools/sf-shots.sh screenshots each marker) before continuing.
+	/// Logs "SF-SHOT &lt;name&gt;" and holds for MAUI_SAILFISH_SHOT_HOLD_MS (tools/sf shots screenshots each marker) before continuing.
 	/// </summary>
 	private static void Shot(SailfishDispatcher dispatcher, string name, Action next)
 	{
@@ -574,7 +574,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 
 	// Text-input diag: the native Qt text-input path (no SDL soft keyboard) drives MAUI Entry/Editor on the bridge-diag page.
 	// Legs: A focus push → Maliit VKB, B injected hardware keys, C/D cursor+selection both ways, E Return → Completed; F/G follow.
-	// Maliit is a separate Wayland surface, so only a compositor screenshot (sf-screenshot.sh) shows the VKB, never grabWindow.
+	// Maliit is a separate Wayland surface, so only a compositor screenshot (sf screenshot) shows the VKB, never grabWindow.
 
 	private void RunQtTextDiagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
@@ -753,7 +753,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 					(ok
 						? "OK — the native Sailfish keyboard/text-input path drives MAUI Entry/Editor; no SDL soft keyboard involved"
 						: "FAIL — see the leg lines above"));
-				Console.Error.WriteLine("[Sailfish] Qt text diag: 15s compositor window — Maliit VKB is open on the focused Editor; run tools/sf-screenshot.sh for the VKB truth");
+				Console.Error.WriteLine("[Sailfish] Qt text diag: 15s compositor window — Maliit VKB is open on the focused Editor; run tools/sf screenshot for the VKB truth");
 				dispatcher.DispatchDelayed(TimeSpan.FromSeconds(15), () => ContinueAfterQtTextDiagnostics(renderer, dispatcher));
 			});
 		});
@@ -3700,7 +3700,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				: "FAIL — pointer events did not reach the expected owners"));
 		var grabRc = QtHost.QtHostRuntime.GrabPng("/tmp/q8-input.png");
 		Console.Error.WriteLine($"[Sailfish] Qt input diag: screenshot rc={grabRc} -> /tmp/q8-input.png (InputStatusLabel shows taps/pan from the MAUI handlers)");
-		// Keep the page up 20 s so a compositor screenshot (sf-screenshot.sh) can tell grabWindow-only artifacts from real repaints.
+		// Keep the page up 20 s so a compositor screenshot (sf screenshot) can tell grabWindow-only artifacts from real repaints.
 		Console.Error.WriteLine("[Sailfish] Qt diag: input diag done; auto-shutdown in 20s (compositor screenshot window)");
 		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
 	}
