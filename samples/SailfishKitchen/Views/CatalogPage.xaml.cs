@@ -28,7 +28,7 @@ public partial class CatalogPage : ViewModelPage
 
 		BindingContext = viewModel;
 		MealsList.RemainingItemsThreshold = PrefetchDistance;
-		ApplySpan(viewModel.GridSpan);
+		ApplyLayout();
 	}
 
 	/// <summary>Set by <see cref="Services.INavigationService"/> before the page appears.</summary>
@@ -65,18 +65,24 @@ public partial class CatalogPage : ViewModelPage
 
 	protected override void OnViewModelPropertyChanged(string? propertyName)
 	{
-		if (propertyName == nameof(CatalogViewModel.GridSpan))
-			ApplySpan(_viewModel.GridSpan);
+		if (propertyName is nameof(CatalogViewModel.GridSpan) or nameof(CatalogViewModel.IsGridLayout))
+			ApplyLayout();
 	}
 
 	/// <summary>
 	/// Changes the column count on the same CollectionView so the native Silica ListView keeps its scroll
 	/// position and cached rows; list layout is Span=1.
 	/// </summary>
-	private void ApplySpan(int span) =>
-		MealsList.ItemsLayout = new GridItemsLayout(Math.Clamp(span, 1, 4), ItemsLayoutOrientation.Vertical)
+	private void ApplyLayout()
+	{
+		// A settings change raises both IsGridLayout and GridSpan; the second call is a no-op.
+		var span = _viewModel.IsGridLayout ? Math.Clamp(_viewModel.GridSpan, 1, 4) : 1;
+		if (MealsList.ItemsLayout is GridItemsLayout { Span: var current } && current == span)
+			return;
+		MealsList.ItemsLayout = new GridItemsLayout(span, ItemsLayoutOrientation.Vertical)
 		{
 			HorizontalItemSpacing = 12,
 			VerticalItemSpacing = 12,
 		};
+	}
 }

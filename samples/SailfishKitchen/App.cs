@@ -67,7 +67,7 @@ public class App : Application
 		created.Created -= OnWindowCreated;
 		var window = created;
 
-		if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "beef" or "home")
+		if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "beef" or "home" or "layout")
 		{
 			var tourNavigation = _services.GetRequiredService<INavigationService>();
 			_services.GetRequiredService<IDispatcher>().Dispatch(async () =>
@@ -75,6 +75,8 @@ public class App : Application
 				await WaitForFirstLayoutAsync(window);
 				if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "home")
 					await Helpers.DemoTour.RunHomeAsync(window);
+				else if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "layout")
+					await Helpers.DemoTour.RunLayoutAsync(tourNavigation, window);
 				else
 					await Helpers.DemoTour.RunAsync(tourNavigation, window);
 			});

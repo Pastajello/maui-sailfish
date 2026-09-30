@@ -30,9 +30,18 @@ ProgressBar {
     // Silica defaults to indeterminate and then ignores `value`; MAUI's bar is always determinate.
     indeterminate: false
 
+    // Silica insets the groove by Screen.width/8 per side and draws it paddingMedium plus half a
+    // 2*paddingLarge glass below the item top, so in a MAUI rect (12 dp, or 4 dp in Kitchen) the bar landed
+    // below its box, under the next sibling. The groove spans the MAUI width and centres on the rect.
+    leftMargin: 0
+    rightMargin: 0
+
     // FlowDirection RTL (LayoutMirroring, set by the shim): the bar fills from the right. The fill sits at x 0
     // of the groove, which LayoutMirroring leaves alone.
-    transform: Scale { origin.x: root.width / 2; xScale: root.LayoutMirroring.enabled ? -1 : 1 }
+    transform: [
+        Translate { y: Math.round(root.height / 2 - root.barCenterY) },
+        Scale { origin.x: root.width / 2; xScale: root.LayoutMirroring.enabled ? -1 : 1 }
+    ]
 
     // x/y/width/height come from the managed geometry pass.
 }

@@ -9,6 +9,8 @@ namespace SailfishKitchen.Helpers;
 /// KITCHEN_TOUR=beef: a scripted Beef-category run (swipes with load-more, two recipe details) so recordings on
 /// different platforms show the same flow. Each step is logged as "TOUR +ms step" for lining videos up.
 /// KITCHEN_TOUR=home: swipes the home page's categories and logs the scroll offset (any orientation).
+/// KITCHEN_TOUR=layout: opens Beef and flips the Grid / list pulley command twice, an SF-SHOT per state
+/// (tools/sf shots) with the resulting column count logged.
 /// </summary>
 internal static class DemoTour
 {
@@ -90,6 +92,43 @@ internal static class DemoTour
 			Log($"swipe {i + 1} offset={offset:F0}");
 		}
 		Log("done");
+	}
+
+	public static async Task RunLayoutAsync(INavigationService navigation, Window window)
+	{
+		Clock.Restart();
+		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("KITCHEN_TOUR_DELAY_MS"), out var delay) ? delay : 2500);
+		await navigation.OpenCatalogAsync(MealQuery.ByCategory("Beef"));
+		await Task.Delay(3000);
+		var catalog = TopPage(window);
+		var list = catalog?.GetVisualTreeDescendants().OfType<CollectionView>().FirstOrDefault();
+		if (catalog?.BindingContext is not ViewModels.CatalogViewModel vm || list is null)
+		{
+			Log("no catalog — stopping");
+			return;
+		}
+		await ShotAsync($"layout-0-span{Span(list)}");
+		for (var i = 1; i <= 2; i++)
+		{
+			// The command the pulley item runs.
+			await vm.ToggleLayoutCommand.ExecuteAsync(null);
+			await Task.Delay(1500);
+			await ShotAsync($"layout-{i}-span{Span(list)}");
+		}
+		Log("done");
+#if SAILFISH
+		Application.Current?.Quit();
+#endif
+	}
+
+	private static int Span(CollectionView list) => (list.ItemsLayout as GridItemsLayout)?.Span ?? 1;
+
+	// tools/sf shots screenshots each "SF-SHOT <name>" line while the state is held.
+	private static async Task ShotAsync(string name)
+	{
+		Log(name);
+		Console.Error.WriteLine($"SF-SHOT {name}");
+		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("MAUI_SAILFISH_SHOT_HOLD_MS"), out var hold) ? hold : 4000);
 	}
 
 	private static async Task OpenDetailAsync(Window window, CollectionView list, int index, bool scroll)

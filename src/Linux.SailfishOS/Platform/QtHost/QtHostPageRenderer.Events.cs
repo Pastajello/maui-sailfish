@@ -100,6 +100,7 @@ public sealed partial class QtHostPageRenderer
 				case "list-item-attached":
 				case "list-item-rebind":
 				case "list-item-detached":
+				case "list-item-released":
 				case "list-item-tapped":
 				case "list-scroll":
 				case "carousel-position":

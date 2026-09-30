@@ -9,7 +9,8 @@ import "../lib/pullrefresh.js" as PullRefresh
 // owns row content, which is measured and positioned by the managed layout pass
 // and materialized as children of the delegate (the delegate never lays it out).
 //
-// Events: list-item-attached/rebind/detached {id,row,dg}, list-item-tapped
+// Events: list-item-attached/rebind/detached {id,row,dg}, list-item-released {id,dg,to},
+// list-item-tapped
 // {id,row}, list-scroll {id,y,first,last,count} (throttled, along the scroll
 // axis), carousel-position {id,index}, refresh-requested {id}.
 // mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units).
@@ -298,9 +299,24 @@ SilicaListView {
         onTriggered: root.__reportScroll()
     }
 
+    // Serial for released delegate names (see the delegate's ListView.onRemove).
+    property int __releaseSerial: 0
+
     delegate: Item {
         id: dg
-        objectName: "maui_" + root.mauiId + "__r" + r
+        objectName: __releasedName.length > 0 ? __releasedName : "maui_" + root.mauiId + "__r" + r
+
+        // A row removed from the model stays alive through the remove transition while its replacement
+        // (a rebuild after an ItemsLayout change, a refill) is created under the same "__r<n>" name. It
+        // hands the name over at once, so the replacement's lookups and the later detach of this one
+        // cannot hit each other; managed re-keys this delegate's content to the released name.
+        property string __releasedName: ""
+        ListView.onRemove: {
+            var was = objectName;
+            __releasedName = "maui_" + root.mauiId + "__x" + (++root.__releaseSerial);
+            root.mauiEvent("list-item-released",
+                JSON.stringify({ id: root.mauiId, dg: was, to: __releasedName }));
+        }
         width: root.__horizontal ? h : root.width
         height: root.__horizontal ? root.height : h
 
@@ -346,7 +362,7 @@ SilicaListView {
         }
 
         // the name spelled out: objectName's binding may not have re-run yet
-        onMauiRowChanged: root.mauiEvent("list-item-rebind",
+        onMauiRowChanged: if (__releasedName.length === 0) root.mauiEvent("list-item-rebind",
             JSON.stringify({ id: root.mauiId, row: r, dg: "maui_" + root.mauiId + "__r" + r }))
         Component.onCompleted: root.mauiEvent("list-item-attached",
             JSON.stringify({ id: root.mauiId, row: r, dg: objectName }))

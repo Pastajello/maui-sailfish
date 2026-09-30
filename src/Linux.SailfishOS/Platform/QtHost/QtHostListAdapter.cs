@@ -1106,6 +1106,18 @@ internal sealed class QtHostListAdapter
 		return false;
 	}
 
+	/// <summary>A delegate removed from the model handed its "__r" name to its replacement (ListView.qml
+	/// onRemove): its content stays under the released name until the delegate's own detach.</summary>
+	internal void ReleaseDg(string dgObj, string releasedObj)
+	{
+		if (releasedObj.Length == 0 || !Delegates.Remove(dgObj, out var dg))
+			return;
+		if (dg.Row is { } row && row.DgObj == dgObj)
+			row.DgObj = null;
+		dg.Obj = releasedObj;
+		Delegates[releasedObj] = dg;
+	}
+
 	internal void UnmaterializeDg(DgState dg)
 	{
 		ClearDg(dg);

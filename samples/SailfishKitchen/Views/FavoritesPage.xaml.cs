@@ -18,21 +18,27 @@ public partial class FavoritesPage : ViewModelPage
 		banner.IsActive = true;
 
 		BindingContext = viewModel;
-		ApplySpan(viewModel.GridSpan);
+		ApplyLayout();
 	}
 
 	protected override void OnViewModelPropertyChanged(string? propertyName)
 	{
-		if (propertyName == nameof(FavoritesViewModel.GridSpan))
-			ApplySpan(_viewModel.GridSpan);
+		if (propertyName is nameof(FavoritesViewModel.GridSpan) or nameof(FavoritesViewModel.IsGridLayout))
+			ApplyLayout();
 	}
 
-	private void ApplySpan(int span) =>
-		FavoritesList.ItemsLayout = new GridItemsLayout(Math.Clamp(span, 1, 4), ItemsLayoutOrientation.Vertical)
+	private void ApplyLayout()
+	{
+		// A settings change raises both IsGridLayout and GridSpan; the second call is a no-op.
+		var span = _viewModel.IsGridLayout ? Math.Clamp(_viewModel.GridSpan, 1, 4) : 1;
+		if (FavoritesList.ItemsLayout is GridItemsLayout { Span: var current } && current == span)
+			return;
+		FavoritesList.ItemsLayout = new GridItemsLayout(span, ItemsLayoutOrientation.Vertical)
 		{
 			HorizontalItemSpacing = 12,
 			VerticalItemSpacing = 12,
 		};
+	}
 
 	protected override void OnAppearing()
 	{

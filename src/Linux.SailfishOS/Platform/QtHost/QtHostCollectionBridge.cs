@@ -714,6 +714,10 @@ internal sealed class QtHostCollectionBridge
 						state.UnmaterializeDg(dg);
 					break;
 				}
+				case "list-item-released":
+					state.ReleaseDg(root.GetProperty("dg").GetString() ?? string.Empty,
+						root.GetProperty("to").GetString() ?? string.Empty);
+					break;
 				case "list-item-tapped":
 					state.OnRowTapped((int)BridgeJson.Num(root, "row", -1), BridgeJson.Int(root, "cell", 0));
 					break;
