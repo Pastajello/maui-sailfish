@@ -123,7 +123,24 @@ internal sealed partial class QtHostDiagnosticsRunner
 		var fixture = BuildTreeFixture();
 		Console.Error.WriteLine($"[Sailfish] Qt tree diag: leg A — push 'F1 Tree' ({TreeLongLabels} labels + nested containers)");
 		_ = nav.PushAsync(fixture.Page);
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1500), () => VerifyTreeStructure(renderer, dispatcher, nav, fixture));
+		var pushed = System.Diagnostics.Stopwatch.StartNew();
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1500), () => AwaitTreeCreated(renderer, dispatcher, nav, fixture, pushed));
+	}
+
+	// Below the fold the page is created a chunk per pass after the transition (QtHostPageRenderer.CreateChunk), so a
+	// 480-host page is still filling in at 1.5 s; the checks start once it is complete (or after 8 s, and then fail).
+	private void AwaitTreeCreated(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav,
+		TreeFixture f, System.Diagnostics.Stopwatch pushed)
+	{
+		var filling = renderer.CreationPending || f.LongLabels.Any(l => TreeHost(renderer, l) is null);
+		if (filling && pushed.ElapsedMilliseconds < 8000)
+		{
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), () => AwaitTreeCreated(renderer, dispatcher, nav, f, pushed));
+			return;
+		}
+		Console.Error.WriteLine($"[Sailfish] Qt tree diag: page creation {(filling ? "still pending" : "complete")} " +
+			$"{pushed.ElapsedMilliseconds} ms after the push ({renderer.CurrentHosts.Count} hosts)");
+		VerifyTreeStructure(renderer, dispatcher, nav, f);
 	}
 
 	private QtHost.NativeElementHost? TreeHost(QtHost.QtHostPageRenderer renderer, Element element) =>

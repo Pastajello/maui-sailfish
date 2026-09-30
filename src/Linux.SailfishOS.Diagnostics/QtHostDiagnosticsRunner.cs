@@ -153,7 +153,28 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	{
 		var hold = SailfishEnv.Int("MAUI_SAILFISH_SHOT_HOLD_MS") ?? 0;
 		Console.Error.WriteLine($"[Sailfish] SF-SHOT {name}");
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(Math.Max(200, hold)), next);
+		if (!SailfishEnv.Flag("MAUI_SAILFISH_SHOT_SYNC"))
+		{
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(Math.Max(200, hold)), next);
+			return;
+		}
+		// tools/sf shots acknowledges each screenshot with /tmp/sf-shot-ack/<name>: the state is held until the
+		// compositor capture (seconds) is done, then for the hold, so no shot shows the next marker's state.
+		var ack = Path.Combine("/tmp/sf-shot-ack", name);
+		var waited = 0;
+		void Poll()
+		{
+			if (File.Exists(ack) || waited >= 20000)
+			{
+				if (waited >= 20000)
+					Console.Error.WriteLine($"[Sailfish] SF-SHOT {name}: no acknowledgement after 20 s, moving on");
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(Math.Max(0, hold)), next);
+				return;
+			}
+			waited += 100;
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(100), Poll);
+		}
+		Poll();
 	}
 
 	public void Attach(QtHostDiagnosticsContext context)

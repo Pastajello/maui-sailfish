@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj" />
+    <Project Path="src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
     <Project Path="src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
     <Project Path="src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
   </Folder>

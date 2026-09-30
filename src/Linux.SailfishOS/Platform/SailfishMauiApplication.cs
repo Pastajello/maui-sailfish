@@ -59,6 +59,17 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		// Record unhandled exceptions so off-debugger crashes leave a trace on the device.
 		AppDomain.CurrentDomain.UnhandledException += (_, e) => TraceCrash("AppDomain", e.ExceptionObject as Exception);
 		TaskScheduler.UnobservedTaskException += (_, e) => TraceCrash("UnobservedTask", e.Exception);
+		// MAUI_SAILFISH_FIRST_CHANCE=N logs the first N first-chance exceptions with their stacks (thrown and caught
+		// exceptions are expensive and otherwise invisible, e.g. inside fire-and-forget animations).
+		if (SailfishEnv.Int("MAUI_SAILFISH_FIRST_CHANCE") is > 0 and var firstChanceMax)
+		{
+			var firstChanceSeen = 0;
+			AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+			{
+				if (Interlocked.Increment(ref firstChanceSeen) <= firstChanceMax)
+					Console.Error.WriteLine($"[Sailfish] FIRST-CHANCE {e.Exception.GetType().Name}: {e.Exception.Message}{Environment.NewLine}{Environment.StackTrace}");
+			};
+		}
 		// ProcessExit fires on clean exit and SIGTERM; its absence in the trace means SIGKILL.
 		AppDomain.CurrentDomain.ProcessExit += (_, _) => TraceLine("ProcessExit (clean exit or SIGTERM)");
 		IPlatformApplication.Current = this;
@@ -79,6 +90,13 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		_mauiApp = Services.GetRequiredService<IApplication>();
 		Console.Error.WriteLine("[Sailfish] IApplication resolved");
 
+		// The application handler before the window, as MauiApplication.OnCreate / FinishedLaunching attach it: MAUI
+		// sends the first page's Appearing inside CreateWindow, and anything it starts there (an entrance animation's
+		// IAnimationManager, FindMauiContext) finds its context through the application. It also answers
+		// Application.Quit(); MAUI_SAILFISH_APP_HANDLER=0 leaves it off.
+		if (_mauiApp.Handler is null && SailfishEnv.Get("MAUI_SAILFISH_APP_HANDLER") != "0")
+			Microsoft.Maui.Platform.ElementExtensions.SetApplicationHandler(this, _mauiApp, _applicationContext);
+
 		Console.Error.WriteLine("[Sailfish] Creating window...");
 		// The window scope first, then the window, as MauiAppCompatActivity / MauiUISceneDelegate do.
 		_windowScope = SailfishWindowScope.Create(Services);
@@ -88,12 +106,8 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		_mauiWindow = virtualWindow;
 		Console.Error.WriteLine("[Sailfish] Window created");
 
-		// The application and window handlers, as MauiApplication/MauiUIApplicationDelegate attach them on the other
-		// platforms (the public ElementExtensions entry points; this object is the platform application). The
-		// application handler answers Application.Quit(); MAUI_SAILFISH_APP_HANDLER=0 leaves it off.
-		if (_mauiApp.Handler is null && SailfishEnv.Get("MAUI_SAILFISH_APP_HANDLER") != "0")
-			Microsoft.Maui.Platform.ElementExtensions.SetApplicationHandler(this, _mauiApp, _applicationContext);
-
+		// The window handler, as MauiAppCompatActivity/MauiUISceneDelegate attach it on the other platforms (the public
+		// ElementExtensions entry points; this object is the platform application).
 		// The window handler must exist before any page handler: AlertManager resolves its subscription
 		// from window.Handler.MauiContext, otherwise DisplayAlertAsync and friends hang forever.
 		if (virtualWindow.Handler is null)
@@ -221,7 +235,9 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 			QtHost.QtHostDiag.Trace(QtHost.QtHostDiagChannel.QtHost, "entering QtHostRuntime.Run (Qt/Silica host loop)");
 			try
 			{
-				var rc = QtHost.QtHostRuntime.Run(dispatcher, qml);
+				var firstTitle = renderer?.CurrentTitle ?? string.Empty;
+				var rc = QtHost.QtHostRuntime.Run(dispatcher, qml,
+					propsJson: "{\"mauiFirstTitle\":" + QtHost.BridgeValue.Quote(firstTitle) + "}");
 				inputRouter?.Detach();
 				// Shutdown already ran; the repeat checks that teardown is idempotent.
 				QtHost.QtHostRuntime.Shutdown();
@@ -273,11 +289,82 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 	/// <summary>The virtual keyboard opened, closed or resized; <paramref name="keyboard"/> is in window pixels.</summary>
 	protected virtual void OnInputMethodChanged(bool visible, Rect keyboard) { }
 
+	/// <summary>The display turned off, dimmed or on (MCE).</summary>
+	protected virtual void OnDisplayStateChanged(SailfishDisplayState state) { }
+
+	/// <summary>The lock screen was shown or dismissed (MCE touch-screen lock).</summary>
+	protected virtual void OnScreenLockChanged(bool locked) { }
+
+	/// <summary>MCE memory pressure changed: free caches on Warning/Critical (OnTrimMemory / DidReceiveMemoryWarning).</summary>
+	protected virtual void OnMemoryLevelChanged(SailfishMemoryLevel level) { }
+
+	/// <summary>The last reported MCE states (Unknown/null until MCE answered).</summary>
+	public SailfishDisplayState? DisplayState { get; private set; }
+	public bool? ScreenLocked { get; private set; }
+	public SailfishMemoryLevel MemoryLevel { get; private set; } = SailfishMemoryLevel.Unknown;
+
+	/// <summary>MCE answered the memory level query (it says "unknown" where memory tracking is off).</summary>
+	internal bool MemoryLevelAnswered { get; private set; }
+
+	/// <summary>MCE (display, touch-screen lock, memory level) as one app-level service on the Nemo QML bindings.</summary>
+	private const string SystemServiceQml = """
+		import QtQuick 2.6
+		import Nemo.Mce 1.0
+		import Nemo.DBus 2.0
+		Item {
+		    // valid turns true once MCE answered, after creation: report then and on every change.
+		    MceDisplay {
+		        id: display
+		        function report() { if (valid) window.mauiAppNotify("svc-display", JSON.stringify({ state: display.state })); }
+		        onValidChanged: report()
+		        onStateChanged: report()
+		    }
+		    MceTkLock {
+		        id: tklock
+		        function report() { if (valid) window.mauiAppNotify("svc-screen-lock", JSON.stringify({ locked: tklock.locked })); }
+		        onValidChanged: report()
+		        onLockedChanged: report()
+		    }
+		    DBusInterface {
+		        id: mce
+		        bus: DBus.SystemBus
+		        service: "com.nokia.mce"
+		        path: "/com/nokia/mce/signal"
+		        iface: "com.nokia.mce.signal"
+		        signalsEnabled: true
+		        function sig_memory_level_ind(level) { window.mauiAppNotify("svc-memory-level", JSON.stringify({ level: level })) }
+		    }
+		    DBusInterface {
+		        id: mceRequest
+		        bus: DBus.SystemBus
+		        service: "com.nokia.mce"
+		        path: "/com/nokia/mce/request"
+		        iface: "com.nokia.mce.request"
+		    }
+		    Component.onCompleted: {
+		        display.report();
+		        tklock.report();
+		        mceRequest.typedCall("get_memory_level", [], function(level) {
+		            window.mauiAppNotify("svc-memory-level", JSON.stringify({ level: level }));
+		        }, function() {});
+		    }
+		}
+		""";
+
+	/// <summary>First Qt tick (SailfishEssentials.OnHostReady): the MCE service needs the running QML host. Without
+	/// MCE bindings (a desktop Qt, a broken image) the events just never come.</summary>
+	internal void StartSystemService()
+	{
+		if (!QtHost.QtHostServices.Ensure("system", SystemServiceQml))
+			QtHost.QtHostDiag.Warn(QtHost.QtHostDiagChannel.QtHost, "MCE system service unavailable — display/lock/memory events off");
+	}
+
 	/// <summary>The app is about to quit (closed from the home screen, or Application.Quit): save state here.</summary>
 	protected virtual void OnQuitting() { }
 
 	internal void RaiseLaunched()
 	{
+		SailfishOpenUrl.QueueLaunchArguments(_arguments);
 		OnLaunched(_arguments);
 		Invoke<SailfishLifecycle.OnLaunched>(d => d(this, _arguments));
 	}
@@ -341,6 +428,40 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 			OnColorSchemeChanged(scheme);
 			Invoke<SailfishLifecycle.OnColorSchemeChanged>(d => d(this, scheme));
 		});
+		QtHost.QtHostServices.Subscribe("svc-display", e =>
+		{
+			var state = (SailfishDisplayState)Math.Clamp(BridgeJson.Int(e, "state", 2), 0, 2);
+			if (DisplayState == state)
+				return;
+			DisplayState = state;
+			OnDisplayStateChanged(state);
+			Invoke<SailfishLifecycle.OnDisplayStateChanged>(d => d(this, state));
+		});
+		QtHost.QtHostServices.Subscribe("svc-screen-lock", e =>
+		{
+			var locked = e.TryGetProperty("locked", out var l) && l.ValueKind == System.Text.Json.JsonValueKind.True;
+			if (ScreenLocked == locked)
+				return;
+			ScreenLocked = locked;
+			OnScreenLockChanged(locked);
+			Invoke<SailfishLifecycle.OnScreenLockChanged>(d => d(this, locked));
+		});
+		QtHost.QtHostServices.Subscribe("svc-memory-level", e =>
+		{
+			var level = (e.TryGetProperty("level", out var v) ? v.GetString() : null) switch
+			{
+				"normal" => SailfishMemoryLevel.Normal,
+				"warning" => SailfishMemoryLevel.Warning,
+				"critical" => SailfishMemoryLevel.Critical,
+				_ => SailfishMemoryLevel.Unknown,
+			};
+			MemoryLevelAnswered = true;
+			if (MemoryLevel == level)
+				return;
+			MemoryLevel = level;
+			OnMemoryLevelChanged(level);
+			Invoke<SailfishLifecycle.OnMemoryLevelChanged>(d => d(this, level));
+		});
 		QtHost.QtHostServices.Subscribe("svc-input-method", e =>
 		{
 			var visible = e.TryGetProperty("visible", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True;
@@ -350,8 +471,14 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		});
 	}
 
-	private void Invoke<TDelegate>(Action<TDelegate> call) where TDelegate : Delegate =>
+	/// <summary>Diagnostics: how often each native lifecycle event (by SailfishLifecycle delegate name) was raised.</summary>
+	internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> NativeEventCounts = new();
+
+	private void Invoke<TDelegate>(Action<TDelegate> call) where TDelegate : Delegate
+	{
+		NativeEventCounts.AddOrUpdate(typeof(TDelegate).Name, 1, static (_, n) => n + 1);
 		Services?.GetService<ILifecycleEventService>()?.InvokeEvents(typeof(TDelegate).Name, call);
+	}
 	/// <summary>Appends an unhandled exception to stderr and /tmp/maui_trace.log.</summary>
 	private static void TraceCrash(string source, Exception? ex)
 	{
@@ -405,6 +532,11 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 				? new Uri(Path.Combine(AppContext.BaseDirectory, "qml", coverQml)).AbsoluteUri
 				: string.Empty;
 			var coverUrlJs = System.Text.Json.JsonSerializer.Serialize(coverUrl, SailfishJsonContext.Default.String);
+			// SailfishUrlSchemes / SailfishMimeTypes: the app's D-Bus openUrl service (SailfishOpenUrl).
+			SailfishOpenUrl.Configure(
+				root.TryGetProperty("dbusName", out var dn) ? dn.GetString() : null,
+				root.TryGetProperty("dbusPath", out var dp) ? dp.GetString() : null,
+				root.TryGetProperty("dbusIface", out var di) ? di.GetString() : null);
 			var mask = orientation switch
 			{
 				"Portrait" => 1,

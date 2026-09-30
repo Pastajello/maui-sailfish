@@ -15,7 +15,8 @@ import "../lib/pullrefresh.js" as PullRefresh
 // axis), carousel-position {id,index}, refresh-requested {id}.
 // mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units).
 // mauiSelectedRows is highlight only ("0,3,5", or "row:cell" in grids); MAUI stays the selection authority.
-// Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, along x); taps report the touched cell.
+// Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, across the scroll axis: x in a vertical list, y in a
+// horizontal one); taps report the touched cell.
 // mauiScrollPos: 0=Start 1=Center 2=End 3=MakeVisible; mauiScrollTick re-fires equal targets.
 SilicaListView {
     id: root
@@ -321,15 +322,17 @@ SilicaListView {
         height: root.__horizontal ? root.height : h
 
         property int mauiRow: r
-        readonly property bool __grid: root.mauiSpan > 1 && root.mauiCellStride > 0 && !root.__horizontal
+        readonly property bool __grid: root.mauiSpan > 1 && root.mauiCellStride > 0
         property int __pressCell: -1
 
-        // The grid cell under x (-1 in the spacing or past this row's cells); a plain row is one cell.
-        function __cellAt(x) {
+        // The grid cell under the point across the scroll axis (-1 in the spacing or past this row's cells); a
+        // plain row is one cell.
+        function __cellAt(x, y) {
             if (!__grid)
                 return 0;
-            var cell = Math.floor(x / root.mauiCellStride);
-            if (cell < 0 || cell >= n || x - cell * root.mauiCellStride > root.mauiCellWidth)
+            var p = root.__horizontal ? y : x;
+            var cell = Math.floor(p / root.mauiCellStride);
+            if (cell < 0 || cell >= n || p - cell * root.mauiCellStride > root.mauiCellWidth)
                 return -1;
             return cell;
         }
@@ -339,9 +342,10 @@ SilicaListView {
             model: dg.__grid ? root.mauiSpan : 1
             Rectangle {
                 readonly property bool pressed: tapArea.pressed && dg.__pressCell === index
-                x: dg.__grid ? index * root.mauiCellStride : 0
-                width: dg.__grid ? root.mauiCellWidth : dg.width
-                height: dg.height
+                x: dg.__grid && !root.__horizontal ? index * root.mauiCellStride : 0
+                y: dg.__grid && root.__horizontal ? index * root.mauiCellStride : 0
+                width: dg.__grid && !root.__horizontal ? root.mauiCellWidth : dg.width
+                height: dg.__grid && root.__horizontal ? root.mauiCellWidth : dg.height
                 radius: 8
                 color: pressed ? Theme.rgba(Theme.highlightColor, 0.45)
                                : Theme.rgba(Theme.highlightColor, 0.22)
@@ -353,7 +357,7 @@ SilicaListView {
             id: tapArea
             anchors.fill: parent
             enabled: t
-            onPressed: dg.__pressCell = dg.__cellAt(mouse.x)
+            onPressed: dg.__pressCell = dg.__cellAt(mouse.x, mouse.y)
             onClicked: {
                 if (dg.__pressCell >= 0)
                     root.mauiEvent("list-item-tapped",

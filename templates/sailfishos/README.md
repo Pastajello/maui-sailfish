@@ -16,7 +16,8 @@ dotnet build -f net11.0-sailfish -t:SailfishRun     # deploy and launch on a pho
 ```
 
 One-time machine setup: the workload manifest that teaches the SDK the
-`net11.0-sailfish` TFM (`tools/sf workload-install` in the repository).
+`net11.0-sailfish` TFM: `dnx Microsoft.Maui.SailfishOS.Workload install` (or
+`tools/sf workload-install` in the repository).
 
 F5 in VS Code: the [MAUI Sailfish Tools](https://github.com/Pastajello-Organization/sailfishos_maui_tools)
 extension deploys, runs and debugs the project on the phone with no further

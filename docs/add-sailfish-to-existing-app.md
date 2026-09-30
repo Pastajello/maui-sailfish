@@ -6,9 +6,16 @@ Android or iOS heads: one more target framework and, optionally, a `Platforms/Sa
 ## 1. One-time machine setup
 
 ```bash
-./tools/sf workload-install          # teaches the SDK the net11.0-sailfish TFM (from a clone)
 dotnet nuget add source <feed> --name maui-sailfish   # where Microsoft.Maui.SailfishOS is published
+dnx Microsoft.Maui.SailfishOS.Workload install        # teaches the SDK the net11.0-sailfish TFM
 ```
+
+`dnx` runs the `sailfish-workload` tool without installing it (`dotnet tool install -g Microsoft.Maui.SailfishOS.Workload`
+keeps it). It copies the workload manifest into the SDK that `dotnet --version` selects in the current directory, so
+run it where `global.json` applies; the tool refuses an SDK band it has no manifest for. `status` shows what is
+installed, `uninstall` removes it. For an SDK you cannot write to (`/usr/share/dotnet`), use `sudo`, or
+`install --manifest-root ~/.dotnet-sailfish` and set `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS=~/.dotnet-sailfish` for builds.
+In a clone, `./tools/sf workload-install` does the same from the sources.
 
 ## 2. Add the target framework
 
@@ -97,5 +104,6 @@ the `net11.0-sailfish` project by itself), or copy `.vscode/launch.json` and `ta
 
 - Third-party MAUI libraries without a Sailfish build restore their `net11.0` assets. They build (CA1416
   warnings name the calls), but platform-specific parts may not work on the phone.
-- Every machine that builds the project, CI included, needs the workload manifest from step 1.
+- Every machine that builds the project, CI included, needs the workload manifest from step 1 (on CI:
+  `dnx Microsoft.Maui.SailfishOS.Workload install --yes` before the build).
   To keep the head opt-in, guard the TFM line: `Condition="'$(EnableSailfish)' == 'true'"`.

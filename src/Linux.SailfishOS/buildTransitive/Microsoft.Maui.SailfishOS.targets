@@ -73,15 +73,31 @@
   </PropertyGroup>
 
   <!-- Bakes the metadata the Qt shell reads at startup next to the QML payload. -->
-  <Target Name="_SailfishWriteAppMeta" BeforeTargets="BeforeBuild"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true'">
+  <!-- SailfishUrlSchemes ("myapp;geo") / SailfishMimeTypes ("text/plain;image/png"): the app opens these. Its D-Bus name is
+       OrganizationName.PackageName, the one Sailjail lets a sandboxed app own; interface names cannot hold '-'. -->
+  <Target Name="_SailfishOpenUrlNames">
+    <PropertyGroup>
+      <_SailfishDBusName>$(SailfishOrganizationName).$(SailfishPackageName)</_SailfishDBusName>
+      <_SailfishDBusIface>$(_SailfishDBusName.Replace('-', '_'))</_SailfishDBusIface>
+      <_SailfishDBusPath>/$(_SailfishDBusIface.Replace('.', '/'))</_SailfishDBusPath>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SailfishUrlScheme Include="$(SailfishUrlSchemes)" />
+      <_SailfishMimeType Include="$(SailfishMimeTypes)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Also for a plain net11.0 head that opens URLs: the app reads its D-Bus names from the meta. -->
+  <Target Name="_SailfishWriteAppMeta" BeforeTargets="BeforeBuild" DependsOnTargets="_SailfishOpenUrlNames"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true' Or '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">
     <Error Condition="'$(SailfishCoverQml)' != '' And !Exists('$(SailfishCoverQml)')"
            Text="SailfishCoverQml '$(SailfishCoverQml)' does not exist (a QML item file relative to the project)." />
     <PropertyGroup>
       <_SailfishCoverQmlRel Condition="'$(SailfishCoverQml)' != ''">cover/AppCover.qml</_SailfishCoverQmlRel>
+      <_SailfishOpenUrlMeta Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">,"dbusName":"$(_SailfishDBusName)","dbusPath":"$(_SailfishDBusPath)","dbusIface":"$(_SailfishDBusIface)"</_SailfishOpenUrlMeta>
     </PropertyGroup>
     <WriteLinesToFile File="$(MSBuildProjectExtensionsPath)maui-appmeta.json"
-                      Lines='{"orientation":"$(SailfishOrientation)","cover":$(SailfishCover),"coverQml":"$(_SailfishCoverQmlRel)","title":"$(ApplicationTitle)","sandboxed":$(_SailfishSandboxed),"organization":"$(SailfishOrganizationName)","application":"$(SailfishPackageName)"}'
+                      Lines='{"orientation":"$(SailfishOrientation)","cover":$(SailfishCover),"coverQml":"$(_SailfishCoverQmlRel)","title":"$(ApplicationTitle)","sandboxed":$(_SailfishSandboxed),"organization":"$(SailfishOrganizationName)","application":"$(SailfishPackageName)"$(_SailfishOpenUrlMeta)}'
                       Overwrite="true" />
     <ItemGroup>
       <Content Include="$(SailfishCoverQml)" Condition="'$(SailfishCoverQml)' != ''"
@@ -411,7 +427,7 @@
   <!-- ================= Generate .desktop File ================= -->
   <Target Name="_GenerateSailfishRpmDesktopFile"
           Condition="'$(_SailfishRpmEnabled)' == 'true'"
-          DependsOnTargets="_CopySailfishRpmIcon"
+          DependsOnTargets="_CopySailfishRpmIcon;_SailfishOpenUrlNames"
           AfterTargets="_PrepareSailfishRpmStaging"
           BeforeTargets="CreateSailfishRpm">
 
@@ -432,13 +448,21 @@ ApplicationName=$(SailfishPackageName)</_SailfishSailjailSection>
       <!-- A Debug build installs next to the Release one, so label its launcher entry. -->
       <_SailfishDesktopName>$(ApplicationTitle)</_SailfishDesktopName>
       <_SailfishDesktopName Condition="'$(Configuration)' == 'Debug'">$(ApplicationTitle) (Debug)</_SailfishDesktopName>
+      <!-- Opening URLs/files: the content action calls X-Maemo-Method on a running instance (D-Bus activation starts
+           it otherwise); %U hands them to a plain launch. ';' is %3B for WriteLinesToFile. -->
+      <_SailfishExecArgs Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''"> %25U</_SailfishExecArgs>
+      <_SailfishOpenUrlLines Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">MimeType=@(_SailfishUrlScheme->'x-scheme-handler/%(Identity)%3B', '')@(_SailfishMimeType->'%(Identity)%3B', '')
+X-Maemo-Service=$(_SailfishDBusName)
+X-Maemo-Object-Path=$(_SailfishDBusPath)
+X-Maemo-Method=$(_SailfishDBusIface).openUrl</_SailfishOpenUrlLines>
       <_SailfishDesktopContent>[Desktop Entry]
 Type=Application
 Name=$(_SailfishDesktopName)
-Exec=$(SailfishPackageName)
+Exec=$(SailfishPackageName)$(_SailfishExecArgs)
 Icon=$(_SailfishIconKey)
 Terminal=false
 $(_SailfishAppTypeLine)
+$(_SailfishOpenUrlLines)
 
 $(_SailfishSailjailSection)
 </_SailfishDesktopContent>
@@ -447,6 +471,21 @@ $(_SailfishSailjailSection)
     <WriteLinesToFile File="$(_SailfishBuildRoot)/usr/share/applications/$(SailfishPackageName).desktop"
                       Lines="$(_SailfishDesktopContent)"
                       Overwrite="true" />
+
+    <!-- D-Bus activation: a URL for an app that is not running starts it through the same launcher. -->
+    <PropertyGroup Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">
+      <_SailfishInvokerType>generic</_SailfishInvokerType>
+      <_SailfishInvokerType Condition="'$(SailfishHarbour)' == 'true'">silica-qt5</_SailfishInvokerType>
+      <_SailfishDBusServiceContent>[D-BUS Service]
+Name=$(_SailfishDBusName)
+Exec=/usr/bin/invoker --type=$(_SailfishInvokerType) --single-instance --desktop-file=$(SailfishPackageName).desktop /usr/bin/$(SailfishPackageName)
+</_SailfishDBusServiceContent>
+    </PropertyGroup>
+    <MakeDir Directories="$(_SailfishBuildRoot)/usr/share/dbus-1/services" Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''" />
+    <WriteLinesToFile File="$(_SailfishBuildRoot)/usr/share/dbus-1/services/$(_SailfishDBusName).service"
+                      Lines="$(_SailfishDBusServiceContent)"
+                      Overwrite="true"
+                      Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''" />
 
     <Message Importance="normal" Text="SailfishRpm: Generated .desktop file" />
   </Target>
@@ -761,10 +800,12 @@ $(_SailfishSailjailSection)
   <!-- ================= Generate Spec File ================= -->
   <Target Name="_GenerateSailfishRpmSpec"
           Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          DependsOnTargets="_SailfishOpenUrlNames"
           AfterTargets="_PrepareSailfishRpmStaging;_GenerateSailfishRpmLauncher;_GenerateSailfishRpmDesktopFile;_CopySailfishRpmIcon"
           BeforeTargets="CreateSailfishRpm">
 
     <PropertyGroup>
+      <_SailfishDBusServiceFile Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">/usr/share/dbus-1/services/$(_SailfishDBusName).service</_SailfishDBusServiceFile>
       <!-- Harbour rejects a Vendor tag -->
       <_SailfishVendorLine Condition="'$(SailfishHarbour)' != 'true'">Vendor: $(SailfishVendor)</_SailfishVendorLine>
       <!-- Harbour allows only these package names; the daemon pulls in libsailfishsecrets. -->
@@ -785,6 +826,7 @@ $(SailfishDescription)
 /usr/bin/$(SailfishPackageName)
 $(_SailfishInstallPrefix)
 /usr/share/applications/$(SailfishPackageName).desktop
+$(_SailfishDBusServiceFile)
 </_SailfishSpecContent>
 
       <_SailfishSpecContent Condition="'@(_SailfishIconFiles)' != ''">$(_SailfishSpecContent)@(_SailfishIconFiles->'%(Identity)', '%0A')
@@ -830,7 +872,11 @@ $(_SailfishInstallPrefix)
 
     <Message Importance="high" Text="SailfishRpm: Creating $(SailfishRpmFileName)..." />
 
-    <Exec Command="$(_SailfishRpmBuilder) -bb --target $(SailfishRpmTarget) --buildroot '$(_SailfishBuildRoot)' --define '_topdir $(_SailfishTopDir)' --define '_buildhost localhost' --define '_rpmdir $(SailfishRpmOutputDir)' --define '_rpmfilename %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' '$(_SailfishSpecFile)'" />
+    <!-- rpmbuild narrates every step; keep it out of a normal publish log (-v n shows it; a failure still fails the
+         build through the exit code). -->
+    <Exec Command="$(_SailfishRpmBuilder) -bb --target $(SailfishRpmTarget) --buildroot '$(_SailfishBuildRoot)' --define '_topdir $(_SailfishTopDir)' --define '_buildhost localhost' --define '_rpmdir $(SailfishRpmOutputDir)' --define '_rpmfilename %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' '$(_SailfishSpecFile)'"
+          StandardOutputImportance="low"
+          StandardErrorImportance="normal" />
 
     <Message Importance="high" Text="SailfishRpm: Created $(_SailfishOutputPath)" />
   </Target>

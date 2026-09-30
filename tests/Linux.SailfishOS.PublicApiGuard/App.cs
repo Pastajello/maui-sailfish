@@ -33,6 +33,9 @@ public static class MauiProgram
 			.OnLaunched((_, _) => SailfishCover.SetContent("Guard", "public API only"))
 			.OnApplicationStateChanged((_, state) => SailfishCover.SetActions(
 				new SailfishCoverAction("image://theme/icon-cover-refresh", () => { })))
+			.OnDisplayStateChanged((app, state) => { var off = state == SailfishDisplayState.Off; })
+			.OnScreenLockChanged((app, locked) => { var shown = locked; })
+			.OnMemoryLevelChanged((app, level) => { var trim = level >= SailfishMemoryLevel.Warning; })
 			.OnQuitting(_ => { })));
 		return builder.Build();
 	}
@@ -50,5 +53,6 @@ public class SailfishApplication : SailfishMauiApplication
 		_ = SailfishRemorse.ExecuteAsync("Clearing", () => { });
 		_ = SailfishRemorse.ExecuteAsync(new Label(), null, () => { }, SailfishRemorse.DefaultTimeoutMs);
 		SailfishRemorse.CancelAll();
+		_ = (DisplayState, ScreenLocked, MemoryLevel);
 	}
 }

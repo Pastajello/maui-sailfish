@@ -1,5 +1,6 @@
 #!/bin/bash
-# Packs this checkout into the local NuGet feed: Microsoft.Maui.SailfishOS and the
+# Packs this checkout into the local NuGet feed: Microsoft.Maui.SailfishOS, the workload
+# manifest (net11.0-sailfish), the sailfish-workload tool that installs it and the
 # maui-sailfish template, which SailfishKitchen and template projects restore from.
 #
 # Usage: tools/sf pack-local [--no-template]
@@ -28,6 +29,15 @@ VERSION="$(sed -n 's:.*<PlatformMauiSailfishVersion[^>]*>\(.*\)</PlatformMauiSai
 mkdir -p "$FEED"
 echo "==> Microsoft.Maui.SailfishOS $VERSION → $FEED"
 dotnet pack "$REPO_ROOT/src/Linux.SailfishOS/Linux.SailfishOS.csproj" -c Release -o "$FEED" --nologo -v quiet
+# The workload manifest too, so `tools/sf workload-install` (and a machine without this checkout, from the feed)
+# can teach the SDK the net11.0-sailfish TFM.
+echo "==> workload manifest → $FEED"
+rm -f "$FEED"/microsoft.maui.sailfishos.Manifest-*."$VERSION".nupkg
+dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj" -c Release -o "$FEED" --nologo -v quiet
+# and the sailfish-workload tool that installs it without a checkout (dnx Microsoft.Maui.SailfishOS.Workload install).
+echo "==> sailfish-workload tool → $FEED"
+dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" -c Release -o "$FEED" --nologo -v quiet
+rm -rf "$HOME/.nuget/packages/microsoft.maui.sailfishos.workload/$VERSION"
 if [ "$TEMPLATE" = 1 ]; then
 	echo "==> template package → $FEED"
 	dotnet pack "$REPO_ROOT/templates/sailfishos/SailfishOS.Templates.csproj" -c Release -o "$FEED" --nologo -v quiet

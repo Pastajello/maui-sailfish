@@ -35,13 +35,23 @@ public class AdaptersContractTests
 		{
 			var src = Path.Combine(Repo.Root, "src/Linux.SailfishOS/Platform/QtHost/qml", entry.Value.GetString()!);
 			Assert.True(File.Exists(src), $"adapter source missing: {src}");
-			var text = File.ReadAllText(src);
+			var text = WithLocalBase(src);
 			Assert.Contains("mauiId", text);
 			Assert.Contains("mauiProbe", text);
 			Assert.Contains("mauiEvent", text);
 			checkedCount++;
 		}
 		Assert.True(checkedCount >= 30, $"expected the full adapter map, got {checkedCount} entries");
+	}
+
+	// An adapter whose root type is another adapter in its directory (Grid.qml is a ContentView { … }) inherits that
+	// file's contract properties, so the check reads both. Comments are dropped: they name the contract too.
+	private static string WithLocalBase(string src)
+	{
+		var text = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(src), @"//[^\n]*", "");
+		var root = System.Text.RegularExpressions.Regex.Match(text, @"^([A-Z]\w*)\s*\{", System.Text.RegularExpressions.RegexOptions.Multiline);
+		var local = Path.Combine(Path.GetDirectoryName(src)!, root.Groups[1].Value + ".qml");
+		return root.Success && File.Exists(local) && local != src ? text + WithLocalBase(local) : text;
 	}
 
 	[Fact]

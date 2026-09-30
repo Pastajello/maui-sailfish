@@ -123,12 +123,22 @@ internal static class DemoTour
 
 	private static int Span(CollectionView list) => (list.ItemsLayout as GridItemsLayout)?.Span ?? 1;
 
-	// tools/sf shots screenshots each "SF-SHOT <name>" line while the state is held.
+	// tools/sf shots screenshots each "SF-SHOT <name>" line while the state is held, and acknowledges it with
+	// /tmp/sf-shot-ack/<name> (MAUI_SAILFISH_SHOT_SYNC=1); without the handshake the state is held for a fixed time.
 	private static async Task ShotAsync(string name)
 	{
 		Log(name);
 		Console.Error.WriteLine($"SF-SHOT {name}");
-		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("MAUI_SAILFISH_SHOT_HOLD_MS"), out var hold) ? hold : 4000);
+		var hold = int.TryParse(Environment.GetEnvironmentVariable("MAUI_SAILFISH_SHOT_HOLD_MS"), out var ms) ? ms : 4000;
+		if (Environment.GetEnvironmentVariable("MAUI_SAILFISH_SHOT_SYNC") != "1")
+		{
+			await Task.Delay(hold);
+			return;
+		}
+		var ack = Path.Combine("/tmp/sf-shot-ack", name);
+		for (var waited = 0; waited < 20000 && !File.Exists(ack); waited += 100)
+			await Task.Delay(100);
+		await Task.Delay(hold);
 	}
 
 	private static async Task OpenDetailAsync(Window window, CollectionView list, int index, bool scroll)

@@ -13,7 +13,8 @@ Page {
     property string mauiPageId: ""
     property var __shell: null
 
-    property string pageTitle: "MAUI"
+    // Given at creation (the renderer knows it), so the header never shows a placeholder.
+    property string pageTitle: ""
 
     // MAUI page background, painted behind the flickable: the colour, then Page.BackgroundImageSource
     // cropped to fill.
@@ -395,6 +396,18 @@ Page {
 
     // nativeDestroy: managed destroys the object via the shim, so QML only unregisters it.
     // The signal is disconnected before the object dies.
+    // Where a pulley menu goes when the hosted list/ScrollView it rides is destroyed (see the adapters' __leaveSurface):
+    // an idle flickable, so Silica's PulleyMenuBase bindings never read a null flickable.
+    SilicaFlickable {
+        id: pulleySink
+        visible: false
+        enabled: false
+        interactive: false
+        width: 1
+        height: 1
+    }
+    function mauiPulleySink() { return pulleySink; }
+
     function __destroyHost(id, nativeDestroy) {
         var host = __hosts[id];
         delete __hosts[id];

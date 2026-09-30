@@ -1,7 +1,8 @@
 #!/bin/bash
 # Runs the installed app with the given env and takes a compositor screenshot for
 # every "SF-SHOT <name>" marker it logs, into <out>/<name>.png. The app holds each
-# marked state for MAUI_SAILFISH_SHOT_HOLD_MS (--hold).
+# marked state until the screenshot is acknowledged (/tmp/sf-shot-ack/<name>,
+# MAUI_SAILFISH_SHOT_SYNC=1), then MAUI_SAILFISH_SHOT_HOLD_MS more (--hold, default 500).
 #
 # Usage: ./tools/sf shots [--out DIR] [--hold MS] --env NAME=VALUE [--env ...]
 #   e.g. ./tools/sf shots --env MAUI_SAILFISH_QT_HOST_PULLEY_DIAG=1
@@ -16,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/../lib/sf-lib.sh"
 
 OUT="$SF_REPO_ROOT/artifacts/screenshots/shots-$(date +%Y%m%d-%H%M%S)"
-HOLD_MS=6000
+HOLD_MS=500
 RUN_ARGS=(--env MAUI_SAILFISH_QT_HOST=1 --env MAUI_SAILFISH_QT_HOST_DIAG=1 --env MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN=1)
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -28,11 +29,12 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
-RUN_ARGS+=(--env "MAUI_SAILFISH_SHOT_HOLD_MS=$HOLD_MS")
+RUN_ARGS+=(--env "MAUI_SAILFISH_SHOT_HOLD_MS=$HOLD_MS" --env MAUI_SAILFISH_SHOT_SYNC=1)
 mkdir -p "$OUT"
 
 # A fresh log, so markers from an earlier run cannot fire a shot.
-sf_ssh "rm -f /tmp/sf_run.log" >/dev/null 2>&1 || true
+# The app holds each marked state until this script acknowledges its screenshot (/tmp/sf-shot-ack/<name>).
+sf_ssh "rm -f /tmp/sf_run.log; rm -rf /tmp/sf-shot-ack; mkdir -p /tmp/sf-shot-ack; chmod 777 /tmp/sf-shot-ack" >/dev/null 2>&1 || true
 "$SCRIPT_DIR/run.sh" "${RUN_ARGS[@]}" >"$OUT/run.log" 2>&1 &
 
 # The screenshot helper goes up once; each shot then runs in a subshell, so a failed one is logged
@@ -50,6 +52,8 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
 		( sf_screenshot "$OUT/$name.png" ) >>"$OUT/shots.log" 2>&1 \
 			&& sf_ok "shot $name -> $OUT/$name.png" \
 			|| sf_fail "shot $name failed"
+		# Release the held state (the app waits for this before it moves on).
+		sf_ssh "touch /tmp/sf-shot-ack/$name" >/dev/null 2>&1 || true
 	done
 	case "$state" in *EXITED*) break ;; esac
 	sleep 0.5

@@ -48,7 +48,7 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Scroll decorators on flickables | `ScrollView.*ScrollBarVisibility` | native | f3 L |
 | `ViewPlaceholder` (empty-state text) | `ItemsView.EmptyView` as a string on a vertical list | native | silica B |
 | List item press/selection highlight | `SelectionMode`, `SelectedItem(s)` | native | collection |
-| `SilicaGridView` | `GridItemsLayout` (rows of cells in a `SilicaListView`) | native look, horizontal grid open | collection, Kitchen |
+| `SilicaGridView` | `GridItemsLayout` (rows of cells in a `SilicaListView`), vertical and horizontal | native look | collection, silica I, Kitchen |
 | `SectionHeader` | `GroupHeaderTemplate` (app content) | n/a — MAUI owns the header look | — |
 | `SlideshowView` | `CarouselView` `Loop=true` (`PathView`) | native | f3 G |
 | Keyboard: the focused field scrolls above the virtual keyboard | automatic inside a `ScrollView` | native | silica F |
@@ -83,7 +83,11 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Share (`Sailfish.Share`), pickers (`Sailfish.Pickers`) | `Share`, `MediaPicker`, `FilePicker` | native | f4 E |
 | Secrets | `SecureStorage` | native (needs the Secrets daemon) | f4 A |
 | Sensors, location, battery, connectivity, haptics, keep-alive | Essentials | native | f4 C/D |
-| Open a URL in the browser | `Launcher`, `Browser` | native, **not tested** (it would move the test app to the background) | — |
+| Open a URL in the browser | `Launcher`, `Browser` | native, not tested (it would move the test app to the background) | — |
+| Open a file in another app | `Launcher.OpenAsync(OpenFileRequest)` | native (the other app sees only its sandbox) | silica N |
+| Links and files handed to the app (`MimeType`, D-Bus `openUrl`) | `Application.OnAppLinkRequestReceived` (+ `SailfishUrlSchemes`/`SailfishMimeTypes`) | native | silica K |
+| Display on/off, lock screen, memory pressure (MCE) | — | Sailfish lifecycle events | silica J |
+| Keyboard, rotation, ambience, cover state events | — | Sailfish lifecycle events | silica M |
 | Camera capture | `MediaPicker.CapturePhotoAsync` | n/a — Sailfish has no in-app capture API | — |
 
 ## Not tested on purpose

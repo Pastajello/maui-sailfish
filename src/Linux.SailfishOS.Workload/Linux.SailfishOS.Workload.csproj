@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- sailfish-workload: installs the net11.0-sailfish workload manifest without a checkout
+       (dnx Microsoft.Maui.SailfishOS.Workload, or dotnet tool install -g). A tool package restores
+       with a plain TFM, so it works before the SDK knows net11.0-sailfish. The manifest files are
+       the ones the manifest package ships; SailfishWorkloadBand (Directory.Build.props) names the
+       SDK band they are for. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Workload</RootNamespace>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sailfish-workload</ToolCommandName>
+    <PackageId>Microsoft.Maui.SailfishOS.Workload</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Description>Installs the .NET MAUI Sailfish OS workload manifest (the net11.0-sailfish TFM) into the local .NET SDK for band $(SailfishWorkloadBand): dnx Microsoft.Maui.SailfishOS.Workload install</Description>
+    <PackageReadmeFile></PackageReadmeFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.json" LogicalName="WorkloadManifest.json" />
+    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.targets" LogicalName="WorkloadManifest.targets" />
+    <AssemblyMetadata Include="SailfishWorkloadBand" Value="$(SailfishWorkloadBand)" />
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+</Project>

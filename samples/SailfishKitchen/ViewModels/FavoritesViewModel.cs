@@ -187,12 +187,16 @@ public partial class FavoritesViewModel : ViewModelBase
 	{
 		Messenger.Register<FavoritesViewModel, FavoriteToggledMessage>(this, static (vm, _) => vm.Rebuild());
 		Messenger.Register<FavoritesViewModel, FavoritesResetMessage>(this, static (vm, _) => vm.Rebuild());
-		Messenger.Register<FavoritesViewModel, SettingsChangedMessage>(this, static (vm, message) =>
-		{
-			vm.IsGridLayout = message.Settings.Layout == Models.ListLayout.Grid;
-			vm.GridSpan = message.Settings.GridSpan;
-			vm.AnimationsEnabled = message.Settings.AnimationsEnabled;
-		});
+		Messenger.Register<FavoritesViewModel, SettingsChangedMessage>(this, static (vm, message) => vm.ApplyLayout(message.Settings));
+		// Settings changed while this page was covered reached no subscriber.
+		ApplyLayout(_settings.Current);
+	}
+
+	private void ApplyLayout(Models.AppSettings settings)
+	{
+		IsGridLayout = settings.Layout == Models.ListLayout.Grid;
+		GridSpan = settings.GridSpan;
+		AnimationsEnabled = settings.AnimationsEnabled;
 	}
 
 	protected override void OnDeactivated()

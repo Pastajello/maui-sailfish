@@ -204,7 +204,7 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   (`QtHostVisualState.TransformLimit`); to check: hit-test of rotated/scaled hosts and Button colors
   reverting to Silica defaults after setting `null`.
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
-  today `tools/sf workload-install`).
+  today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
 
 **Deliberately open** (not touched without a new decision)
 - Camera photos (Sailfish has no in-app capture API), Geocoding, TextToSpeech, Contacts.

@@ -234,6 +234,9 @@ ApplicationWindow {
         return null;
     }
 
-    Component.onCompleted: pageStack.push(mauiPageUrl, { mauiPageId: "mp1" },
+    // mauiFirstTitle: the first page's header, a context property of the window load.
+    Component.onCompleted: pageStack.push(mauiPageUrl,
+                                          { mauiPageId: "mp1",
+                                            pageTitle: typeof mauiFirstTitle !== "undefined" ? mauiFirstTitle : "" },
                                           PageStackAction.Immediate)
 }

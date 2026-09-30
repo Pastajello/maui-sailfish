@@ -187,6 +187,7 @@ Linux.Sailfish.slnx
 │   ├── Linux.SailfishOS.Sample/     # the demo app (tasks, galleries, diag legs)
 │   └── SailfishKitchen/             # recipe browser (net11.0 + net11.0-ios reference leg)
 ├── src/Linux.SailfishOS.WorkloadManifest/ # teaches the SDK the net11.0-sailfish TFM
+├── src/Linux.SailfishOS.Workload/   # sailfish-workload tool: installs that manifest without a clone
 ├── templates/
 │   ├── maui-sailfish-app/           # dotnet new maui-sailfish (full MAUI app + Sailfish head)
 │   ├── maui-sailfish-platform/      # dotnet new maui-sailfish-platform (Platforms/SailfishOS only)
@@ -248,9 +249,9 @@ dotnet build Linux.Sailfish.slnx -c Release
 ### External consumers (no clone)
 
 ```bash
-# one-time: teach the SDK the net11.0-sailfish TFM (from a clone, or the
-# microsoft.maui.sailfishos.Manifest-* package on your feed)
-./tools/sf workload-install
+# one-time: teach the SDK the net11.0-sailfish TFM — the sailfish-workload tool
+# from the feed (status / uninstall too), or ./tools/sf workload-install in a clone
+dnx Microsoft.Maui.SailfishOS.Workload install --add-source <feed>
 
 # anywhere: the .NET MAUI app template (XAML, Shell, Resources, Platforms/…)
 # with a Sailfish OS head next to Android/iOS/Mac Catalyst/Windows
@@ -397,8 +398,8 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf native-build` | `zig c++` cross-build of `libsailfishhost.so`, the secrets bridge and the Harbour launcher against the device sysroot → `artifacts/native/<arch>/` (`SF_ARCH=aarch64` default, `armv7hl`) |
 | `sf sysroot` | assembles the aarch64 sysroot (Qt 5.6.3 headers + runtime libs) from public RPMs |
 | `sf screenrec-build` | `zig cc` cross-build of the on-phone recorder (lipstick recorder protocol → V4L2 H.264 → GStreamer MP4) |
-| `sf pack-local` | packs this checkout into the local NuGet feed (`Microsoft.Maui.SailfishOS` + the template), registers the source, clears the cached 0.1.0 — what SailfishKitchen and template apps restore from |
-| `sf workload-install` | teaches the local SDK the `net11.0-sailfish` TFM |
+| `sf pack-local` | packs this checkout into the local NuGet feed (`Microsoft.Maui.SailfishOS`, the workload manifest and its `sailfish-workload` tool, the template), registers the source, clears the cached 0.1.0 — what SailfishKitchen and template apps restore from |
+| `sf workload-install` | teaches the local SDK the `net11.0-sailfish` TFM (without a clone: `dnx Microsoft.Maui.SailfishOS.Workload install`) |
 
 Layout: `tools/cmd/` holds the commands, `tools/lib/sf-lib.sh` the shared helpers (connection, transports,
 timeouts, app identity; `SF_SSH_MUX=1` makes every call of a run share one ssh connection per phone,

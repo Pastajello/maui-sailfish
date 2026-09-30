@@ -15,6 +15,9 @@
     <!-- Versioning for platform packages -->
     <PlatformMauiLinuxGtk4Version Condition="'$(PlatformMauiLinuxGtk4Version)' == ''">0.6.0</PlatformMauiLinuxGtk4Version>
     <PlatformMauiSailfishVersion Condition="'$(PlatformMauiSailfishVersion)' == ''">0.1.0</PlatformMauiSailfishVersion>
+    <!-- SDK feature band the workload manifest is for (global.json's SDK): the manifest package id and the
+         sailfish-workload tool's check both use it. -->
+    <SailfishWorkloadBand Condition="'$(SailfishWorkloadBand)' == ''">11.0.100-rc.1</SailfishWorkloadBand>
     <!-- Set to false when the maui-labs DevFlow projects should not be referenced by the sample -->
     <EnableMauiDevFlow Condition="'$(EnableMauiDevFlow)' == ''">false</EnableMauiDevFlow>
   </PropertyGroup>

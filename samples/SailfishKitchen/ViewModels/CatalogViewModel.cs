@@ -133,10 +133,27 @@ public partial class CatalogViewModel : ViewModelBase
 			RefreshCommand.Execute(null);
 	}
 
-	/// <summary>Loads the first page. Idempotent, so OnAppearing and a retry can both call it.</summary>
+	/// <summary>
+	/// Loads the first page. Idempotent, so OnAppearing and a retry can both call it. Busy until the rows are in:
+	/// without it the screen read "no content, not busy" and showed the empty state for the whole first fetch (the
+	/// paged loads bypass RunBusyAsync). The continuation runs after the row insert, which the collection queues on
+	/// the UI thread first.
+	/// </summary>
 	[RelayCommand]
-	private Task LoadInitialAsync() =>
-		HasContent || Meals.IsLoading ? Task.CompletedTask : Meals.InitializeAsync(Lifetime);
+	private async Task LoadInitialAsync()
+	{
+		if (HasContent || Meals.IsLoading)
+			return;
+		IsBusy = true;
+		try
+		{
+			await Meals.InitializeAsync(Lifetime);
+		}
+		finally
+		{
+			IsBusy = false;
+		}
+	}
 
 	/// <summary>
 	/// Asks for the next page. Also called from the view's scroll signal in case RemainingItemsThreshold never fires.
@@ -255,6 +272,13 @@ public partial class CatalogViewModel : ViewModelBase
 	{
 		Messenger.Register<CatalogViewModel, SettingsChangedMessage>(this, static (vm, message) => vm.ApplySettings(message.Settings));
 		Messenger.Register<CatalogViewModel, FavoriteToggledMessage>(this, static (vm, message) => vm.SyncFavorite(message));
+		// While covered the page heard no SettingsChangedMessage (e.g. the layout switched in Settings), and Shutdown
+		// cancelled the thumbnails still loading; both resume on return.
+		ApplySettings(_settings.Current);
+		var allowNetwork = _settings.Current.AllowNetwork;
+		foreach (var card in Meals)
+			if (card.Thumbnail is null)
+				_ = card.LoadThumbnailAsync(allowNetwork, Lifetime);
 	}
 
 	protected override void OnDeactivated()

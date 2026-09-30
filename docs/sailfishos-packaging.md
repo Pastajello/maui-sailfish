@@ -107,6 +107,8 @@ Size         : 86304638
 | `SailfishCover` | `false` | Generic cover with the app title |
 | `SailfishCoverQml` | *(empty)* | Your QML item as the cover content (see below) |
 | `SailfishIconSizes` | `86;108;128;172` | Launcher icon sizes generated from `MauiIcon` |
+| `SailfishUrlSchemes` | *(empty)* | URL schemes the app opens (`myapp;geo`): `.desktop` `MimeType=x-scheme-handler/…`, `Exec … %U`, the D-Bus `openUrl` method and its activation file; the URL reaches `Application.OnAppLinkRequestReceived` |
+| `SailfishMimeTypes` | *(empty)* | File types the app opens (`text/plain;image/png`), the same way; files arrive as `file://` URIs |
 
 ### Cover
 

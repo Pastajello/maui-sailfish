@@ -32,6 +32,15 @@ public static class SailfishLifecycle
 	/// <summary>The virtual keyboard opened, closed or resized; <paramref name="keyboard"/> is in window pixels.</summary>
 	public delegate void OnInputMethodChanged(SailfishMauiApplication application, bool visible, Rect keyboard);
 
+	/// <summary>The display turned off, dimmed or on (MCE).</summary>
+	public delegate void OnDisplayStateChanged(SailfishMauiApplication application, SailfishDisplayState state);
+
+	/// <summary>The lock screen was shown or dismissed (MCE touch-screen lock).</summary>
+	public delegate void OnScreenLockChanged(SailfishMauiApplication application, bool locked);
+
+	/// <summary>MCE memory pressure changed; free caches on Warning and Critical (OnTrimMemory / DidReceiveMemoryWarning).</summary>
+	public delegate void OnMemoryLevelChanged(SailfishMauiApplication application, SailfishMemoryLevel level);
+
 	/// <summary>The app is about to quit (QGuiApplication::aboutToQuit: window closed from the home screen, or
 	/// Application.Quit); the last point to save state (WillTerminate / OnDestroy).</summary>
 	public delegate void OnQuitting(SailfishMauiApplication application);
@@ -70,6 +79,15 @@ public static class SailfishLifecycleExtensions
 		builder.On(handler);
 
 	public static ISailfishLifecycleBuilder OnInputMethodChanged(this ISailfishLifecycleBuilder builder, SailfishLifecycle.OnInputMethodChanged handler) =>
+		builder.On(handler);
+
+	public static ISailfishLifecycleBuilder OnDisplayStateChanged(this ISailfishLifecycleBuilder builder, SailfishLifecycle.OnDisplayStateChanged handler) =>
+		builder.On(handler);
+
+	public static ISailfishLifecycleBuilder OnScreenLockChanged(this ISailfishLifecycleBuilder builder, SailfishLifecycle.OnScreenLockChanged handler) =>
+		builder.On(handler);
+
+	public static ISailfishLifecycleBuilder OnMemoryLevelChanged(this ISailfishLifecycleBuilder builder, SailfishLifecycle.OnMemoryLevelChanged handler) =>
 		builder.On(handler);
 
 	public static ISailfishLifecycleBuilder OnQuitting(this ISailfishLifecycleBuilder builder, SailfishLifecycle.OnQuitting handler) =>

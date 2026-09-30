@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
   </ItemGroup>
 
 </Project>

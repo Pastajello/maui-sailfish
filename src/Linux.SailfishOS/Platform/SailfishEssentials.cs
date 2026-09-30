@@ -159,6 +159,8 @@ public static class SailfishEssentials
 		SailfishTheme.Start();
 		SailfishDeviceDisplay.Start();
 		SailfishCover.OnHostReady();
+		(IPlatformApplication.Current as SailfishMauiApplication)?.StartSystemService();
+		SailfishOpenUrl.OnHostReady();
 		// Battery/Connectivity start on first use.
 	}
 }

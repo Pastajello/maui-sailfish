@@ -210,11 +210,12 @@ internal sealed class QtHostListAdapter
 		switch (siv.ItemsLayout)
 		{
 			case GridItemsLayout grid:
+				// A horizontal grid scrolls along x: each list row is a column of Span cells stacked down the list's
+				// height. SpacingDp runs along the scroll axis, HSpacingDp between the cells of one row.
 				Span = Math.Max(1, grid.Span);
-				SpacingDp = grid.VerticalItemSpacing;
-				HSpacingDp = grid.HorizontalItemSpacing;
-				if (grid.Orientation != ItemsLayoutOrientation.Vertical)
-					QtHostDiag.Warn(QtHostDiagChannel.QmlLoad, "horizontal GridItemsLayout not supported yet — rendered vertically");
+				Horizontal = grid.Orientation == ItemsLayoutOrientation.Horizontal;
+				SpacingDp = Horizontal ? grid.HorizontalItemSpacing : grid.VerticalItemSpacing;
+				HSpacingDp = Horizontal ? grid.VerticalItemSpacing : grid.HorizontalItemSpacing;
 				break;
 			case LinearItemsLayout linear:
 				SpacingDp = linear.ItemSpacing;
@@ -340,8 +341,10 @@ internal sealed class QtHostListAdapter
 		ReadLayout();   // layout props may have changed without a reconcile
 		LastCrossDp = Host.MauiLogicalBounds.Height;
 		var span = Math.Max(1, Span);
+		// The cells share the cross axis: the width of a vertical grid, the height of a horizontal one.
+		var crossDp = Horizontal && span > 1 ? Math.Max(0, Host.MauiLogicalBounds.Height) : widthDp;
 		CellWidthDp = span > 1
-			? (widthDp - (span - 1) * HSpacingDp) / span
+			? (crossDp - (span - 1) * HSpacingDp) / span
 			: widthDp;
 
 		var view = View;
@@ -536,7 +539,8 @@ internal sealed class QtHostListAdapter
 				QtHostLayout.MeasureAndArrangeItemFixed(view, w, h);
 				return Horizontal ? w : h;
 			}
-			return QtHostLayout.MeasureAndArrangeItemAcross(view, heightDp);
+			// A horizontal grid cell spans its share of the height (widthDp carries the cell's cross extent).
+			return QtHostLayout.MeasureAndArrangeItemAcross(view, Span > 1 ? widthDp : heightDp);
 		}
 		catch (Exception ex)
 		{
@@ -571,8 +575,7 @@ internal sealed class QtHostListAdapter
 	internal void PushLayout()
 	{
 		ReadLayout();
-		foreach (var kv in LayoutProps())
-			Push(kv.Key, kv.Value);
+		PushMany(LayoutProps());
 	}
 
 	/// <summary>Moves the native carousel to page <paramref name="index"/>.</summary>
@@ -648,10 +651,47 @@ internal sealed class QtHostListAdapter
 		if (!Host.IsAttached)
 			return;
 		var json = BridgeValue.Serialize(value);
+		if (!Changed(name, json))
+			return;
 		// Recorded as applied, so the page reconcile's diff does not send it again.
 		if (QtHostRuntime.SetProperty(Host.NativeHandle, name, json) == 0)
 			Host.AppliedProperties[name] = json;
 	}
+
+	/// <summary>Several properties in one ordered native batch (no mauiApplying envelope: adapter events stay live),
+	/// only those that changed.</summary>
+	internal void PushMany(IEnumerable<KeyValuePair<string, object?>> props)
+	{
+		if (!Host.IsAttached)
+			return;
+		var changed = new List<(string Name, string Json)>();
+		foreach (var (name, value) in props)
+		{
+			var json = BridgeValue.Serialize(value);
+			if (Changed(name, json))
+				changed.Add((name, json));
+		}
+		if (changed.Count == 0)
+			return;
+		if (changed.Count == 1)
+		{
+			if (QtHostRuntime.SetProperty(Host.NativeHandle, changed[0].Name, changed[0].Json) == 0)
+				Host.AppliedProperties[changed[0].Name] = changed[0].Json;
+			return;
+		}
+		var sb = new StringBuilder("[");
+		for (var i = 0; i < changed.Count; i++)
+			sb.Append(i > 0 ? "," : string.Empty).Append("{\"name\":").Append(BridgeValue.Quote(changed[i].Name))
+			  .Append(",\"value\":").Append(changed[i].Json).Append('}');
+		if (QtHostRuntime.ApplyProperties(Host.NativeHandle, sb.Append(']').ToString()) == 0)
+			foreach (var (name, json) in changed)
+				Host.AppliedProperties[name] = json;
+	}
+
+	// The native list moves its carousel page itself (a swipe), so the last pushed position is no proof of the
+	// native one: it is always sent. Everything else only changes through these pushes.
+	private bool Changed(string name, string json) =>
+		name == "mauiPosition" || !Host.AppliedProperties.TryGetValue(name, out var applied) || applied != json;
 
 	internal void PushRows()
 	{
@@ -1145,7 +1185,7 @@ internal sealed class QtHostListAdapter
 			return;
 		var hosts = new HashSet<NativeElementHost>(dg.Children);
 		foreach (var (root, cellX) in dg.Cells)
-			_renderer.PushItemGeometry(root, cellX, hosts);
+			_renderer.PushItemGeometry(root, cellX, hosts, crossAlongY: Horizontal);
 	}
 
 	internal void UpdateSlotGeometry(SlotState slot)

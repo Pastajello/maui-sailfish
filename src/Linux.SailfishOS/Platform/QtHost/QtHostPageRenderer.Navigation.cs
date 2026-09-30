@@ -278,6 +278,8 @@ public sealed partial class QtHostPageRenderer
 		// Poll skips the reconcile mid-transition: the dying page's hosts would fail the geometry probe and arm
 		// the dead-host net against the revealed page.
 		_navStackBusy = busy;
+		if (!busy)
+			FlushDeferredNativeDestroys();   // a popped page's hosts, once its slide-out ended
 
 		// --- activation bridge (window focus + application foreground) ---
 		if (_lastWindowActive is null)
@@ -476,8 +478,10 @@ public sealed partial class QtHostPageRenderer
 			}
 			else
 			{
+				// The top page slides in with its real header; pages under it are covered at once.
+				var title = BridgeValue.Quote(i == count - 1 ? CurrentTitle : string.Empty);
 				rc = QtHostRuntime.Eval(
-					$"(function(){{var p=pageStack.push(window.mauiPageUrl,{{mauiPageId:'{id}'}},PageStackAction.{action});" +
+					$"(function(){{var p=pageStack.push(window.mauiPageUrl,{{mauiPageId:'{id}',pageTitle:{title}}},PageStackAction.{action});" +
 					$"return (p&&p.mauiPageId==='{id}'?'ok':'fail')+'|depth='+pageStack.depth+'|top='+(pageStack.currentPage===p)}})()");
 			}
 			if (!rc.StartsWith("ok|", StringComparison.Ordinal))
@@ -516,7 +520,12 @@ public sealed partial class QtHostPageRenderer
 			var animated = count == 1 && NavAnimation && RetentionArmed &&
 			               _nativePageIds.Count > 1 && IsParkedOn(ResolveCurrentPage(), _nativePageIds[_nativePageIds.Count - 2]);
 			if (animated)
-				TearDownHosts(pageId: null, pageAlive: false);
+			{
+				// The page slides out with its content (Silica keeps a popped page painted until the transition ends).
+				_deferNativeDestroy = true;
+				try { TearDownHosts(pageId: null, pageAlive: false); }
+				finally { _deferNativeDestroy = false; }
+			}
 			else
 				// Destroy-before-pop through the still-alive page's own op queue.
 				TearDownHosts(id, pageAlive: true);

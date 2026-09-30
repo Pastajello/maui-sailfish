@@ -362,8 +362,17 @@ public sealed class SailfishLauncher : ILauncher
 
 	public Task<bool> TryOpenAsync(Uri uri) => CanOpenAsync(uri);
 
-	public Task<bool> OpenAsync(OpenFileRequest request) =>
-		throw new NotSupportedException("Opening local files through external apps is not wired on Sailfish yet.");
+	/// <summary>Opens the file in the app registered for its type (QDesktopServices → the system's default
+	/// handler, as xdg-open picks it). False when there is no such file. Under Sailjail the other app sees only the
+	/// locations its own sandbox allows (Documents, Downloads, Pictures, …), not this app's private data.</summary>
+	public Task<bool> OpenAsync(OpenFileRequest request)
+	{
+		ArgumentNullException.ThrowIfNull(request);
+		var path = request.File?.FullPath;
+		if (string.IsNullOrEmpty(path) || !File.Exists(path))
+			return Task.FromResult(false);
+		return SailfishBrowser.OpenUrl(new Uri(Path.GetFullPath(path)).AbsoluteUri);
+	}
 }
 
 /// <summary>App identity from the baked app meta + entry assembly.</summary>

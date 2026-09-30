@@ -15,7 +15,26 @@ using System.Text;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 
+if (args.Length == 0 || args[0] is "-h" or "--help")
+{
+	Console.WriteLine("""
+		Usage: tools/sf trace-analyze TRACE.nettrace [option=value ...]
+		  anchor=<frame>    t=0 at the first sample containing this frame (default: trace start)
+		  bucket=250        timeline bucket, ms
+		  window=FROM:TO    report UI-thread work in this window (ms from the anchor; repeatable)
+		  phase=<frame>     with window=: inclusive UI-thread ms per window for this frame (repeatable)
+		  focus=<frame>     callers, caller chains and callees of this frame on the UI thread (repeatable)
+		  focuswin=FROM:TO  limit focus= to this window; depth=3 is the caller-chain length
+		How to read the stacks: docs/profiling.md.
+		""");
+	Environment.Exit(args.Length == 0 ? 2 : 0);
+}
 var path = args[0];
+if (!File.Exists(path))
+{
+	Console.Error.WriteLine($"error: no trace file '{path}' (see --help)");
+	Environment.Exit(2);
+}
 var opt = args.Skip(1).Select(a => a.Split('=', 2)).ToLookup(a => a[0], a => a.Length > 1 ? a[1] : "");
 var bucketMs = opt["bucket"].Select(double.Parse).DefaultIfEmpty(250).First();
 var anchor = opt["anchor"].FirstOrDefault();

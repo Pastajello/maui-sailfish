@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Devices;
+using Microsoft.Maui.Storage;
 
 namespace Microsoft.Maui.SailfishOS.Platform;
 
@@ -15,6 +17,19 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 ///   F. Focusing an Entry at the end of a ScrollView keeps it above the virtual keyboard (Silica auto-scroll).
 ///   G. Rotation: a landscape window re-lays the MAUI page out landscape and DeviceDisplay follows; back to portrait.
 ///   H. SailfishRemorse: a RemorsePopup / a RemorseItem over a list row count down and run the action, a tap undoes it.
+///   I. A horizontal GridItemsLayout scrolls along x with Span cells stacked in each column; a tap picks the cell.
+///   J. MCE lifecycle state: display on, lock screen off and a known memory level while the app is in front.
+///   K. Opening URLs: the installed .desktop declares the scheme and the D-Bus method (as native apps do), the D-Bus
+///      activation file exists, and a call to the app's own openUrl reaches Application.OnAppLinkRequestReceived.
+///   L. Dispatcher timers: DispatchDelayed fires on time when scheduled in bursts, from timer callbacks, from queued
+///      work and right after an immediate modal pop (the case that once waited ~2 s for the heartbeat).
+///   M. Native lifecycle events reach SailfishMauiApplication / AddSailfish handlers: the keyboard (F) and rotation (G)
+///      raised theirs, an ambience report raises OnColorSchemeChanged, and minimizing to the home screen (Silica
+///      window.deactivate) and back raises OnCoverStatusChanged and OnApplicationStateChanged.
+///   N. Launcher.OpenAsync(OpenFileRequest): a missing file is false; an image opens in the system's viewer (this app
+///      leaves the front), then the app comes back.
+///   O. Two levels back: after pushing three pages, each pop reveals its page from the retention/page cache — no
+///      row is rebuilt (the second pop used to rebuild the page, 847 ms) — with every visible list row painted.
 /// </summary>
 internal sealed partial class QtHostDiagnosticsRunner
 {
@@ -77,6 +92,14 @@ internal sealed partial class QtHostDiagnosticsRunner
 				("F keyboard", () => SilicaKeyboardF(renderer, dispatcher, nav)),
 				("G rotation", () => SilicaRotationG(renderer, dispatcher, nav)),
 				("H remorse", () => SilicaRemorseH(renderer, dispatcher, nav)),
+				("I horizontal grid", () => SilicaHorizontalGridI(renderer, dispatcher, nav)),
+				("J MCE state", () => SilicaMceJ(dispatcher)),
+				("K open url", () => SilicaOpenUrlK(dispatcher)),
+				("L dispatcher timers", () => SilicaTimersL(dispatcher, nav)),
+				("M lifecycle events", () => SilicaLifecycleM(dispatcher)),
+				("O two levels back", () => SilicaTwoLevelsBackO(renderer, dispatcher, nav)),
+				// Last: the viewer it starts may come to the front seconds later and leave this app Inactive.
+				("N open file", () => SilicaOpenFileN(dispatcher)),
 			})
 			{
 				try
@@ -402,6 +425,224 @@ internal sealed partial class QtHostDiagnosticsRunner
 		await SilicaWait(dispatcher, 900);
 		_qtSilicaChecks.Check($"H4 a tap on the row's remorse undoes it: task false ({(kept.IsCompleted ? kept.Result.ToString() : "pending")}), count stays {items.Count}==9",
 			kept.IsCompleted && !kept.Result && items.Count == 9);
+		await nav.PopAsync();
+		await SilicaWait(dispatcher, 900);
+	}
+
+	private async Task SilicaHorizontalGridI(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav)
+	{
+		var items = Enumerable.Range(1, 12).Select(i => $"cell {i}").ToList();
+		var grid = new CollectionView
+		{
+			ItemsSource = items,
+			SelectionMode = SelectionMode.Single,
+			HeightRequest = 320,
+			ItemsLayout = new GridItemsLayout(2, ItemsLayoutOrientation.Horizontal) { HorizontalItemSpacing = 12, VerticalItemSpacing = 8 },
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var cell = new Label { WidthRequest = 150, Padding = new Thickness(12), BackgroundColor = Color.FromArgb("#303a5a") };
+				cell.BindingContextChanged += (_, _) => cell.Text = cell.BindingContext as string ?? string.Empty;
+				return cell;
+			}),
+		};
+		await nav.PushAsync(SilicaPage("Silica I", new VerticalStackLayout { Children = { grid } }));
+		await SilicaWait(dispatcher, 1600);
+		NativeElementHostOf(renderer, grid, out var listHost);
+		var orientation = listHost is null ? "?" : QtHost.QtHostRuntime.GetProperty(listHost.NativeHandle, "mauiOrientation");
+		var rows = listHost is null ? -1 : DiagQml.Num(QtHost.QtHostRuntime.GetProperty(listHost.NativeHandle, "count"), -1);
+		// Scene rect of a row's cell (row = column of the horizontal grid).
+		(double X, double Y, double W, double H) Cell(int row, int cell)
+		{
+			var view = renderer.Collection.RowView(row, cell);
+			var id = view is null ? null : renderer.HostIdOf(view);
+			if (id is null)
+				return (double.NaN, double.NaN, 0, 0);
+			var r = QtHost.QtHostRuntime.Eval($"(function(){{var h=pageStack.currentPage.__hosts['{id}'];if(!h||!h.item)return '';var i=h.item,p=i.mapToItem(null,0,0);return p.x+','+p.y+','+i.width+','+i.height;}})()").Split(',');
+			return r.Length == 4 ? (DiagQml.Num(r[0]), DiagQml.Num(r[1]), DiagQml.Num(r[2]), DiagQml.Num(r[3])) : (double.NaN, double.NaN, 0, 0);
+		}
+		var a = Cell(0, 0);
+		var b = Cell(0, 1);
+		var c = Cell(1, 0);
+		_qtSilicaChecks.Check($"I horizontal GridItemsLayout(2): the list scrolls along x ('{orientation}'=='horizontal') with 12/2 = {rows}==6 columns",
+			orientation == "horizontal" && rows == 6);
+		_qtSilicaChecks.Check($"I a column stacks its 2 cells ('cell 1' y{a.Y:F0} above 'cell 2' y{b.Y:F0}, same x {a.X:F0}/{b.X:F0}); the next column is to the right ('cell 3' x{c.X:F0} > {a.X + a.W:F0})",
+			Math.Abs(a.X - b.X) < 1 && b.Y >= a.Y + a.H && c.X >= a.X + a.W);
+		DiagQml.Tap(b.X + b.W / 2, b.Y + b.H / 2);
+		await SilicaWait(dispatcher, 900);
+		_qtSilicaChecks.Check($"I a tap on the lower cell selects it (SelectedItem '{grid.SelectedItem}'=='cell 2')", Equals(grid.SelectedItem, "cell 2"));
+		await SilicaShot(dispatcher, "silica-i-horizontal-grid");
+		await nav.PopAsync();
+		await SilicaWait(dispatcher, 900);
+	}
+
+	private async Task SilicaMceJ(SailfishDispatcher dispatcher)
+	{
+		var app = IPlatformApplication.Current as SailfishMauiApplication;
+		for (var i = 0; i < 30 && (app?.DisplayState is null || app.ScreenLocked is null || !app.MemoryLevelAnswered); i++)
+			await SilicaWait(dispatcher, 100);
+		_qtSilicaChecks.Check($"J MCE reports the display on ({app?.DisplayState}) and no lock screen ({app?.ScreenLocked}) while the app is in front",
+			app?.DisplayState == SailfishDisplayState.On && app.ScreenLocked == false);
+		_qtSilicaChecks.Check($"J MCE answered the memory level query ({app?.MemoryLevel}; Unknown where MCE does not track memory)",
+			app is not null && app.MemoryLevelAnswered);
+	}
+
+	private async Task SilicaOpenUrlK(SailfishDispatcher dispatcher)
+	{
+		var package = Path.GetFileName(AppContext.BaseDirectory.TrimEnd('/'));
+		var desktopPath = $"/usr/share/applications/{package}.desktop";
+		var desktop = File.Exists(desktopPath) ? File.ReadAllText(desktopPath) : string.Empty;
+		var service = System.Text.RegularExpressions.Regex.Match(desktop, @"X-Maemo-Service=(\S+)").Groups[1].Value;
+		_qtSilicaChecks.Check($"K {desktopPath}: MimeType has x-scheme-handler/mauisample, Exec takes %U, X-Maemo-Service/Object-Path/Method name the app's D-Bus openUrl ('{service}')",
+			desktop.Contains("x-scheme-handler/mauisample;") && desktop.Contains(" %U") && service.Length > 0 &&
+			desktop.Contains("X-Maemo-Object-Path=/") && desktop.Contains("X-Maemo-Method=") && desktop.Contains(".openUrl"));
+		var activation = $"/usr/share/dbus-1/services/{service}.service";
+		_qtSilicaChecks.Check($"K the D-Bus activation file {activation} starts the app through the invoker",
+			File.Exists(activation) && File.ReadAllText(activation).Contains($"/usr/bin/{package}"));
+
+		Uri? got = null;
+		void OnDelivered(Uri u) => got = u;
+		SailfishOpenUrl.Delivered += OnDelivered;
+		try
+		{
+			var rc = SailfishOpenUrl.CallSelf("mauisample://recipes/42?from=dbus");
+			for (var i = 0; i < 20 && got is null; i++)
+				await SilicaWait(dispatcher, 100);
+			_qtSilicaChecks.Check($"K a D-Bus openUrl call ({rc}) reaches Application.OnAppLinkRequestReceived with the URI ('{got}')",
+				got?.ToString() == "mauisample://recipes/42?from=dbus");
+		}
+		finally
+		{
+			SailfishOpenUrl.Delivered -= OnDelivered;
+		}
+		_qtSilicaChecks.Check($"K launch arguments: URLs and existing files become URIs, options and other text do not",
+			SailfishOpenUrl.ToUri("mauisample://a")?.Scheme == "mauisample" && SailfishOpenUrl.ToUri(desktopPath)?.IsFile == true &&
+			SailfishOpenUrl.ToUri("-prestart") is null && SailfishOpenUrl.ToUri("hello") is null);
+	}
+
+	private async Task SilicaTimersL(SailfishDispatcher dispatcher, NavigationPage nav)
+	{
+		var clock = System.Diagnostics.Stopwatch.StartNew();
+		var late = new List<string>();
+		var fired = 0;
+		var expected = 0;
+		void Schedule(int ms, string tag)
+		{
+			expected++;
+			var due = clock.ElapsedMilliseconds + ms;
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(ms), () =>
+			{
+				fired++;
+				var lag = clock.ElapsedMilliseconds - due;
+				if (lag > 60)
+					late.Add($"{tag}+{lag}ms");
+			});
+		}
+		// A burst, mixed delays, scheduled in one go.
+		foreach (var ms in new[] { 1, 5, 10, 20, 40, 60, 80, 120, 160, 200 })
+			Schedule(ms, $"burst{ms}");
+		// From inside timer callbacks (the next timer is armed while the loop is in its tick).
+		for (var i = 0; i < 10; i++)
+		{
+			var delay = 15 + i * 12;
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(5 + i * 7), () => Schedule(delay, $"nested{delay}"));
+		}
+		// From queued work.
+		for (var i = 0; i < 5; i++)
+		{
+			var delay = 30 + i * 25;
+			dispatcher.Dispatch(() => Schedule(delay, $"queued{delay}"));
+		}
+		await SilicaWait(dispatcher, 700);
+		// The reported case: a 60 ms timer scheduled right after an immediate modal close.
+		await nav.Navigation.PushModalAsync(SilicaPage("Silica L modal", new Label { Text = "modal" }), false);
+		await SilicaWait(dispatcher, 1200);
+		await nav.Navigation.PopModalAsync(false);
+		Schedule(60, "after-modal-pop");
+		await SilicaWait(dispatcher, 1500);
+		_qtSilicaChecks.Check($"L DispatchDelayed: {fired}/{expected} fired, none more than 60 ms late ([{string.Join(",", late)}])",
+			fired == expected && late.Count == 0);
+	}
+
+	private async Task SilicaLifecycleM(SailfishDispatcher dispatcher)
+	{
+		static int Count(string name) => SailfishMauiApplication.NativeEventCounts.TryGetValue(name, out var n) ? n : 0;
+		_qtSilicaChecks.Check($"M the keyboard raised OnInputMethodChanged ({Count("OnInputMethodChanged")}) and the rotation OnOrientationChanged ({Count("OnOrientationChanged")}×)",
+			Count("OnInputMethodChanged") > 0 && Count("OnOrientationChanged") >= 2);
+		var scheme0 = Count("OnColorSchemeChanged");
+		// The ambience report the shell sends on a switch, with the current scheme (the theme stays as it is).
+		QtHost.QtHostRuntime.Eval("window.mauiAppNotify('svc-theme-changed', JSON.stringify({ light: Theme.colorScheme === Theme.DarkOnLight }))");
+		await SilicaWait(dispatcher, 600);
+		_qtSilicaChecks.Check($"M an ambience report raises OnColorSchemeChanged ({scheme0} → {Count("OnColorSchemeChanged")})", Count("OnColorSchemeChanged") > scheme0);
+		var cover0 = Count("OnCoverStatusChanged");
+		var state0 = Count("OnApplicationStateChanged");
+		QtHost.QtHostRuntime.Eval("window.deactivate()");
+		await SilicaWait(dispatcher, 2500);
+		var coverShown = Count("OnCoverStatusChanged") - cover0;
+		var stateDown = Count("OnApplicationStateChanged") - state0;
+		QtHost.QtHostRuntime.Eval("window.activate()");
+		for (var i = 0; i < 30 && QtHost.QtHostRuntime.Eval("String(Qt.application.state)") != "4"; i++)
+			await SilicaWait(dispatcher, 100);
+		await SilicaWait(dispatcher, 600);
+		_qtSilicaChecks.Check($"M minimized to the home screen: OnCoverStatusChanged +{coverShown}, OnApplicationStateChanged +{stateDown}; back in front (state {QtHost.QtHostRuntime.Eval("String(Qt.application.state)")}==4)",
+			coverShown > 0 && stateDown > 0 && QtHost.QtHostRuntime.Eval("String(Qt.application.state)") == "4");
+	}
+
+	private async Task SilicaOpenFileN(SailfishDispatcher dispatcher)
+	{
+		var missing = await Launcher.Default.OpenAsync(new OpenFileRequest("missing", new ReadOnlyFile("/nonexistent/x.png")));
+		_qtSilicaChecks.Check($"N OpenAsync(OpenFileRequest) on a missing file is false ({missing})", !missing);
+		var image = Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory, "images"), "*.png").FirstOrDefault();
+		if (image is null)
+		{
+			_qtSilicaChecks.Check("N an image to open ships with the app", false);
+			return;
+		}
+		var opened = await Launcher.Default.OpenAsync(new OpenFileRequest("image", new ReadOnlyFile(image)));
+		var left = false;
+		for (var i = 0; i < 50 && !left; i++)
+		{
+			await SilicaWait(dispatcher, 100);
+			left = QtHost.QtHostRuntime.Eval("String(Qt.application.state)") != "4";
+		}
+		await SilicaShot(dispatcher, "silica-n-open-file");
+		QtHost.QtHostRuntime.Eval("window.activate()");
+		for (var i = 0; i < 40 && QtHost.QtHostRuntime.Eval("String(Qt.application.state)") != "4"; i++)
+			await SilicaWait(dispatcher, 100);
+		_qtSilicaChecks.Check($"N OpenAsync(OpenFileRequest '{Path.GetFileName(image)}') is true ({opened}) and hands the file to another app (this one left the front: {left}); back in front ({QtHost.QtHostRuntime.Eval("String(Qt.application.state)")}==4)",
+			opened && left && QtHost.QtHostRuntime.Eval("String(Qt.application.state)") == "4");
+	}
+
+	private async Task SilicaTwoLevelsBackO(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav)
+	{
+		var list1 = SilicaList(Enumerable.Range(1, 40).Select(i => $"level one row {i}").ToList());
+		var list2 = SilicaList(Enumerable.Range(1, 40).Select(i => $"level two row {i}").ToList());
+		var p1 = SilicaPage("Silica O1", list1);
+		var p2 = SilicaPage("Silica O2", list2);
+		var p3 = SilicaPage("Silica O3", new Label { Text = "top", Margin = new Thickness(16) });
+		foreach (var p in new[] { p1, p2, p3 })
+		{
+			await nav.PushAsync(p);
+			await SilicaWait(dispatcher, 1300);
+		}
+		async Task Back(ContentPage revealed, CollectionView list, string step)
+		{
+			var materialized = renderer.Collection.ItemsMaterialized;
+			var clock = System.Diagnostics.Stopwatch.StartNew();
+			await nav.PopAsync();
+			var popMs = clock.ElapsedMilliseconds;
+			await SilicaWait(dispatcher, 500);
+			var rows = NativeElementHostOf(renderer, list, out var host) && host is not null ? ColEmptyVisibleRows("maui_" + host.Id) : "?";
+			var parts = rows.Split(':');
+			var painted = parts.Length == 2 && int.TryParse(parts[0], out var visible) && visible > 0 && parts[1].Length == 0;
+			var built = renderer.Collection.ItemsMaterialized - materialized;
+			await SilicaShot(dispatcher, $"silica-o-{(revealed == p1 ? "level1" : "level2")}");
+			// A rebuild (the old two-levels-down behaviour) re-materializes every visible row.
+			_qtSilicaChecks.Check($"O {step}: '{revealed.Title}' comes back without rebuilding its rows ({built} materialized == 0) and " +
+				$"painted (visible:empty rows {rows}; renderer page '{renderer.CurrentPage?.Title}', {renderer.CurrentHosts.Count} hosts, list attached: {renderer.CurrentHosts.Any(h => ReferenceEquals(h.Element, list))}); PopAsync took {popMs} ms",
+				ReferenceEquals(renderer.CurrentPage, revealed) && built == 0 && painted);
+		}
+		await Back(p2, list2, "first pop");
+		await Back(p1, list1, "second pop (two levels down)");
 		await nav.PopAsync();
 		await SilicaWait(dispatcher, 900);
 	}

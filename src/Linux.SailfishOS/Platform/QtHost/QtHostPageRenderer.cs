@@ -286,6 +286,15 @@ public sealed partial class QtHostPageRenderer
 	private long _tlStart, _tlNative, _tlHosts, _tlLayout, _tlAppear;
 	private int _tlHostCount;
 	private double _tlOpsEvalMs;
+	private double _lastOpsEvalMs;   // the last reconcile's applyMauiOps eval (slow-poll diagnostics)
+	/// <summary>Hosts created per pass when content grows on a shown page (see ReconcileCore).</summary>
+	internal static int CreateChunk { get; set; } = Math.Max(1, SailfishEnv.Int("MAUI_SAILFISH_CREATE_CHUNK") ?? 24);
+	/// <summary>The first chunk of a page being switched to: its visible top.</summary>
+	internal static int CreateFirstChunk { get; set; } = Math.Max(CreateChunk, SailfishEnv.Int("MAUI_SAILFISH_CREATE_FIRST_CHUNK") ?? 96);
+	private bool _createDeferred;   // this pass left hosts for the next one
+	/// <summary>Diagnostics: the last pass left hosts for a later chunk, so the page is not fully created yet.</summary>
+	internal bool CreationPending => _createDeferred;
+	private int _lastOpsCreated;
 	private string _tlKind = string.Empty;
 
 	/// <summary>The navigation handler saw a MAUI push/pop request (any thread).</summary>
@@ -541,7 +550,7 @@ public sealed partial class QtHostPageRenderer
 			var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 			if (Ms(t0, t3) >= SailfishRuntime.SlowWorkMs)
 				Console.Error.WriteLine($"[Sailfish][SLOW] poll {(kicked ? "kicked" : "timer")} {Ms(t0, t3):F0} ms: " +
-					$"nav {Ms(t0, t1):F0} reconcile {Ms(t1, t2):F0} (last {LastReconcileMs:F0}) rows {Ms(t2, t3):F0} " +
+					$"nav {Ms(t0, t1):F0} reconcile {Ms(t1, t2):F0} (last {LastReconcileMs:F0}; QML create {_lastOpsEvalMs:F0} ms for {_lastOpsCreated} hosts, layout {LastLayoutSplit.MeasureArrangeMs:F0}+{LastLayoutSplit.CollectMs:F0}+{LastLayoutSplit.FlushMs:F0}) rows {Ms(t2, t3):F0} " +
 					$"layoutPasses={LayoutPasses} page='{(_rendered is null ? "-" : TitleOf(_rendered))}'");
 		}
 		if (!kicked && NativeWork != work)
@@ -754,6 +763,7 @@ public sealed partial class QtHostPageRenderer
 
 	private void ReconcileCore()
 	{
+		_createDeferred = false;
 		var page = ResolveReconcilePage();
 		if (page is null)
 		{
@@ -792,6 +802,8 @@ public sealed partial class QtHostPageRenderer
 		_refreshWalk = null;
 		_contextFlyouts.Clear();   // flyout registry follows the tree
 		// The walk re-adds every shape still waiting for a size, so the set holds only shapes on the page as it is now.
+		// Shapes the previous pass skipped go first in a chunked create (see below).
+		var awaitedBefore = _awaitingArrange.Count == 0 ? null : new HashSet<Element>(_awaitingArrange);
 		_awaitingArrange.Clear();
 		Walk(page, desired, props);
 		AddSyntheticHosts(page, desired, props);   // page-level surfaces
@@ -944,6 +956,31 @@ public sealed partial class QtHostPageRenderer
 		var currentSet = new HashSet<NativeElementHost>(_current);
 		var survivors = _current.Where(desiredSet.Contains).ToList();       // in QML order
 		var created = desired.Where(h => !currentSet.Contains(h)).ToList(); // in desired order
+		// A big batch is created a chunk per frame instead of blocking (~0.7 ms of QML per host: a recipe's 117 hosts
+		// stalled the UI thread ~140 ms), top first as Silica lists fill in. A page being switched to gets a larger
+		// first chunk (what shows while it slides in); the rest, below the fold, follows once the transition ends.
+		// The pre-order prefix keeps every parent ahead of its children; the rest waits for the next pass.
+		// The unarranged retry (shapes that just got their size) adds only those shapes, with any ancestor not yet
+		// created; a normal pass takes them ahead of its chunk, so a row's shape shows with the row.
+		HashSet<NativeElementHost>? deferredCreate = null;
+		var chunk = _unarrangedRetry ? 0 : pageChanged ? CreateFirstChunk : CreateChunk;
+		if (created.Count > chunk)
+		{
+			var take = new HashSet<NativeElementHost>(created.Take(chunk));
+			if (awaitedBefore is not null)
+			{
+				var createdSet = new HashSet<NativeElementHost>(created);
+				foreach (var host in created)
+					if (host.Element is Element element && awaitedBefore.Contains(element))
+						for (var x = host; x is not null && createdSet.Contains(x) && take.Add(x); x = x.Parent) { }
+			}
+			if (take.Count < created.Count)
+			{
+				deferredCreate = created.Where(h => !take.Contains(h)).ToHashSet();
+				created = created.Where(take.Contains).ToList();   // still pre-order
+				_createDeferred = true;
+			}
+		}
 
 		// QML child order of every host (canvas key "") before this batch: the diff basis for "order" ops.
 		static string ParentKey(NativeElementHost? parent) => parent?.Id ?? string.Empty;
@@ -1027,7 +1064,9 @@ public sealed partial class QtHostPageRenderer
 		}
 		// _current mirrors the desired pre-order (hit-test tie order: later = painted above).
 		_current.Clear();
-		_current.AddRange(desired);
+		_current.AddRange(deferredCreate is null ? desired : desired.Where(h => !deferredCreate.Contains(h)));
+		if (deferredCreate is not null)
+			KickIn(16);   // the next chunk, after a frame
 
 		// Tree or property changes can move geometry.
 		if (ops.Count > 0 || updateCount > 0)
@@ -1061,8 +1100,10 @@ public sealed partial class QtHostPageRenderer
 				IdleToRenderTotalMs += ms;
 				QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"NAV-IDLE→render {ms:F0} ms");
 			}
+			_lastOpsEvalMs = TlMs(opsTs, System.Diagnostics.Stopwatch.GetTimestamp());   // QML object creation
+			_lastOpsCreated = created.Count;
 			if (_tlStart != 0 && _tlHosts == 0)
-				_tlOpsEvalMs = TlMs(opsTs, System.Diagnostics.Stopwatch.GetTimestamp());   // QML object creation
+				_tlOpsEvalMs = _lastOpsEvalMs;
 			foreach (var host in created)
 			{
 				AttachNative(host, props.TryGetValue(host, out var p) ? p : EmptyProps);
@@ -1124,6 +1165,10 @@ public sealed partial class QtHostPageRenderer
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"'{TitleOf(page)}' → SendAppearing (native pages [{string.Join(",", _nativePageIds)}])");
 		}
 	}
+
+	/// <summary>The header of the page shown first, so the native page is created with it (no placeholder title
+	/// before the first reconcile).</summary>
+	internal string CurrentTitle => ResolveCurrentPage() is { } page ? TitleOf(page) : string.Empty;
 
 	/// <summary>The header text: the page Title, else the ShellContent/ShellSection title (like in-box Shell
 	/// toolbars), else the type name.</summary>
@@ -1281,9 +1326,29 @@ public sealed partial class QtHostPageRenderer
 	private static void DetachNative(NativeElementHost host)
 	{
 		if (host.NativeHandle != 0)
-			QtHostRuntime.DestroyObject(host.NativeHandle);
+		{
+			// The shim hides and unparents a destroyed host at once; a page sliding out must keep painting.
+			if (_deferNativeDestroy)
+				PendingNativeDestroys.Add(host.NativeHandle);
+			else
+				QtHostRuntime.DestroyObject(host.NativeHandle);
+		}
 		host.NativeHandle = 0;
 		host.AppliedProperties.Clear();
+	}
+
+	// Animated pop: the popped page's hosts leave the managed mirror at once, but their native objects are released
+	// only after the transition (the pageStack deletes the page with them; the shim then just forgets the handles).
+	private static bool _deferNativeDestroy;
+	private static readonly List<long> PendingNativeDestroys = new();
+
+	private static void FlushDeferredNativeDestroys()
+	{
+		if (PendingNativeDestroys.Count == 0)
+			return;
+		foreach (var handle in PendingNativeDestroys)
+			QtHostRuntime.DestroyObject(handle);
+		PendingNativeDestroys.Clear();
 	}
 
 	/// <summary>Managed side of a destroy: property subscription off, native handle released.</summary>
@@ -1414,14 +1479,18 @@ public sealed partial class QtHostPageRenderer
 	/// <summary>Lays out one row/slot subtree inside its placeholder, rooted at the cell offset. Nothing depends
 	/// on the delegate's scene position, so scrolling never re-pushes row geometry; row
 	/// <see cref="NativeElementHost.MauiLogicalBounds"/> are delegate-relative.</summary>
-	internal void PushItemGeometry(VisualElement root, double cellX, IReadOnlyCollection<NativeElementHost> hosts)
+	internal void PushItemGeometry(VisualElement root, double cellX, IReadOnlyCollection<NativeElementHost> hosts,
+	                               bool crossAlongY = false)
 	{
 		if (hosts.Count == 0)
 			return;
 		// The root's arranged position in its cell is its Margin (the cell is arranged at 0,0), as for the page root.
+		// cellX is the cell's offset across the scroll axis: x in a vertical grid, y in a horizontal one.
 		var rootMatrix = QtHostVisualState
 			.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
-			.Then(Affine2.Translation(cellX + root.Bounds.X, root.Bounds.Y));
+			.Then(crossAlongY
+				? Affine2.Translation(root.Bounds.X, cellX + root.Bounds.Y)
+				: Affine2.Translation(cellX + root.Bounds.X, root.Bounds.Y));
 		CollectGeometry(root, rootMatrix, rootMatrix, hosts as HashSet<NativeElementHost> ?? new HashSet<NativeElementHost>(hosts),
 			parentVisible: true, hitClip: null);
 		FlushGeometry();

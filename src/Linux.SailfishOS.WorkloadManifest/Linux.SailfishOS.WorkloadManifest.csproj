@@ -1,13 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Workload manifest package: dotnet workload install sailfish (with a
-       source pointing at the feed) puts WorkloadManifest.json/targets into
-       the SDK, which is what makes the net11.0-sailfish TFM recognizable
-       before restore (P0.4). The band must match the installed SDK feature
-       band (global.json). -->
+  <!-- Workload manifest package: WorkloadManifest.json/targets in the SDK's
+       sdk-manifests/<band>/ are what make the net11.0-sailfish TFM
+       recognizable before restore (P0.4). Installed by tools/sf workload-install
+       (a checkout) or the sailfish-workload tool (Linux.SailfishOS.Workload,
+       which embeds the same files). SailfishWorkloadBand (Directory.Build.props)
+       must match the SDK feature band (global.json). -->
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <PackageId>microsoft.maui.sailfishos.Manifest-11.0.100-rc.1</PackageId>
+    <PackageId>microsoft.maui.sailfishos.Manifest-$(SailfishWorkloadBand)</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <IsPackable>true</IsPackable>
     <IncludeBuildOutput>false</IncludeBuildOutput>

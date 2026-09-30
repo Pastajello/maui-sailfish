@@ -15,7 +15,8 @@ Every call is safe from any thread; callbacks run on the main thread.
 | [`SailfishBottomSheet`](#sailfishbottomsheet) | `DockedPanel` | a panel that slides in from a screen edge |
 | [`SailfishNotifications`](#sailfishnotifications) | `Nemo.Notifications` | a system notification with a banner |
 | [`SailfishCover`](#sailfishcover) | `CoverBackground`, `CoverActionList` | the app's card on the home screen |
-| [Lifecycle events](#lifecycle-events) | `QGuiApplication`, Silica window | cover state, orientation, ambience, keyboard, quit |
+| [Lifecycle events](#lifecycle-events) | `QGuiApplication`, Silica window, MCE | cover state, orientation, ambience, keyboard, display, lock screen, memory pressure, quit |
+| [Opening URLs and files](#opening-urls-and-files) | `.desktop` `MimeType`, D-Bus `openUrl` | links and files other apps hand to yours |
 | [`SailfishTheme`, `SailfishDisplay`](#theme-and-display) | ambience, window | read-only state |
 
 Also native without extra code, shown here because they are easy to miss:
@@ -106,12 +107,44 @@ builder.ConfigureLifecycleEvents(events => events.AddSailfish(sf => sf
 	.OnOrientationChanged((app, orientation) => Debug.WriteLine($"orientation {orientation}"))
 	.OnColorSchemeChanged((app, scheme) => Debug.WriteLine($"ambience {scheme}"))
 	.OnInputMethodChanged((app, visible, keyboard) => Debug.WriteLine($"keyboard {visible} {keyboard}"))
+	.OnDisplayStateChanged((app, state) => Debug.WriteLine($"display {state}"))        // Off, Dim, On (MCE)
+	.OnScreenLockChanged((app, locked) => Debug.WriteLine($"lock screen {locked}"))
+	.OnMemoryLevelChanged((app, level) => { if (level >= SailfishMemoryLevel.Warning) ImageCache.Clear(); })
 	.OnQuitting(app => SaveState())));
 ```
+
+`SailfishMauiApplication` also exposes the last MCE values (`DisplayState`, `ScreenLocked`, `MemoryLevel`); a device
+where MCE does not track memory reports `Unknown`.
 
 `OnLaunched`, `OnApplicationStateChanged` and `OnCoverActionTriggered` exist too. The same events are overridable on
 `SailfishMauiApplication` in `Platforms/SailfishOS/SailfishApplication.cs`; the full table with their iOS/Android
 counterparts is in [`add-sailfish-to-existing-app.md`](add-sailfish-to-existing-app.md).
+
+## Opening URLs and files
+
+Declare what the app opens in the project; the package does the rest, as native Sailfish apps declare it:
+
+```xml
+<SailfishUrlSchemes>myapp</SailfishUrlSchemes>          <!-- myapp://… links -->
+<SailfishMimeTypes>text/plain;image/png</SailfishMimeTypes> <!-- files of these types -->
+```
+
+The `.desktop` entry gets `MimeType`, `Exec … %U` and `X-Maemo-Service/Object-Path/Method`; the RPM ships a D-Bus
+activation file; the app registers `openUrl(as)` on the session bus. A link opened from another app, whether yours runs
+or not, arrives where MAUI delivers deep links on Android and iOS:
+
+```csharp
+protected override void OnAppLinkRequestReceived(Uri uri)   // in your App
+{
+	base.OnAppLinkRequestReceived(uri);
+	if (uri.Scheme == "myapp")
+		_ = Shell.Current.GoToAsync(uri.AbsolutePath.TrimStart('/'));
+}
+```
+
+Files come as `file://` URIs. The other way round, `Launcher.OpenAsync(new OpenFileRequest(...))` opens a file in the
+app registered for its type; under Sailjail that app only sees its own allowed locations (Documents, Downloads,
+Pictures, …), not your app's private data.
 
 ## Theme and display
 

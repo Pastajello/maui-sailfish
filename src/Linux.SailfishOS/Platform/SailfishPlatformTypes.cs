@@ -39,3 +39,22 @@ public enum SailfishColorScheme
 	/// <summary>Dark text on a light ambience.</summary>
 	DarkOnLight,
 }
+
+/// <summary>MCE display state (Nemo.Mce MceDisplay).</summary>
+public enum SailfishDisplayState
+{
+	Off = 0,
+	Dim = 1,
+	On = 2,
+}
+
+/// <summary>MCE memory pressure level (sig_memory_level_ind), as Android's OnTrimMemory / iOS's memory warning.</summary>
+public enum SailfishMemoryLevel
+{
+	Unknown,
+	Normal,
+	/// <summary>Free caches and anything you can rebuild.</summary>
+	Warning,
+	/// <summary>The system is about to kill background apps.</summary>
+	Critical,
+}
