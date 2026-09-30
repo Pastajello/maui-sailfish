@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.FavoritesPage"
+                     x:DataType="vm:FavoritesViewModel"
+                     Title="Favourites"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Browse recipes" Order="Primary" Command="{Binding BrowseAllCommand}" />
+        <ToolbarItem Text="Remove all" Order="Secondary" Command="{Binding ClearAllCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <VerticalStackLayout Grid.Row="0" Padding="20,14,20,6" Spacing="6">
+            <Label Text="{Binding Headline}" Style="{StaticResource PageTitle}" FontSize="22" />
+            <Label Text="{Binding StatusText}" Style="{StaticResource Muted}" />
+            <Picker Title="Filter by category"
+                    ItemsSource="{Binding FilterOptions}"
+                    SelectedItem="{Binding SelectedFilterOption, Mode=TwoWay}"
+                    IsVisible="{Binding HasFilters}" />
+        </VerticalStackLayout>
+
+        <CollectionView x:Name="FavoritesList" Grid.Row="1"
+                        ItemsSource="{Binding Meals}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedMeal, Mode=TwoWay}"
+                        Margin="20,4,20,0"
+                        BackgroundColor="Transparent">
+
+            <CollectionView.ItemsLayout>
+                <GridItemsLayout Orientation="Vertical" Span="2"
+                                 HorizontalItemSpacing="12" VerticalItemSpacing="12" />
+            </CollectionView.ItemsLayout>
+
+
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:MealCardViewModel">
+                    <Border Style="{StaticResource Card}" Padding="0" HeightRequest="196">
+                        <Grid RowDefinitions="120,*">
+                            <Grid Grid.Row="0">
+                                <Image Source="{Binding Thumbnail}" Style="{StaticResource ThumbImage}" />
+                                <Button Text="{Binding FavoriteGlyph}"
+                                        BackgroundColor="Transparent"
+                                        BorderColor="Transparent"
+                                        TextColor="{x:Static local:Palette.Accent}"
+                                        FontSize="20" Padding="6"
+                                        MinimumWidthRequest="40" MinimumHeightRequest="40"
+                                        Command="{Binding ToggleFavoriteCommand}"
+                                        HorizontalOptions="End" VerticalOptions="Start"
+                                        Margin="0,4,4,0" />
+                            </Grid>
+                            <VerticalStackLayout Grid.Row="1" Spacing="2" Padding="12,8">
+                                <Label Text="{Binding Name}" FontSize="17" FontAttributes="Bold"
+                                       MaxLines="2" LineBreakMode="TailTruncation" />
+                                <Label Text="{Binding Subtitle}" Style="{StaticResource Muted}"
+                                       MaxLines="1" LineBreakMode="TailTruncation" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+
+        <controls:StateSlot Grid.Row="1" Margin="20,4,20,0" VerticalOptions="Center"
+                            State="{Binding LoadState}">
+            <controls:StateSlot.LoadingTemplate>
+                <DataTemplate x:DataType="vm:FavoritesViewModel">
+                    <controls:SkeletonPanel Rows="3" Columns="2" />
+                </DataTemplate>
+            </controls:StateSlot.LoadingTemplate>
+            <controls:StateSlot.EmptyTemplate>
+                <DataTemplate x:DataType="vm:FavoritesViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="☆" FontSize="52" TextColor="{x:Static local:Palette.TextMuted}" HorizontalOptions="Center" />
+                            <Label Text="Nothing saved yet." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                            <Label Text="Tap the star on any recipe to keep it here. Saved recipes work with the radio off." Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                            <Button Text="Browse recipes" Style="{StaticResource PrimaryButton}" Command="{Binding BrowseAllCommand}" HorizontalOptions="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.EmptyTemplate>
+        </controls:StateSlot>
+        <Label Grid.Row="2" Text="Saved on this device." Style="{StaticResource Muted}"
+               HorizontalOptions="Center" Padding="20,6,20,14" />
+
+        <controls:NotificationBanner x:Name="Banner" Grid.Row="1" />
+    </Grid>
+
+</views:ViewModelPage>

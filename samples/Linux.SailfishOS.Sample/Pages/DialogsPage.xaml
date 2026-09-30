@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.DialogsPage"
+             Title="Dialogs"
+             BackgroundColor="#101018">
+
+    <VerticalStackLayout Padding="20,12" Spacing="12">
+
+        <Button Text="DisplayAlert (ok)" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnAlertClicked" />
+        <Button Text="DisplayAlert (yes/no)" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnConfirmClicked" />
+        <Button Text="DisplayPromptAlert" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnPromptClicked" />
+        <Button Text="DisplayActionSheet" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnSheetClicked" />
+
+        <Label x:Name="ResultLabel" FontSize="20" TextColor="#9FB4C7" Text="result: -" />
+
+    </VerticalStackLayout>
+
+</ContentPage>

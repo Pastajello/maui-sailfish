@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj" />
+    <Project Path="samples/SailfishKitchen/SailfishKitchen.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj" />
+    <Project Path="src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
+    <Project Path="src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
+  </Folder>
+  <Folder Name="/templates/">
+    <Project Path="templates/sailfishos/SailfishOS.Templates.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Linux.SailfishOS.PublicApiGuard/Linux.SailfishOS.PublicApiGuard.csproj" />
+    <Project Path="tests/Linux.SailfishOS.Tests/Linux.SailfishOS.Tests.csproj" />
+  </Folder>
+</Solution>

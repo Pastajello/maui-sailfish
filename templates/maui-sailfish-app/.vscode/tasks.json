@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true
+  },
+  "tasks": [
+    {
+      "label": "sf: build (Release)",
+      "type": "shell",
+      "command": "dotnet build -c Release -f net11.0-sailfish",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "sf: publish (RPM)",
+      "detail": "one-liner: linux-arm64 self-contained publish plus the harbour RPM (opt out with -p:CreateSailfishRpm=false)",
+      "type": "shell",
+      "command": "dotnet publish -c Release -f net11.0-sailfish",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "sf: set up device",
+      "detail": "one-time: the phone's address, SSH user and developer-mode password (Settings > Developer tools > Remote connection) into ~/.config/maui-sailfish/connect.info, plus SSH key pairing; SailfishRun also asks on its first run",
+      "type": "shell",
+      "command": "DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build -f net11.0-sailfish -t:SailfishSetup -p:SailfishSetupForce=true",
+      "problemMatcher": []
+    },
+    {
+      "label": "sf: run on device",
+      "detail": "publish, install the RPM over SSH and launch with the device log streamed (SailfishRun target; device credentials from connect.info / $SF_CONNECT_INFO)",
+      "type": "shell",
+      "command": "DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build -c Release -f net11.0-sailfish -t:SailfishRun",
+      "problemMatcher": []
+    },
+    {
+      "label": "sf: preflight (Debug)",
+      "detail": "blocking gate for F5 debug: needs SF_TOOLS_DIR pointing at a maui-sailfish checkout's tools/ (or the packaged tools dir in the NuGet cache)",
+      "type": "shell",
+      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-preflight.sh --for-debug",
+      "problemMatcher": []
+    },
+    {
+      "label": "sf: deploy & run (Debug)",
+      "detail": "publish Debug under harbour-<dir>-debug, upload, install, launch, print the log tail. preLaunchTask of 'F5 DEBUG (deploy + attach)'.",
+      "type": "shell",
+      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-deploy.sh --run",
+      "dependsOn": [
+        "sf: preflight (Debug)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "sf: push vsdbg to device",
+      "detail": "one-time setup for step 2/2: puts the linux-arm64 vsdbg in /tmp/vsdbg/ (never in the RPM), verifies it runs there, relaxes yama ptrace_scope if needed",
+      "type": "shell",
+      "command": "SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-debug-attach.sh --push-only",
+      "problemMatcher": []
+    },
+    {
+      "label": "sf: debug attach prep",
+      "detail": "pushes vsdbg if needed and prints DEVICE_PID of the running Debug build for the '2/2 DEBUGGER attach (pid...)' configuration",
+      "type": "shell",
+      "command": "SF_CONFIGURATION=Debug SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-debug-attach.sh",
+      "problemMatcher": []
+    }
+  ]
+}

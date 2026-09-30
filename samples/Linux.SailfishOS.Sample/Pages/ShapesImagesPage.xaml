@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.ShapesImagesPage"
+             Title="Shapes &amp; images"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="14">
+
+            <Label Text="GraphicsView (IDrawable)" FontSize="16" TextColor="#4FC3F7" />
+            <GraphicsView x:Name="Canvas" HeightRequest="220" BackgroundColor="#141420" />
+
+            <Label Text="Shapes" FontSize="16" TextColor="#4FC3F7" />
+            <Grid HeightRequest="160" ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
+                <Rectangle Grid.Column="0" Fill="#FF5252" Stroke="#FFFFFF" StrokeThickness="2" WidthRequest="70" HeightRequest="70" />
+                <Ellipse Grid.Column="1" Fill="#69F0AE" WidthRequest="70" HeightRequest="70" />
+                <Line Grid.Column="2" X1="0" Y1="0" X2="70" Y2="70" Stroke="#448AFF" StrokeThickness="6" />
+                <Polygon Grid.Column="3" Points="35,0 70,70 0,70" Fill="#FFAB40" />
+            </Grid>
+
+            <Label Text="Path (bezier)" FontSize="16" TextColor="#4FC3F7" />
+            <Path Data="M 10 100 C 60 0, 140 200, 200 60 S 320 40, 380 90"
+                  Stroke="#E040FB" StrokeThickness="5" Fill="Transparent"
+                  HeightRequest="140" HorizontalOptions="Start" />
+
+            <Label Text="Image aspect modes" FontSize="16" TextColor="#4FC3F7" />
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="10">
+                <Image Grid.Column="0" Source="sailfish_logo.png" Aspect="Fill" WidthRequest="80" HeightRequest="80" BackgroundColor="#1C1C28" />
+                <Image Grid.Column="1" Source="sailfish_logo.png" Aspect="AspectFit" WidthRequest="80" HeightRequest="80" BackgroundColor="#1C1C28" />
+                <Image Grid.Column="2" Source="sailfish_logo.png" Aspect="AspectFill" WidthRequest="80" HeightRequest="80" BackgroundColor="#1C1C28" />
+                <Image Grid.Column="3" Source="sailfish_logo.png" Aspect="Center" WidthRequest="80" HeightRequest="80" BackgroundColor="#1C1C28" />
+            </Grid>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

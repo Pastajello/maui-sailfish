@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.TextPage"
+             Title="Text"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="14">
+
+            <Label Text="Wrapping (narrow column)" FontSize="16" TextColor="#4FC3F7" />
+            <Label WidthRequest="420" HorizontalOptions="Start" FontSize="20" TextColor="White"
+                   Text="Sailfish OS renders MAUI text through SDL2_ttf; this paragraph is wide enough that it must wrap into several lines inside its 420 unit column." />
+
+            <Label Text="Horizontal alignment" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="start" FontSize="20" TextColor="White" HorizontalTextAlignment="Start" HorizontalOptions="Fill" />
+            <Label Text="center" FontSize="20" TextColor="White" HorizontalTextAlignment="Center" HorizontalOptions="Fill" />
+            <Label Text="end" FontSize="20" TextColor="White" HorizontalTextAlignment="End" HorizontalOptions="Fill" />
+
+            <Label Text="Vertical alignment (90u box)" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="top" HeightRequest="90" BackgroundColor="#202030" FontSize="20" TextColor="White" VerticalTextAlignment="Start" />
+            <Label Text="middle" HeightRequest="90" BackgroundColor="#202030" FontSize="20" TextColor="White" VerticalTextAlignment="Center" />
+            <Label Text="bottom" HeightRequest="90" BackgroundColor="#202030" FontSize="20" TextColor="White" VerticalTextAlignment="End" />
+
+            <Label Text="LineBreakMode" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="NoWrap: a very long single line that cannot fit" LineBreakMode="NoWrap" WidthRequest="520" HorizontalOptions="Start" FontSize="20" TextColor="White" />
+            <Label Text="TailTruncation: a very long single line that cannot fit" LineBreakMode="TailTruncation" WidthRequest="520" HorizontalOptions="Start" FontSize="20" TextColor="White" />
+            <Label Text="HeadTruncation: a very long single line that cannot fit" LineBreakMode="HeadTruncation" WidthRequest="520" HorizontalOptions="Start" FontSize="20" TextColor="White" />
+            <Label Text="MiddleTruncation: a very long single line that cannot fit" LineBreakMode="MiddleTruncation" WidthRequest="520" HorizontalOptions="Start" FontSize="20" TextColor="White" />
+            <Label Text="CharacterWrap breaks inside words characterwise" LineBreakMode="CharacterWrap" WidthRequest="240" HorizontalOptions="Start" FontSize="20" TextColor="White" />
+
+            <Label Text="MaxLines=2" FontSize="16" TextColor="#4FC3F7" />
+            <Label MaxLines="2" WidthRequest="420" HorizontalOptions="Start" FontSize="20" TextColor="White"
+                   Text="First line. Second line. Third line that must not appear because MaxLines limits the label to two rendered lines." />
+
+            <Label Text="Spacing &amp; line height" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="character spacing 6" CharacterSpacing="6" FontSize="20" TextColor="White" />
+            <Label Text="line height 1.8 makes the gap between wrapped lines much larger than the default value" LineHeight="1.8" WidthRequest="420" FontSize="20" TextColor="White" />
+
+            <Label Text="Fonts" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="Bold attribute" FontAttributes="Bold" FontSize="22" TextColor="White" />
+            <Label Text="Italic attribute" FontAttributes="Italic" FontSize="22" TextColor="White" />
+            <Label Text="Bold+Italic" FontAttributes="Bold,Italic" FontSize="22" TextColor="White" />
+            <Label Text="DejaVu Serif family" FontFamily="DejaVu Serif" FontSize="22" TextColor="White" />
+            <Label Text="DejaVu Sans Mono family" FontFamily="DejaVu Sans Mono" FontSize="22" TextColor="White" />
+
+            <Label Text="Decorations" FontSize="16" TextColor="#4FC3F7" />
+            <Label Text="underlined text" TextDecorations="Underline" FontSize="22" TextColor="White" />
+            <Label Text="strikethrough text" TextDecorations="Strikethrough" FontSize="22" TextColor="White" />
+
+            <Label Text="FormattedText spans" FontSize="16" TextColor="#4FC3F7" />
+            <Label FontSize="22">
+                <Label.FormattedText>
+                    <FormattedString>
+                        <Span Text="plain " TextColor="White" />
+                        <Span Text="red bold " TextColor="#FF5252" FontAttributes="Bold" />
+                        <Span Text="green mono " TextColor="#69F0AE" FontFamily="DejaVu Sans Mono" />
+                        <Span Text="blue underline" TextColor="#448AFF" TextDecorations="Underline" />
+                    </FormattedString>
+                </Label.FormattedText>
+            </Label>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

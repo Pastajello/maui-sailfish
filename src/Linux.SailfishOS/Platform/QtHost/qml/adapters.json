@@ -1,0 +1,48 @@
+{
+    "//": "MAUI.Sailfish QML adapter library contract (PLAN Q5). The C# renderer knows ONLY this map (uri -> QML file, relative to this qml/ directory) and passes `src` in create ops; MauiModelPage.qml instantiates adapters with Qt.createComponent. No Silica/QML type name ever appears in C#. Every adapter implements the contract: mauiId (string), mauiProbe (string, reconcile state witness), mauiEvent(name, payload) signal wired to page.mauiNotify.",
+    "adapters": {
+        "label":           "controls/Label.qml",
+        "button":          "controls/Button.qml",
+        "image":           "controls/Image.qml",
+        "entry":           "controls/Entry.qml",
+        "editor":          "controls/Editor.qml",
+        "switch":          "controls/Switch.qml",
+        "slider":          "controls/Slider.qml",
+        "progress-bar":    "controls/ProgressBar.qml",
+        "activity-indicator": "controls/ActivityIndicator.qml",
+        "search-bar":      "controls/SearchBar.qml",
+        "picker":          "controls/Picker.qml",
+        "date-picker":     "controls/DatePicker.qml",
+        "time-picker":     "controls/TimePicker.qml",
+        "radio-button":    "controls/RadioButton.qml",
+        "indicator-view":  "controls/IndicatorView.qml",
+        "stepper":         "controls/Stepper.qml",
+        "check-box":       "controls/CheckBox.qml",
+        "swipe-view":      "controls/SwipeView.qml",
+        "web-view":        "controls/MauiWebView.qml",
+
+        "shape":           "shapes/Shape.qml",
+        "graphics-view":   "shapes/GraphicsView.qml",
+
+        "content-view":    "containers/ContentView.qml",
+        "border":          "containers/Border.qml",
+        "grid":            "containers/Grid.qml",
+        "stack-layout":    "containers/StackLayout.qml",
+        "scroll-view":     "containers/ScrollView.qml",
+        "list-view":       "containers/ListView.qml",
+        "carousel-view":   "containers/CarouselView.qml",
+
+        "alert-dialog":    "dialogs/AlertDialog.qml",
+        "prompt-dialog":   "dialogs/PromptDialog.qml",
+        "action-sheet":    "dialogs/ActionSheet.qml",
+
+        "context-menu":    "interactions/ContextMenu.qml",
+        "pull-down-menu":  "interactions/PullDownMenu.qml",
+        "push-up-menu":    "interactions/PushUpMenu.qml",
+        "docked-panel":    "interactions/DockedPanel.qml",
+        "drawer":          "interactions/Drawer.qml",
+
+        "maui-page":       "navigation/MauiPage.qml",
+        "navigation-root": "navigation/MauiNavigationRoot.qml"
+    }
+}

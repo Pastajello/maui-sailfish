@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:models="clr-namespace:SailfishKitchen.Models"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.MealDetailPage"
+                     x:DataType="vm:MealDetailViewModel"
+                     Title="{Binding Title}"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Favourite" Order="Primary" Command="{Binding ToggleFavoriteCommand}" />
+        <ToolbarItem Text="Share" Order="Primary" Command="{Binding ShareCommand}" />
+        <ToolbarItem Text="Copy method" Order="Secondary" Command="{Binding CopyCommand}" />
+        <ToolbarItem Text="Watch video" Order="Secondary" Command="{Binding OpenYoutubeCommand}" />
+        <ToolbarItem Text="More in this category" Order="Secondary" Command="{Binding OpenCategoryCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="*">
+
+        <ScrollView Grid.Row="0" BackgroundColor="Transparent">
+            <VerticalStackLayout Padding="20,14,20,24" Spacing="14">
+
+                <!-- Hero -->
+                <Border Style="{StaticResource Card}" Padding="0" HeightRequest="230">
+                    <Grid>
+                        <Image x:Name="Hero" Source="{Binding HeroImage}"
+                               Style="{StaticResource HeroImage}" />
+                        <controls:SpinnerView IsRunning="{Binding IsHeroLoading}" HeightRequest="34" WidthRequest="34" />
+                        <!-- Bottom scrim so the title stays legible over any photo. -->
+                        <BoxView Color="#99000000" VerticalOptions="End" HeightRequest="76" />
+                        <VerticalStackLayout VerticalOptions="End" Padding="16,0,16,12" Spacing="2">
+                            <Label Text="{Binding MealName}" FontSize="24" FontAttributes="Bold" />
+                            <Label Text="{Binding Subtitle}" Style="{StaticResource Caption}" />
+                        </VerticalStackLayout>
+                        <Button Text="{Binding FavoriteGlyph}"
+                                Style="{StaticResource IconButton}"
+                                Command="{Binding ToggleFavoriteCommand}"
+                                HorizontalOptions="End" VerticalOptions="Start"
+                                Margin="0,8,8,0" />
+                    </Grid>
+                </Border>
+
+                <!-- Tags -->
+                <HorizontalStackLayout Spacing="8" BindableLayout.ItemsSource="{Binding Tags}">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Border Style="{StaticResource Chip}" HorizontalOptions="Start" Margin="0,0,8,8">
+                                <Label Text="{Binding ., Converter={StaticResource ToTextCase}}"
+                                       FontSize="12" TextColor="{x:Static local:Palette.Accent}" />
+                            </Border>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </HorizontalStackLayout>
+
+                <!-- Ingredients -->
+                <VerticalStackLayout Spacing="4" IsVisible="{Binding HasIngredients}">
+                    <Label Text="INGREDIENTS" Style="{StaticResource SectionHeader}" />
+                    <VerticalStackLayout Spacing="2" BindableLayout.ItemsSource="{Binding Ingredients}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="models:Ingredient">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Padding="0,4">
+                                    <BoxView Grid.Column="0" Color="{x:Static local:Palette.Accent}"
+                                             WidthRequest="6" HeightRequest="6"
+                                             CornerRadius="3" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding Display}" Style="{StaticResource Body}" />
+                                </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+
+                <!-- Method -->
+                <VerticalStackLayout Spacing="6" IsVisible="{Binding HasSteps}">
+                    <Label Text="METHOD" Style="{StaticResource SectionHeader}" />
+                    <VerticalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding Steps}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:StepViewModel">
+                                <Grid ColumnDefinitions="34,*" ColumnSpacing="10">
+                                    <Border Grid.Column="0" Style="{StaticResource Chip}"
+                                            WidthRequest="30" HeightRequest="30" Padding="0"
+                                            VerticalOptions="Start">
+                                        <Label Text="{Binding Number}" FontSize="14" FontAttributes="Bold"
+                                               TextColor="{x:Static local:Palette.Accent}"
+                                               HorizontalOptions="Center" VerticalOptions="Center" />
+                                    </Border>
+                                    <Label Grid.Column="1" Text="{Binding Text}" Style="{StaticResource Body}" />
+                                </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+
+                <!-- Links -->
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                    <Button Grid.Column="0" Text="Share recipe"
+                            Style="{StaticResource SecondaryButton}"
+                            Command="{Binding ShareCommand}" />
+                    <Button Grid.Column="1" Text="Watch video"
+                            Style="{StaticResource SecondaryButton}"
+                            IsVisible="{Binding HasYoutube}"
+                            Command="{Binding OpenYoutubeCommand}" />
+                </Grid>
+
+                <!-- Related -->
+                <VerticalStackLayout Spacing="8" IsVisible="{Binding HasRelated}">
+                    <Label Text="MORE LIKE THIS" Style="{StaticResource SectionHeader}" />
+                    <VerticalStackLayout Spacing="10" BindableLayout.ItemsSource="{Binding Related}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:MealCardViewModel">
+                                <Border Style="{StaticResource Card}" Padding="0">
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer NumberOfTapsRequired="1"
+                                                              Command="{Binding Source={RelativeSource AncestorType={x:Type vm:MealDetailViewModel}}, Path=OpenRelatedCommand}"
+                                                              CommandParameter="{Binding .}" />
+                                    </Border.GestureRecognizers>
+                                    <Grid ColumnDefinitions="76,*" ColumnSpacing="12" Padding="10">
+                                        <Image Grid.Column="0" Source="{Binding Thumbnail}"
+                                               Style="{StaticResource ThumbImage}"
+                                               WidthRequest="76" HeightRequest="62" />
+                                        <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}" FontSize="17" FontAttributes="Bold"
+                                                   MaxLines="2" LineBreakMode="TailTruncation" />
+                                            <Label Text="{Binding Subtitle}" Style="{StaticResource Muted}" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+
+                <Label Text="Recipe data from TheMealDB (free tier)."
+                       Style="{StaticResource Muted}" HorizontalTextAlignment="Center" Padding="0,10,0,0" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- Loading -->
+
+        <!-- Error -->
+
+        <controls:StateSlot Grid.Row="0" Margin="20" VerticalOptions="Center"
+                            State="{Binding LoadState}">
+            <controls:StateSlot.LoadingTemplate>
+                <DataTemplate x:DataType="vm:MealDetailViewModel">
+                    <controls:SkeletonPanel Rows="3" Columns="1" />
+                </DataTemplate>
+            </controls:StateSlot.LoadingTemplate>
+            <controls:StateSlot.ErrorTemplate>
+                <DataTemplate x:DataType="vm:MealDetailViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="Could not load this recipe." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                            <Label Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                            <Button Text="Retry" Style="{StaticResource PrimaryButton}" Command="{Binding LoadCommand}" HorizontalOptions="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.ErrorTemplate>
+        </controls:StateSlot>
+        <controls:NotificationBanner x:Name="Banner" Grid.Row="0" />
+    </Grid>
+
+</views:ViewModelPage>

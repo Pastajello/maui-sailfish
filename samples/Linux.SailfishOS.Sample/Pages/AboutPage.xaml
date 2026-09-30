@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.AboutPage"
+             Title="About"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="16" Padding="24,20">
+
+            <Image Source="sailfish_logo.png" WidthRequest="160" HeightRequest="160"
+                   HorizontalOptions="Center" />
+
+            <Label Text=".NET MAUI on Sailfish OS" FontSize="28" TextColor="White"
+                   HorizontalOptions="Center" />
+
+            <Label FontSize="20" TextColor="#C8D6E5"
+                   Text="This sample runs as a self-contained .NET application on the Sailfish OS Wayland compositor. Rendering goes through SDL2 with a software renderer; text is shaped by SDL_ttf and bitmaps are decoded by a managed PNG reader." />
+
+            <Label FontSize="20" TextColor="#C8D6E5"
+                   Text="Pages are authored in XAML with compiled bindings. Navigation uses NavigationPage: rows and buttons push pages, and the title-bar chevron pops them." />
+
+            <Label x:Name="VersionLabel" FontSize="18" TextColor="#9FB4C7"
+                   HorizontalOptions="Center" />
+
+            <Button Text="Back" BackgroundColor="#37474F" TextColor="White"
+                    Clicked="OnBackClicked" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.PickersPage"
+             Title="Pickers"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="12">
+
+            <Label Text="Picker" FontSize="16" TextColor="#4FC3F7" />
+            <Picker x:Name="DevicePicker" Title="choose a device" TitleColor="#9FB4C7"
+                    TextColor="White" BackgroundColor="#1C1C28" SelectedIndexChanged="OnChanged">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>Jolla Phone 2026</x:String>
+                        <x:String>Xperia 10 VI</x:String>
+                        <x:String>QEMU aarch64</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+
+            <Label Text="DatePicker" FontSize="16" TextColor="#4FC3F7" />
+            <DatePicker x:Name="ReleaseDate" DateSelected="OnChanged"
+                        TextColor="White" BackgroundColor="#1C1C28" />
+
+            <Label Text="TimePicker" FontSize="16" TextColor="#4FC3F7" />
+            <TimePicker x:Name="StandupTime" Time="09:30" TimeSelected="OnChanged"
+                        TextColor="White" BackgroundColor="#1C1C28" />
+
+            <Label Text="Stepper" FontSize="16" TextColor="#4FC3F7" />
+            <Stepper x:Name="CountStepper" Minimum="0" Maximum="10" Increment="1" ValueChanged="OnChanged" />
+
+            <Label x:Name="StatusLabel" FontSize="18" TextColor="#9FB4C7" Text="picker: - | date: - | time: - | step: -" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

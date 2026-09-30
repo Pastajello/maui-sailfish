@@ -1,0 +1,75 @@
+using Microsoft.Maui;
+using Microsoft.Maui.Graphics;
+
+namespace Microsoft.Maui.SailfishOS.Platform.Text;
+
+/// <summary>
+/// Maps an <see cref="ILabel"/> (text or FormattedText) onto <see cref="TextSpan"/>/<see cref="TextParagraphStyle"/> for the measure pass.
+/// </summary>
+public static class LabelTextMapper
+{
+	/// <summary>Default label font size when neither label nor span sets one.</summary>
+	private const double DefaultFontSize = 14;
+
+	public static (List<TextSpan> spans, TextParagraphStyle paragraph) Map(ILabel label)
+	{
+		var spans = new List<TextSpan>();
+		var baseColor = label.TextColor ?? Colors.White;
+		var baseFont = label.Font;
+
+		if (label is Microsoft.Maui.Controls.Label { FormattedText.Spans.Count: > 0 } formatted)
+		{
+			foreach (var span in formatted.FormattedText.Spans)
+			{
+				spans.Add(new TextSpan
+				{
+					Text = span.Text ?? string.Empty,
+					Family = string.IsNullOrEmpty(span.FontFamily) ? baseFont.Family : span.FontFamily,
+					Attributes = span.FontAttributes == FontAttributes.None ? BaseAttributes(label) : span.FontAttributes,
+					FontSize = FontSize(span.FontSize, baseFont),
+					CharacterSpacing = span.CharacterSpacing,
+					LineHeight = span.LineHeight > 0 ? span.LineHeight : 1.0,
+					Decorations = span.TextDecorations,
+					Color = span.TextColor ?? baseColor,
+				});
+			}
+		}
+		else
+		{
+			spans.Add(new TextSpan
+			{
+				Text = label.Text ?? string.Empty,
+				Family = baseFont.Family,
+				Attributes = BaseAttributes(label),
+				FontSize = FontSize(baseFont.Size, baseFont),
+				CharacterSpacing = label.CharacterSpacing,
+				LineHeight = 1.0,
+				Decorations = label.TextDecorations,
+				Color = baseColor,
+			});
+		}
+
+		// LineBreakMode/MaxLines live on the Controls Label, not on ILabel.
+		var controlsLabel = label as Microsoft.Maui.Controls.Label;
+		var paragraph = new TextParagraphStyle
+		{
+			LineBreakMode = controlsLabel?.LineBreakMode ?? LineBreakMode.WordWrap,
+			MaxLines = controlsLabel is { MaxLines: > 0 } ? controlsLabel.MaxLines : int.MaxValue,
+			HorizontalAlignment = label.HorizontalTextAlignment,
+			VerticalAlignment = label.VerticalTextAlignment,
+			LineHeight = label.LineHeight > 0 ? label.LineHeight : 1.0,
+		};
+
+		return (spans, paragraph);
+	}
+
+	/// <summary>The label's own font style (bold/italic), if it set one.</summary>
+	private static FontAttributes BaseAttributes(ILabel label) =>
+		label is Microsoft.Maui.Controls.Label controls ? controls.FontAttributes : FontAttributes.None;
+
+	private static int FontSize(double spanSize, Font baseFont)
+	{
+		var size = spanSize > 0 ? spanSize : (baseFont.Size > 0 ? baseFont.Size : DefaultFontSize);
+		return (int)Math.Round(size);
+	}
+}

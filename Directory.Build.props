@@ -1,0 +1,37 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <MauiVersion>11.0.0-rc.1.26451.6</MauiVersion>
+    <!-- Trim/AOT analyzers in Release: trim-safety regressions show up as build
+         warnings instead of only at a TrimMode=full publish. -->
+    <EnableTrimAnalyzer Condition="'$(Configuration)' == 'Release'">true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer Condition="'$(Configuration)' == 'Release'">true</EnableAotAnalyzer>
+    <!-- BlazorWebView dependency versions (latest stable on NuGet) -->
+    <MicrosoftAspNetCoreComponentsWebViewVersion Condition="'$(MicrosoftAspNetCoreComponentsWebViewVersion)' == ''">10.0.11</MicrosoftAspNetCoreComponentsWebViewVersion>
+    <MicrosoftAspNetCoreComponentsWebViewMauiVersion Condition="'$(MicrosoftAspNetCoreComponentsWebViewMauiVersion)' == ''">10.0.101</MicrosoftAspNetCoreComponentsWebViewMauiVersion>
+    <!-- Versioning for platform packages -->
+    <PlatformMauiLinuxGtk4Version Condition="'$(PlatformMauiLinuxGtk4Version)' == ''">0.6.0</PlatformMauiLinuxGtk4Version>
+    <PlatformMauiSailfishVersion Condition="'$(PlatformMauiSailfishVersion)' == ''">0.1.0</PlatformMauiSailfishVersion>
+    <!-- Set to false when the maui-labs DevFlow projects should not be referenced by the sample -->
+    <EnableMauiDevFlow Condition="'$(EnableMauiDevFlow)' == ''">false</EnableMauiDevFlow>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(EnableMauiDevFlow)' == 'true'">
+    <DefineConstants>$(DefineConstants);MAUIDEVFLOW</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Common NuGet package properties for all src/ projects -->
+  <PropertyGroup>
+    <Authors>maui-sailfish contributors</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Pastajello/maui-sailfish</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Pastajello/maui-sailfish.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Use product-specific README instead of repo-root one -->
+    <PackRepoRootReadme>false</PackRepoRootReadme>
+  </PropertyGroup>
+</Project>

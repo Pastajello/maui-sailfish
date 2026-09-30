@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Models"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.TasksPage"
+             Title="Sailfish Tasks">
+
+    <Grid RowDefinitions="Auto,*" Padding="20,16,20,8">
+
+        <!-- Header: logo image, live summary, overall progress, actions -->
+        <VerticalStackLayout Grid.Row="0" Spacing="12">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                <Image Grid.Column="0"
+                       Source="sailfish_logo.png"
+                       WidthRequest="64" HeightRequest="64"
+                       VerticalOptions="Center" />
+                <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                    <!-- No native control consumes these gestures, so the Qt input router must deliver them. -->
+                    <Label Text="Sailfish Tasks" FontSize="30" TextColor="White">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnTitleTapped" NumberOfTapsRequired="1" />
+                            <PanGestureRecognizer PanUpdated="OnTitlePanned" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                    <Label x:Name="SummaryLabel" FontSize="18" TextColor="#9FB4C7" />
+                    <Label x:Name="InputStatusLabel" FontSize="14" TextColor="#69F0AE"
+                           Text="input: taps=0 pan=0,0 (tap/drag the title)" />
+                </VerticalStackLayout>
+            </Grid>
+
+            <ProgressBar x:Name="OverallProgress" ProgressColor="#4FC3F7" />
+
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+                <Button Grid.Row="0" Grid.Column="0" Text="+ Add task"
+                        BackgroundColor="#2E6BB0" TextColor="red"
+                        Clicked="OnAddTaskClicked" />
+                <Button Grid.Row="0" Grid.Column="1" Text="Statistics"
+                        BackgroundColor="#2E6BB0" TextColor="White"
+                        Clicked="OnStatsClicked" />
+                <Button Grid.Row="1" Grid.Column="0" Text="Controls"
+                        BackgroundColor="#37474F" TextColor="White"
+                        Clicked="OnControlsClicked" />
+                <Button Grid.Row="1" Grid.Column="1" Text="About"
+                        BackgroundColor="#37474F" TextColor="White"
+                        Clicked="OnAboutClicked" />
+                <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Text="Features…"
+                        BackgroundColor="#4A3B6B" TextColor="White"
+                        Clicked="OnFeaturesClicked" />
+            </Grid>
+        </VerticalStackLayout>
+
+        <!-- Task list: CollectionView with a compiled-binding row template -->
+        <CollectionView x:Name="TasksList" Grid.Row="1" Margin="0,14,0,0"
+                        SelectionMode="Single"
+                        SelectionChanged="OnTaskSelected">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="models:TaskItem">
+                    <Grid Padding="4,10" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <BoxView Grid.Column="0"
+                                 Color="{Binding AccentColor}"
+                                 WidthRequest="10" HeightRequest="48" />
+                        <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                            <Label Text="{Binding Title}" FontSize="23" TextColor="White" />
+                            <Label Text="{Binding Subtitle}" FontSize="17" TextColor="#9FB4C7" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+    </Grid>
+
+</ContentPage>

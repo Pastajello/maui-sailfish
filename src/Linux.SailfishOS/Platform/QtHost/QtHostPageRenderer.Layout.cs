@@ -1,0 +1,611 @@
+using System.ComponentModel;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Maui;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
+
+namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
+
+// Hit-testing, window geometry, the MAUI layout pass and the batched SetGeometry push; page scroll and refresh state.
+public sealed partial class QtHostPageRenderer
+{
+	/// <summary>
+	/// Hit-test: the topmost effectively-visible host whose absolute root-space rect (dp,
+	/// <see cref="NativeElementHost.MauiLogicalBounds"/>) contains the point. Hidden and input-transparent
+	/// subtrees are skipped. Called on the Qt thread by <see cref="QtHostInputRouter"/>.
+	/// </summary>
+	internal bool TryHitTest(double dpX, double dpY, out NativeElementHost? host)
+	{
+		// Rects are root space and already scroll-shifted/clipped (HitClipDp), so the point needs no translation.
+		// Higher ZIndex wins; ties go to the later (visually upper) child, mirroring the native `z` push.
+		NativeElementHost? top = null;
+		var topZ = double.MinValue;
+		for (var i = 0; i < _current.Count; i++)
+		{
+			var candidate = _current[i];
+			if (!candidate.AppliedGeometrySet || !candidate.AppliedVisible || !candidate.IsAttached)
+				continue;
+			if (candidate.Element is not VisualElement ve || !IsEffectivelyVisible(ve))
+				continue;
+			var bounds = candidate.MauiLogicalBounds;
+			if (bounds.Width <= 0 || bounds.Height <= 0)
+				continue;
+			if (!bounds.Contains(dpX, dpY))
+				continue;
+			// Content scrolled out of a nested scroll viewport is not hit.
+			if (candidate.HitClipDp is { } clip && !clip.Contains(dpX, dpY))
+				continue;
+			if (top is null || ve.ZIndex >= topZ)
+			{
+				top = candidate;
+				topZ = ve.ZIndex;
+			}
+		}
+		host = top;
+		return top is not null;
+	}
+
+	/// <summary>
+	/// Diagnostics: the first host whose element owns a <see cref="TapGestureRecognizer"/>, as an injected-tap
+	/// target. Bounds are absolute root-space dp.
+	/// </summary>
+	internal bool TryFindTapTarget(out NativeElementHost? host, out Rect dpBounds)
+	{
+		foreach (var candidate in _current)
+		{
+			if (!candidate.AppliedGeometrySet || !candidate.AppliedVisible || !candidate.IsAttached)
+				continue;
+			if (candidate.Element is View { IsEnabled: true } v &&
+			    IsEffectivelyVisible(v) &&
+			    v.GestureRecognizers.Any(r => r is TapGestureRecognizer))
+			{
+				host = candidate;
+				dpBounds = candidate.MauiLogicalBounds;
+				return true;
+			}
+		}
+		host = null;
+		dpBounds = default;
+		return false;
+	}
+
+	/// <summary>Diagnostics: the first attached, visible native text input ("entry"/"editor"), as a focus target.</summary>
+	internal bool TryFindFocusTarget(out NativeElementHost? host, out Rect dpBounds)
+	{
+		foreach (var candidate in _current)
+		{
+			if (!candidate.AppliedGeometrySet || !candidate.AppliedVisible || !candidate.IsAttached)
+				continue;
+			if ((candidate.QmlUri == "entry" || candidate.QmlUri == "editor") &&
+			    candidate.Element is VisualElement v && v.IsEnabled && IsEffectivelyVisible(v))
+			{
+				host = candidate;
+				dpBounds = candidate.MauiLogicalBounds;
+				return true;
+			}
+		}
+		host = null;
+		dpBounds = default;
+		return false;
+	}
+
+	/// <summary>Self-and-ancestors visibility; guards against stale applied state after late collapses.</summary>
+	private static bool IsEffectivelyVisible(VisualElement element)
+	{
+		for (VisualElement? v = element; v is not null; v = v.Parent as VisualElement)
+		{
+			if (!v.IsVisible || ((IView)v).Visibility != Visibility.Visible)
+				return false;
+		}
+		return true;
+	}
+
+	// --- Window geometry, MAUI layout pass and SetGeometry ---
+
+	/// <summary>
+	/// Consumes the QML "window-geometry" report {pageWidth, pageHeight, headerHeight, statusHeight} (Qt scene
+	/// units), pulls the Qt screen info, updates the unit conversion and requests a relayout.
+	/// </summary>
+	private void ApplyWindowGeometry(string payload)
+	{
+		double pageW, pageH, header, status;
+		try
+		{
+			using var doc = JsonDocument.Parse(payload);
+			var root = doc.RootElement;
+			pageW = BridgeJson.Num(root, "pageWidth");
+			pageH = BridgeJson.Num(root, "pageHeight");
+			header = BridgeJson.Num(root, "headerHeight");
+			status = BridgeJson.Num(root, "statusHeight");
+		}
+		catch (Exception ex)
+		{
+			QtHostDiag.Warn(QtHostDiagChannel.Geometry, $"bad window-geometry payload: {ex.Message}");
+			return;
+		}
+		if (pageW <= 0 || pageH <= 0)
+			return;
+
+		// Qt-side report: device pixels, devicePixelRatio, orientation.
+		var screenInfo = QtHostRuntime.ScreenInfo();
+		var dpr = 1.0;
+		double winPxW = 0, winPxH = 0;
+		var orientation = string.Empty;
+		if (!string.IsNullOrEmpty(screenInfo))
+		{
+			try
+			{
+				using var doc = JsonDocument.Parse(screenInfo);
+				var root = doc.RootElement;
+				if (root.TryGetProperty("window", out var win))
+				{
+					winPxW = BridgeJson.Num(win, "width");
+					winPxH = BridgeJson.Num(win, "height");
+					var winDpr = BridgeJson.Num(win, "dpr");
+					if (winDpr > 0)
+						dpr = winDpr;
+				}
+				if (root.TryGetProperty("screen", out var scr) &&
+				    scr.TryGetProperty("orientation", out var orientEl))
+					orientation = orientEl.GetString() ?? string.Empty;
+			}
+			catch
+			{
+				// malformed report — fall back to dpr=1 and the QML page size
+			}
+		}
+
+		var changed = !_windowGeometryKnown
+			|| pageW != _lastPageW || pageH != _lastPageH
+			|| header != _lastHeader || status != _lastStatus
+			|| dpr != _lastDpr || orientation != _lastOrientation;
+		if (GeometryTrace)
+			QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"window-geometry {payload} screen_info={screenInfo} changed={changed}");
+		if (!changed)
+			return;
+		_lastPageW = pageW; _lastPageH = pageH; _lastHeader = header; _lastStatus = status;
+		_lastDpr = dpr; _lastOrientation = orientation;
+
+		// Density follows the same dp model as the SDL2 backend, so logical bounds match across backends.
+		QtHostUnits.DevicePixelRatio = dpr;
+		if (winPxW > 0 && winPxH > 0)
+			SailfishDisplay.Update((int)Math.Round(winPxW), (int)Math.Round(winPxH));
+
+		_windowDp = new Size(QtHostUnits.ToLogical(pageW), QtHostUnits.ToLogical(pageH));
+		// Content starts below the Silica status area and PageHeader; MAUI never sees the QML chrome.
+		var topDp = QtHostUnits.ToLogical(status + header);
+		_contentRectDp = new Rect(0, topDp, _windowDp.Width, Math.Max(0, _windowDp.Height - topDp));
+		_windowGeometryKnown = true;
+		_layoutDirty = true;
+		// Window.Width/Height follow the platform window, as the other platforms report their frame.
+		((IWindow)_window).FrameChanged(new Rect(0, 0, _windowDp.Width, _windowDp.Height));
+
+		LastWindowGeometryReport =
+			$"page={pageW.ToString("F0", CultureInfo.InvariantCulture)}x{pageH.ToString("F0", CultureInfo.InvariantCulture)}qt " +
+			$"windowPx={winPxW.ToString("F0", CultureInfo.InvariantCulture)}x{winPxH.ToString("F0", CultureInfo.InvariantCulture)} " +
+			$"dpr={dpr.ToString("F2", CultureInfo.InvariantCulture)} orientation='{orientation}' " +
+			$"insets(top={header + status}qt→{topDp.ToString("F1", CultureInfo.InvariantCulture)}dp) " +
+			$"density={SailfishDisplay.Density.ToString("F3", CultureInfo.InvariantCulture)} " +
+			$"window={_windowDp.Width.ToString("F0", CultureInfo.InvariantCulture)}x{_windowDp.Height.ToString("F0", CultureInfo.InvariantCulture)}dp " +
+			$"content=({_contentRectDp.X:F0},{_contentRectDp.Y:F0} {_contentRectDp.Width:F0}x{_contentRectDp.Height:F0})dp";
+		// Every change of the window report is logged (rotation/configure evidence).
+		QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"window report — {LastWindowGeometryReport}");
+
+		Reconcile();   // relayout + geometry push now
+		// The first report (startup) is also when the stack and the application state become readable: the native
+		// sync adopts them on the next loop turn instead of at a timer poll.
+		RequestPoll();
+	}
+
+	/// <summary>
+	/// Runs the MAUI layout when dirty and pushes the resulting absolute rects through SetGeometry.
+	/// </summary>
+	/// <summary>The last dirty layout pass in ms: MAUI measure + arrange, geometry collection, native flush.</summary>
+	public (double MeasureArrangeMs, double CollectMs, double FlushMs) LastLayoutSplit { get; private set; }
+
+	/// <summary>Geometry passes without measure/arrange (<see cref="RequestScrollGeometry"/>).</summary>
+	public long GeometryPasses { get; private set; }
+
+	/// <summary>Root rects and the geometry flush only, no MAUI measure/arrange: a scroll moved content, not layout.</summary>
+	private void RunGeometryPass(Page page)
+	{
+		_geometryDirty = false;
+		GeometryPasses++;
+		_suppressPush++;
+		_inLayoutPass = true;
+		try
+		{
+			var root = page is ContentPage contentPage ? contentPage.Content as VisualElement : page;
+			if (root is not null)
+			{
+				var rootMatrix = QtHostVisualState
+					.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
+					.Then(Affine2.Translation(root.Bounds.X, root.Bounds.Y));
+				CollectGeometry(root, rootMatrix, rootMatrix, new HashSet<NativeElementHost>(_current), parentVisible: true);
+			}
+			FlushGeometry();
+		}
+		catch (Exception ex)
+		{
+			QtHostDiag.Error(QtHostDiagChannel.Geometry, $"geometry pass failed: {ex.Message}");
+			_layoutDirty = true;   // the full pass retries
+			KickIn(250);
+		}
+		finally
+		{
+			_inLayoutPass = false;
+			_suppressPush--;
+		}
+		_collection.RefreshSceneBounds(force: false);
+	}
+
+	private void RunLayoutPass(Page page)
+	{
+		var laidOut = false;
+		if (_windowGeometryKnown && _layoutDirty)
+		{
+			laidOut = true;
+			_layoutDirty = false;
+			_geometryDirty = false;   // the pass collects the geometry too
+			LayoutPasses++;
+			// The pass writes Bounds/X/Y/... onto MAUI elements: those writes neither request another pass nor push
+			// state that yields to native.
+			_suppressPush++;
+			_inLayoutPass = true;
+			try
+			{
+				var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+				QtHostLayout.AttachHandlers(page, _mauiContext);
+				QtHostLayout.MeasureAndArrange(page, _windowDp, _contentRectDp);
+				var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+
+				// Absolutize parent-relative Bounds against the root space (content area origin, dp).
+				var root = page is ContentPage contentPage
+					? contentPage.Content as VisualElement
+					: page;
+				if (root is not null)
+				{
+					// The root's host sits on the page canvas: its parent-relative matrix is its root matrix.
+					var rootMatrix = QtHostVisualState
+						.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
+						.Then(Affine2.Translation(root.Bounds.X, root.Bounds.Y));
+					CollectGeometry(root, rootMatrix, rootMatrix, new HashSet<NativeElementHost>(_current), parentVisible: true);
+				}
+				var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+
+				FlushGeometry();
+				PushScrollState();   // page flickable state → native
+				PushRefreshState();  // armed RefreshView id + spinner state
+				var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+				static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+				LastLayoutSplit = (Ms(t0, t1), Ms(t1, t2), Ms(t2, t3));
+			}
+			catch (Exception ex)
+			{
+				QtHostDiag.Error(QtHostDiagChannel.Geometry, $"layout pass failed: {ex.Message}");
+				if (_layoutFailStackOnce.Add(ex.GetType().Name))
+					QtHostDiag.Error(QtHostDiagChannel.Geometry, $"layout pass stack: {ex}");
+				_layoutDirty = true;   // retry shortly (a failing pass must not spin the loop)
+				KickIn(250);
+			}
+			finally
+			{
+				_inLayoutPass = false;
+				_suppressPush--;
+			}
+		}
+		_collection.RefreshSceneBounds(force: laidOut);   // item/slot children follow the window
+		if (laidOut)
+		{
+			_collection.SchedulePending();   // a list whose width changed rebuilds its rows
+			// Shapes the walk skipped for want of a size may have one now: the reconcile creates them. Only a shape that has a
+			// size now is worth a reconcile; one in a hidden subtree is never arranged and would re-kick every pass (F5: each
+			// native scroll report of a ScrollView ran a full-page reconcile).
+			if (_awaitingArrange.Any(e => e is VisualElement { Width: > 0, Height: > 0 }))
+				RequestPoll();
+		}
+	}
+
+	/// <summary>
+	/// Geometry walk. <paramref name="toRoot"/> maps the element's local space into root space (layout offsets
+	/// plus every visual transform) and feeds <see cref="NativeElementHost.MauiLogicalBounds"/>;
+	/// <paramref name="toHost"/> maps into the nearest hosted ancestor's QML item, which is what gets pushed
+	/// (Qt composes the ancestors). A Collapsed element is applied invisible on its last rect and its subtree skipped.
+	/// </summary>
+	private void CollectGeometry(VisualElement element, in Affine2 toRoot, in Affine2 toHost,
+	                             HashSet<NativeElementHost> hosted, bool parentVisible,
+	                             Rect? hitClip = null, bool? inheritedRtl = null)
+	{
+		// RTL mirrors children inside this element like platform layout managers do (MAUI's arrange is always
+		// LTR); each RTL level mirrors its own children, so nesting composes.
+		var rtl = element.FlowDirection == FlowDirection.MatchParent
+			? inheritedRtl ?? IsRightToLeft(element.Parent)
+			: element.FlowDirection == FlowDirection.RightToLeft;
+		var visibility = ((IView)element).Visibility;
+		var visible = parentVisible && visibility == Visibility.Visible;
+		var bounds = element.Bounds;
+		NativeElementHost? host = null;
+		var isHost = element is not Page && _cache.TryGet(element, out host) && host is not null
+		             && host.IsAttached && hosted.Contains(host);
+		var nestedScroll = isHost && host is { QmlUri: "scroll-view" } && element is ScrollView
+			? (ScrollView)element
+			: null;
+		if (isHost && host is not null)
+		{
+			SetGeometry(host, new Rect(toRoot.Tx, toRoot.Ty, bounds.Width, bounds.Height),
+				new Rect(toHost.Tx, toHost.Ty, bounds.Width, bounds.Height), visibility == Visibility.Visible);
+			PushTransform(host, element, toHost);
+			host.HitClipDp = hitClip;
+		}
+
+		// A nested scroll host scrolls its content natively: local rects stay unshifted, root rects shift by the
+		// scroll position (hit-testing) and are clipped to the viewport, and the content no longer extends the page.
+		var childRootOffset = Affine2.Translation(0, 0);
+		var childHitClip = hitClip;
+		if (nestedScroll is not null && host is not null)
+		{
+			PushScrollExtent(host, nestedScroll);
+			childRootOffset = Affine2.Translation(-nestedScroll.ScrollX, -nestedScroll.ScrollY);
+			var viewport = new Rect(toRoot.Tx, toRoot.Ty, bounds.Width, bounds.Height);
+			childHitClip = hitClip is { } outer ? outer.Intersect(viewport) : viewport;
+		}
+
+		foreach (var child in ((IVisualTreeElement)element).GetVisualChildren())
+		{
+			if (child is not VisualElement visual)
+				continue;
+			if (((IView)visual).Visibility == Visibility.Collapsed)
+			{
+				// MAUI does not arrange Collapsed subtrees; hiding the host hides its descendants natively.
+				if (_cache.TryGet(visual, out var collapsed) && collapsed is not null && collapsed.IsAttached
+				    && hosted.Contains(collapsed))
+					SetGeometry(collapsed, collapsed.MauiLogicalBounds, LocalOf(collapsed), visible: false);
+				continue;
+			}
+			var childBounds = visual.Bounds;
+			var childX = rtl ? ContentWidth(element) - childBounds.X - childBounds.Width : childBounds.X;
+			var childLocal = QtHostVisualState
+				.LocalTransform(visual, childBounds.Width, childBounds.Height)
+				.Then(Affine2.Translation(childX, childBounds.Y));
+			CollectGeometry(visual, childLocal.Then(childRootOffset).Then(toRoot),
+				isHost ? childLocal : childLocal.Then(toHost), hosted, visible, childHitClip, rtl);
+		}
+	}
+
+	/// <summary>Width children are mirrored within under RTL: a ScrollView's content extent, else the element's width.</summary>
+	private static double ContentWidth(VisualElement element) =>
+		element is ScrollView { Content: View content } scroll
+			? Math.Max(scroll.Bounds.Width, content.Bounds.Right + content.Margin.Right + scroll.Padding.Right)
+			: element.Bounds.Width;
+
+	/// <summary>The nested scroll host's content extent (Qt units): content far edge plus padding, at least the viewport.</summary>
+	private void PushScrollExtent(NativeElementHost host, ScrollView scrollView)
+	{
+		var width = scrollView.Bounds.Width;
+		var height = scrollView.Bounds.Height;
+		if (scrollView.Content is View content)
+		{
+			var margin = content.Margin;
+			width = Math.Max(width, content.Bounds.Right + margin.Right + scrollView.Padding.Right);
+			height = Math.Max(height, content.Bounds.Bottom + margin.Bottom + scrollView.Padding.Bottom);
+		}
+		ApplyUpdates(host, new Dictionary<string, object?>
+		{
+			["mauiContentWidth"] = QtHostUnits.ToQtUnits(width),
+			["mauiContentHeight"] = QtHostUnits.ToQtUnits(height),
+		});
+	}
+
+	/// <summary>The last applied parent-relative rect of a host in dp (re-applied invisible on collapse).</summary>
+	private static Rect LocalOf(NativeElementHost host) =>
+		host.AppliedGeometrySet
+			? QtHostUnits.ToLogical(host.AppliedGeometry)
+			: new Rect(0, 0, host.MauiLogicalBounds.Width, host.MauiLogicalBounds.Height);
+
+	/// <summary>The transformed rect's bottom in root space, so the scroll extent sees transformed hosts.</summary>
+	private static double TransformedBottom(in Affine2 toRoot, Rect bounds)
+	{
+		if (toRoot.IsTranslationOnly)
+			return toRoot.Ty + bounds.Height;
+		var w = bounds.Width;
+		var h = bounds.Height;
+		return Math.Max(Math.Max(toRoot.Transform(0, 0).Y, toRoot.Transform(w, 0).Y),
+			Math.Max(toRoot.Transform(0, h).Y, toRoot.Transform(w, h).Y));
+	}
+
+	/// <summary>
+	/// Decomposes the accumulated transform into QQuickItem rotation/scale around TopLeft (the pushed x/y carry
+	/// the translation, so uniform scale ∘ rotation is exact). Shear degrades to the best uniform fit with a
+	/// one-time warning; an identity matrix resets a previously pushed rotation/scale.
+	/// </summary>
+	private void PushTransform(NativeElementHost host, VisualElement element, in Affine2 toRoot)
+	{
+		var limit = QtHostVisualState.TransformLimit(element)
+			?? (toRoot.IsTranslationOnly || toRoot.IsUniformScaleRotation
+				? null
+				: "accumulated shear (non-uniform scale composed with rotation)");
+		if (limit is not null && _transformLimitWarned.Add(host.Id))
+			QtHostDiag.Warn(QtHostDiagChannel.QmlProperty, $"{host} transform is best-effort — {limit} (2D uniform fit; see PLAN Q16 deferred notes)");
+
+		if (toRoot.IsTranslationOnly)
+		{
+			if (host.AppliedProperties.ContainsKey("rotation") || host.AppliedProperties.ContainsKey("scale"))
+				ApplyUpdates(host, new Dictionary<string, object?> { ["rotation"] = 0.0, ["scale"] = 1.0 });
+			return;
+		}
+		ApplyUpdates(host, new Dictionary<string, object?>
+		{
+			["transformOrigin"] = "TopLeft",   // the pushed x/y is the transformed origin
+			["rotation"] = toRoot.RotationDegrees,
+			["scale"] = toRoot.UniformScale,
+		});
+	}
+
+	/// <summary>
+	/// Records the element's absolute root-space rect (dp), converts it once to Qt units and queues it into the
+	/// per-pass batch; unchanged geometry is dropped, so steady-state passes push nothing.
+	/// </summary>
+	private void SetGeometry(NativeElementHost host, Rect logicalDp, bool visible) =>
+		SetGeometry(host, logicalDp, null, visible);
+
+	/// <param name="localDp">Rect relative to the host's QML parent, pushed as-is. Null for collection rows:
+	/// <paramref name="logicalDp"/> is then pushed as scene coordinates the shim maps through the delegate.</param>
+	private void SetGeometry(NativeElementHost host, Rect logicalDp, Rect? localDp, bool visible)
+	{
+		host.MauiLogicalBounds = logicalDp;
+		var qt = QtHostUnits.ToQtUnits(localDp ?? logicalDp);
+		var geo = new NativeGeometry(qt.X, qt.Y, qt.Width, qt.Height);
+		if (host.AppliedGeometrySet && host.AppliedGeometry == geo && host.AppliedVisible == visible)
+			return;
+		_geometryBatch.Add((host, geo, visible, localDp is not null));
+	}
+
+	/// <summary>
+	/// Flushes queued geometry as one native call (sailfish_host_apply_geometry). Applied state is recorded only
+	/// on full success, so partial failures retry next pass.
+	/// </summary>
+	private void FlushGeometry()
+	{
+		if (_geometryBatch.Count == 0)
+			return;
+
+		var sb = new StringBuilder(_geometryBatch.Count * 96 + 2);
+		sb.Append('[');
+		for (var i = 0; i < _geometryBatch.Count; i++)
+		{
+			var (host, geo, visible, local) = _geometryBatch[i];
+			if (i > 0)
+				sb.Append(',');
+			sb.Append("{\"handle\":\"").Append(host.NativeHandle.ToString(CultureInfo.InvariantCulture))
+			  .Append("\",\"x\":").Append(BridgeValue.Number(geo.X))
+			  .Append(",\"y\":").Append(BridgeValue.Number(geo.Y))
+			  .Append(",\"w\":").Append(BridgeValue.Number(geo.Width))
+			  .Append(",\"h\":").Append(BridgeValue.Number(geo.Height))
+			  .Append(",\"vis\":").Append(visible ? '1' : '0');
+			if (local)
+				sb.Append(",\"local\":1");   // parent-relative, applied as-is
+			sb.Append('}');
+			if (GeometryTrace)
+			{
+				var dp = host.MauiLogicalBounds;
+				QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"SET {host} dp=({dp.X:F1},{dp.Y:F1} {dp.Width:F1}x{dp.Height:F1}) " +
+					$"-> qt=({geo.X:F1},{geo.Y:F1} {geo.Width:F1}x{geo.Height:F1}) vis={visible}");
+			}
+		}
+		sb.Append(']');
+
+		var count = _geometryBatch.Count;
+		var failed = QtHostRuntime.ApplyGeometry(sb.ToString());
+		if (failed < 0)
+		{
+			GeometryFailed += count;
+			if (_bridgeFailLogged.Add($"geometry:{failed}"))
+				QtHostDiag.Error(QtHostDiagChannel.Geometry, $"apply_geometry rc={failed} ({count} entries): {QtHostRuntime.LastErrorText}");
+		}
+		else
+		{
+			GeometryApplied += count - failed;
+			if (failed > 0)
+			{
+				GeometryFailed += failed;
+				if (_bridgeFailLogged.Add($"geometry-partial:{failed}"))
+					QtHostDiag.Warn(QtHostDiagChannel.Geometry, $"apply_geometry partial: {failed}/{count} not applied: {QtHostRuntime.LastErrorText}");
+				// Partial failures are almost always dead handles (QML object died before the first window report):
+				// detach them so the next reconcile recreates them.
+				foreach (var (host, _, _, _) in _geometryBatch)
+					HealIfDead(host);   // each heal asks for the reconcile that recreates it
+			}
+			else
+			{
+				foreach (var (host, geo, visible, _) in _geometryBatch)
+				{
+					host.AppliedGeometry = geo;
+					host.AppliedVisible = visible;
+					host.AppliedGeometrySet = true;
+				}
+			}
+		}
+		if (GeometryTrace)
+			QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"flush entries={count} failed={failed}");
+		_geometryBatch.Clear();
+	}
+
+	// The page flickable ("scroller", below the host canvas) scrolls no content. It turns interactive only for
+	// the overscroll that drives Silica pulleys (which need an interactive flickable) or a page-armed refresh;
+	// contentH stays the viewport height so the canvas never drifts.
+
+	/// <summary>Pushes the page flickable state to the QML page (diffed).</summary>
+	private void PushScrollState()
+	{
+		_primaryScroll = _primaryScrollWalk;
+		var enabled = PageHasPulley || _pageRefresh.View is not null;
+		var contentHScene = QtHostUnits.ToQtUnits(_windowDp.Height);
+		var json = "{\"enabled\":" + (enabled ? "true" : "false") +
+		           ",\"contentH\":" + BridgeValue.Number(contentHScene) +
+		           ",\"scrollY\":0}";
+		// Diag: MAUI_SAILFISH_OPEN_PULLEY="<pageSeq>:<pull|push>" opens the pulley after the Nth page render for
+		// screenshots. Silica's PullDownMenu has no activate(): the flickable is parked at the menu's _finalPosition
+		// and mauiHoldScrollY keeps the ScrollY push from snapping it shut.
+		var openSpec = SailfishEnv.Get("MAUI_SAILFISH_OPEN_PULLEY");
+		if (!_pulleyOpened && !string.IsNullOrEmpty(openSpec))
+		{
+			var parts = openSpec.Split(':');
+			if (parts.Length == 2 && int.TryParse(parts[0], out var openSeq) && _renderedPageSeq >= openSeq)
+			{
+				_pulleyOpened = true;
+				var which = parts[1] == "push" ? "pushUpMenu" : "pullDownMenu";
+				// The shim eval scope has no setTimeout; the QML helper defers with Qt.callLater.
+				var openResult = QtHostRuntime.Eval(
+					$"(function(){{var p={QmlPage.Model};if(!p)return 'nopage';if(!p.mauiOpenPulley)return 'nofn';p.mauiOpenPulley('{which}');return 'ok';}})()");
+				QtHostDiag.Trace(QtHostDiagChannel.Input, $"OPEN_PULLEY eval seq={_renderedPageSeq} spec={openSpec} -> {openResult}");
+			}
+		}
+		if (json == _lastScrollPush)
+			return;
+		_lastScrollPush = json;
+		QtHostRuntime.Eval($"{QmlPage.Model}.setMauiScroll({BridgeValue.Quote(json)})");
+		if (GeometryTrace)
+			QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"page flickable push {json}");
+	}
+
+	/// <summary>
+	/// Swaps the page-armed RefreshView; the gesture and spinner live on the scroll surface, so this only
+	/// manages the subscription and the diffed setMauiRefresh push.
+	/// </summary>
+	private void ArmRefresh(RefreshView? refresh)
+	{
+		if (!_pageRefresh.Arm(refresh, _ => PushRefreshState(), () => _suppressPush != 0))
+			return;
+		_lastRefreshPush = string.Empty;   // the new page instance needs a fresh push
+		PushRefreshState();   // arm/disarm must reach the page without a layout pass
+	}
+
+	/// <summary>Keeps the subscription of the RefreshView armed on a scroll-view host; the id and initial state
+	/// ride the host props, later changes push straight to the adapter.</summary>
+	private void ArmScrollRefresh(RefreshView? refresh, NativeElementHost? host)
+	{
+		_scrollRefreshHost = host;
+		_scrollRefresh.Arm(refresh, r =>
+		{
+			if (_scrollRefreshHost is { } h)
+				ApplyUpdates(h, RefreshSurfaceProps(r));
+		}, () => _suppressPush != 0);
+	}
+
+	/// <summary>The page-side refresh state (armed id + spinner), diffed.</summary>
+	private void PushRefreshState()
+	{
+		var refreshing = _pageRefresh.View?.IsRefreshing == true;
+		var armed = _pageRefresh.View is { IsRefreshEnabled: true };
+		var color = _pageRefresh.View?.RefreshColor is { } tint ? BridgeValue.ColorString(tint) : string.Empty;
+		var json = "{\"id\":\"" + (armed ? RefreshId : string.Empty) +
+		           "\",\"refreshing\":" + (refreshing ? "true" : "false") +
+		           ",\"color\":\"" + color + "\"}";
+		if (json == _lastRefreshPush)
+			return;
+		_lastRefreshPush = json;
+		QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "setMauiRefresh", BridgeValue.Quote(json)));
+	}
+}

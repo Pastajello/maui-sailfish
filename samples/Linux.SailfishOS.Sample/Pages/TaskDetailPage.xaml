@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Models"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.TaskDetailPage"
+             x:DataType="models:TaskItem"
+             Title="Task details"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="18" Padding="24,20">
+
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <BoxView Grid.Column="0" Color="{Binding AccentColor}"
+                         WidthRequest="10" HeightRequest="52" />
+                <Label Grid.Column="1" Text="{Binding Title}"
+                       FontSize="28" TextColor="White" VerticalOptions="Center" />
+            </Grid>
+
+            <Label Text="{Binding Notes}" FontSize="20" TextColor="#C8D6E5" />
+
+            <BoxView HeightRequest="2" Color="#2E6BB0" />
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <Label Grid.Column="0" Text="Done" FontSize="22"
+                       TextColor="White" VerticalOptions="Center" />
+                <Switch Grid.Column="1" IsToggled="{Binding IsDone, Mode=TwoWay}" />
+            </Grid>
+
+            <Label Text="{Binding Priority, StringFormat='Priority: {0:P0}'}"
+                   FontSize="22" TextColor="White" />
+            <Slider Minimum="0" Maximum="1" Value="{Binding Priority, Mode=TwoWay}" />
+            <ProgressBar Progress="{Binding Priority}" ProgressColor="#4FC3F7" />
+
+            <Label Text="{Binding Category, StringFormat='Category: {0}'}"
+                   FontSize="20" TextColor="#9FB4C7" />
+
+            <Button Text="Delete task" BackgroundColor="#B0413E" TextColor="White"
+                    Clicked="OnDeleteClicked" />
+            <Button Text="Back" BackgroundColor="#37474F" TextColor="White"
+                    Clicked="OnBackClicked" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.ControlsPage"
+             Title="Controls"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="18" Padding="24,20">
+
+            <Label Text="Platform control gallery" FontSize="26" TextColor="White" />
+            <Label x:Name="StatusLabel" Text="Tapped 0 time(s)" FontSize="20" TextColor="#9FB4C7" />
+
+            <Button Text="Tap me" BackgroundColor="#2E6BB0" TextColor="White"
+                    Clicked="OnTapMeClicked" />
+
+            <BoxView Color="#2E6BB0" HeightRequest="40" WidthRequest="240" />
+
+            <Label x:Name="CheckLabel" Text="CheckBox: off" FontSize="20" TextColor="White" />
+            <CheckBox IsChecked="False" CheckedChanged="OnCheckChanged" />
+
+            <Label x:Name="SwitchLabel" Text="Switch: off" FontSize="20" TextColor="White" />
+            <Switch IsToggled="False" Toggled="OnSwitchToggled" />
+
+            <Label x:Name="SliderLabel" Text="Slider: 0.30" FontSize="20" TextColor="White" />
+            <Slider Minimum="0" Maximum="1" Value="0.3" ValueChanged="OnSliderChanged" />
+
+            <ProgressBar x:Name="Progress" Progress="0.3" ProgressColor="#4FC3F7" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

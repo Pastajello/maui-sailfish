@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<!-- The app ships a fixed dark palette (see Palette in App.cs) rather than
+	     following the system appearance, so pin the native chrome — navigation
+	     bar, status bar, UIKit alerts — to dark as well. Without this, a simulator
+	     in Light mode draws a white bar over a #0E1116 app and the comparison
+	     against Sailfish's always-dark Silica host is misleading. -->
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
+	<!-- Present, but empty: declares a launch screen so iOS runs the app at native
+	     resolution instead of the scaled compatibility mode an app without one
+	     gets on modern iPhones. -->
+	<key>UILaunchScreen</key>
+	<dict/>
+	<!-- Generated from the MauiIcon item by the resizetizer. -->
+	<key>XSAppIconAssets</key>
+	<string>Assets.xcassets/appicon.appiconset</string>
+</dict>
+</plist>

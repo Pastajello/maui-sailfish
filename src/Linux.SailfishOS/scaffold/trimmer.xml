@@ -1,0 +1,8 @@
+<linker>
+  <!-- SailfishGenerateMain discovers the app's CreateMauiApp() through
+       reflection; keep it alive under PublishTrimmed. The type wildcard
+       matches any namespace the app puts its MauiProgram in. -->
+  <assembly fullname="*">
+    <type fullname="*MauiProgram" preserve="methods" />
+  </assembly>
+</linker>

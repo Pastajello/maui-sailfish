@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.TextInputPage"
+             Title="Text input"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="12">
+
+            <Label Text="Entry" FontSize="16" TextColor="#4FC3F7" />
+            <Entry x:Name="NameEntry" Placeholder="type your name…" MaxLength="24"
+                   TextColor="White" PlaceholderColor="#7A8CA0" BackgroundColor="#1C1C28"
+                   TextChanged="OnEntryTextChanged" Completed="OnEntryCompleted" />
+
+            <Label Text="Password entry + clear button" FontSize="16" TextColor="#4FC3F7" />
+            <Entry x:Name="SecretEntry" Placeholder="secret" IsPassword="True" ClearButtonVisibility="WhileEditing"
+                   TextColor="White" PlaceholderColor="#7A8CA0" BackgroundColor="#1C1C28" />
+
+            <Label Text="Numeric keyboard" FontSize="16" TextColor="#4FC3F7" />
+            <Entry x:Name="NumberEntry" Placeholder="42" Keyboard="Numeric"
+                   TextColor="White" PlaceholderColor="#7A8CA0" BackgroundColor="#1C1C28" />
+
+            <Label Text="Editor (multi-line, auto size)" FontSize="16" TextColor="#4FC3F7" />
+            <Editor x:Name="NotesEditor" Placeholder="multi-line notes…" AutoSize="TextChanges"
+                    HeightRequest="120" TextColor="White" PlaceholderColor="#7A8CA0" BackgroundColor="#1C1C28" />
+
+            <Label Text="SearchBar" FontSize="16" TextColor="#4FC3F7" />
+            <SearchBar x:Name="QuerySearch" Placeholder="search…" CancelButtonColor="#FF5252"
+                       TextColor="White" PlaceholderColor="#7A8CA0" BackgroundColor="#1C1C28"
+                       SearchButtonPressed="OnSearchPressed" />
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button Grid.Column="0" Text="Focus entry" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnFocusClicked" />
+                <Button Grid.Column="1" Text="Unfocus" BackgroundColor="#37474F" TextColor="White" Clicked="OnUnfocusClicked" />
+            </Grid>
+
+            <Label x:Name="StatusLabel" FontSize="18" TextColor="#9FB4C7"
+                   Text="changes: 0 | completed: - | search: -" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

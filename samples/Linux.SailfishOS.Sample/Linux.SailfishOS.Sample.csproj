@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Sample</RootNamespace>
+    <ApplicationId>com.maui.sailfish.sample</ApplicationId>
+    <ApplicationTitle>MAUI Sailfish Sample</ApplicationTitle>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <IsPackable>false</IsPackable>
+    <!-- XAML is compiled by source generation; no runtime inflator. -->
+    <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
+    <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
+    <MauiXamlInflator>SourceGen</MauiXamlInflator>
+    <!-- The sample only uses InvariantCulture, so drop ICU from the payload.
+         TODO: DatePicker behaviour under invariant mode is untested. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The harbour icon must be a 108x108 PNG (checked at pack time), so ship a pre-sized one. -->
+    <MauiIcon Include="Resources\AppIcon\appicon-sailfish.png" />
+  </ItemGroup>
+
+  <!-- Images ship under images/, where the platform's image resolver looks. -->
+  <ItemGroup>
+    <Content Include="Resources\Images\*.png;Resources\Images\*.gif" CopyToOutputDirectory="PreserveNewest" Link="images\%(Filename)%(Extension)">
+      <TargetPath>images/%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
+  <!-- Native host shim, built by tools/sf-native-build.sh and shipped next to the app binary
+       so DllImport("sailfishhost") resolves it. -->
+  <ItemGroup>
+    <Content Include="..\..\artifacts\native\aarch64\libsailfishhost.so" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
+      <Link>libsailfishhost.so</Link>
+    </Content>
+    <!-- Harbour launcher (used when SailfishHarbour=true) -->
+    <Content Include="..\..\artifacts\native\aarch64\sailfish-launcher" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/sailfish-launcher')">
+      <Link>sailfish-launcher</Link>
+    </Content>
+    <Content Include="..\..\artifacts\native\armv7hl\sailfish-launcher" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/sailfish-launcher')">
+      <Link>sailfish-launcher</Link>
+    </Content>
+    <!-- armv7hl publishes take the armv7 shim -->
+    <Content Include="..\..\artifacts\native\armv7hl\libsailfishhost.so" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/libsailfishhost.so')">
+      <Link>libsailfishhost.so</Link>
+    </Content>
+    <!-- SecureStorage bridge (Sailfish Secrets; optional at runtime) -->
+    <Content Include="..\..\artifacts\native\aarch64\libsailfishsecretsbridge.so" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')">
+      <Link>libsailfishsecretsbridge.so</Link>
+    </Content>
+    <Content Include="..\..\artifacts\native\armv7hl\libsailfishsecretsbridge.so" CopyToOutputDirectory="PreserveNewest"
+             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/libsailfishsecretsbridge.so')">
+      <Link>libsailfishsecretsbridge.so</Link>
+    </Content>
+  </ItemGroup>
+
+  <!-- Import the Sailfish OS RPM packaging targets -->
+  <Import Project="../../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets" />
+
+</Project>

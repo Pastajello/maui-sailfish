@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The on-device acceptance legs (tools/sf-matrix.sh, MAUI_SAILFISH_QT_HOST_*_DIAG):
+       split out of the backend so production apps ship none of it. Referenced
+       by the sample (the matrix harness) and Kitchen; apps opt in with
+       SailfishDiagnostics.Register(). Drives backend internals through
+       InternalsVisibleTo (see Linux.SailfishOS.csproj). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Diagnostics</RootNamespace>
+    <AssemblyName>Microsoft.Maui.SailfishOS.Diagnostics</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Linux.SailfishOS/Linux.SailfishOS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test adapters of the library-control leg (f3 part O), shipped into the app's qml/ like a library would. -->
+    <Content Include="qml/**/*.qml" Link="qml/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

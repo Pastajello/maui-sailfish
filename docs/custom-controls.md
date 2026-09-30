@@ -1,0 +1,155 @@
+# Sailfish handlers for custom and library controls
+
+On Android a control library ships `MyViewHandler : ViewHandler<IMyView, AppCompatTextView>` and registers it
+with `AddHandler`. Sailfish follows the same model, except that the native view is a QML adapter object hosted
+by the backend: `NativeElementHost`.
+
+## Customizing a built-in control
+
+Every Sailfish handler publishes its mapper the way MAUI handlers do (`SailfishLabelHandler.Mapper`,
+`SailfishEntryHandler.Mapper`, …). The mapper chains from `SailfishViewMapper.Mapper` (the generic view state), which
+chains from `ViewHandler.ViewMapper`, and `handler.PlatformView` is the control's `NativeElementHost`:
+
+```csharp
+#if SAILFISH
+SailfishLabelHandler.Mapper.AppendToMapping("Trace", (handler, label) =>
+{
+    NativeElementHost host = handler.PlatformView;   // QmlUri "label", Id "e17", …
+    Console.WriteLine($"{host} shows {label.Text}");
+});
+#endif
+```
+
+A handler registered by the app wins over the Sailfish one, whether it replaces a built-in control or serves a
+new one:
+
+```csharp
+builder.ConfigureMauiHandlers(handlers =>
+{
+#if SAILFISH
+    handlers.AddHandler<Label, MyLabelHandler>();          // MyLabelHandler : SailfishLabelHandler
+    handlers.AddHandler<RatingView, RatingViewHandler>();  // a library control, below
+#endif
+});
+```
+
+Resolution walks the view's type hierarchy. At each level a registration from the app or a library wins, and a
+stock MAUI handler (it throws on this TFM) gives way to the Sailfish handler for that exact type. A type that
+nothing claims falls back to the nearest Sailfish base handler.
+
+## A library control with its own adapter
+
+A control deriving from `View` that the backend does not know gets a plain container host, so its children
+still paint. To render it natively, the library ships three pieces.
+
+**1. The handler.** It names the adapter and pushes the adapter's state. Every key in the list re-sends the whole
+snapshot in one batch, so related values never arrive half-updated:
+
+```csharp
+#if SAILFISH
+using Microsoft.Maui.SailfishOS.Handlers;
+
+public class RatingViewHandler : SailfishSnapshotHandler
+{
+    public RatingViewHandler()
+        : base(new[] { nameof(RatingView.Value), nameof(RatingView.Maximum) },
+               (view, widthConstraint, heightConstraint) => new Size(Math.Min(widthConstraint, 240), 48))
+    {
+    }
+
+    protected override string? AdapterUri => "rating-view";
+
+    protected override Dictionary<string, object?>? Snapshot(IView view) =>
+        view is RatingView rating
+            ? new() { ["value"] = rating.Value, ["maximum"] = rating.Maximum }
+            : null;
+
+    // Events the adapter raises with mauiEvent(name, payload); payload carries the host "id".
+    protected override void OnAdapterEvent(string name, JsonElement payload)
+    {
+        if (name == "rating-changed" && VirtualView is RatingView rating)
+            rating.Value = payload.GetProperty("value").GetInt32();
+    }
+}
+#endif
+```
+
+A control with a Core interface of its own can derive from `SailfishSnapshotHandler<IMyView>` instead, and
+publish a static `Mapper` built with `SnapshotMapper<THandler>(keys)`, as the built-in handlers do. The measure
+function returns the control's size in dp; without one the backend uses a generic estimate.
+
+**2. The adapter registration**, in the library's builder extension:
+
+```csharp
+public static MauiAppBuilder UseRatingControls(this MauiAppBuilder builder)
+{
+#if SAILFISH
+    Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostAdapters.Register("rating-view", "RatingControls/RatingView.qml");
+    builder.ConfigureMauiHandlers(handlers => handlers.AddHandler<RatingView, RatingViewHandler>());
+#endif
+    return builder;
+}
+```
+
+The path is relative to the app's `qml/` directory; an absolute `file:///` URL works too.
+
+**3. The QML adapter**, copied into the app's `qml/` directory:
+
+```xml
+<ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'sailfish'">
+  <Content Include="Sailfish/qml/**/*.qml" Link="qml/RatingControls/%(RecursiveDir)%(Filename)%(Extension)"
+           CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
+```
+
+A NuGet package needs a `buildTransitive` target that adds the same `Content` items in the consuming app, the way
+`Microsoft.Maui.SailfishOS` adds its own `qml/`.
+
+The adapter implements the backend's contract. The generic properties (opacity, enabled, background, semantics,
+shadow, clip) are handled for every item by the host, so the adapter declares only its own:
+
+```qml
+import QtQuick 2.6
+import Sailfish.Silica 1.0
+
+Row {
+    id: root
+
+    // Contract: every adapter declares these three.
+    property string mauiId: ""
+    property string mauiProbe: ""
+    signal mauiEvent(string name, string payload)
+
+    // True while managed values are applied: raise no events for them (no echo loop).
+    property bool mauiApplying: false
+
+    // The handler's snapshot keys. An undeclared name rejects the whole property batch.
+    property int value: 0
+    property int maximum: 5
+
+    Repeater {
+        model: root.maximum
+        IconButton {
+            icon.source: index < root.value ? "image://theme/icon-m-favorite-selected" : "image://theme/icon-m-favorite"
+            onClicked: if (!root.mauiApplying)
+                root.mauiEvent("rating-changed", JSON.stringify({ id: root.mauiId, value: index + 1 }))
+        }
+    }
+}
+```
+
+The backend sets the adapter's geometry from the MAUI layout pass. Silica items that bind their own
+`width`/`height` to their content need plain `width: 0; height: 0`, or the bindings overwrite the managed
+geometry.
+
+## Limits
+
+- A registered adapter is used for controls that derive from `View` directly. A control deriving from a built-in
+  one (`Entry`, `ContentView`, a `Layout`) keeps the built-in adapter; customize it through the built-in
+  handler's `Mapper` instead.
+- The adapter's children are not MAUI views: a control whose content is MAUI views (a templated control) should
+  stay a `ContentView`/`TemplatedView` and let the backend host its content.
+- Property changes reach the adapter only through the handler's mapper: the family snapshot for the handler's
+  keys, the generic view state (opacity, enabled, background, semantics, …) for the keys of
+  `SailfishViewMapper.Mapper`, which every Sailfish mapper chains from. The page reconcile still diffs the host as
+  a safety net; with a complete snapshot it finds nothing to push.

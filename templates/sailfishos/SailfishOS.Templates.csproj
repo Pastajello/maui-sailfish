@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS.Templates</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Authors>maui-sailfish</Authors>
+    <Description>Templates for .NET MAUI apps on Sailfish OS (Qt/Silica host): the maui-sailfish app template and the maui-sailfish-platform item template for adding a Sailfish head to an existing app.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>dotnet-new;templates;maui;linux;sailfish;sailfishos</PackageTags>
+
+    <TargetFramework>net11.0</TargetFramework>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <IsPackable>true</IsPackable>
+    <IsShipping>true</IsShipping>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Own directory on purpose: two template packaging projects in one
+         directory would share templates/obj and overwrite each other's
+         project.assets.json (NETSDK1005 on the sibling's TFM). -->
+    <Content Include="../maui-sailfish-app/**" Exclude="../maui-sailfish-app/**/bin/**;../maui-sailfish-app/**/obj/**"
+             Pack="true" PackagePath="content/maui-sailfish-app/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The item template adds the app template's Platforms/SailfishOS to an existing project (same files, one source). -->
+    <Content Include="../maui-sailfish-platform/.template.config/**"
+             Pack="true" PackagePath="content/maui-sailfish-platform/.template.config/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="../maui-sailfish-app/Platforms/SailfishOS/**"
+             Pack="true" PackagePath="content/maui-sailfish-platform/Platforms/SailfishOS/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Remove="**/*" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+</Project>

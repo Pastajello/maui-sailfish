@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.NavigationDemoPage"
+             Title="Navigation"
+             BackgroundColor="#101018">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="info" Clicked="OnToolbarInfoClicked" Order="Primary" />
+    </ContentPage.ToolbarItems>
+
+    <VerticalStackLayout Padding="20,12" Spacing="12">
+
+        <Button Text="Push modal page" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnModalClicked" />
+        <Button Text="Push TabbedPage" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnTabsClicked" />
+        <Button Text="Push FlyoutPage (modal)" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnFlyoutClicked" />
+
+        <Label Text="Lifecycle log" FontSize="16" TextColor="#4FC3F7" />
+        <Label x:Name="LifecycleLabel" FontSize="17" TextColor="#9FB4C7" Text="(none yet)" />
+
+    </VerticalStackLayout>
+
+</ContentPage>

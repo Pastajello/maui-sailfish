@@ -1,0 +1,95 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+<!--#if (!SailfishOnly) -->
+		<TargetFrameworks>net11.0-android</TargetFrameworks>
+		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+		<!-- Sailfish OS (Qt/Silica host); needs the one-time workload manifest install
+		     (tools/sf-workload-install.sh). -->
+		<TargetFrameworks>$(TargetFrameworks);net11.0-sailfish</TargetFrameworks>
+
+		<!-- Note for MacCatalyst:
+		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
+		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
+		The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
+		either BOTH runtimes must be indicated or ONLY macatalyst-x64. -->
+		<!-- For example: <RuntimeIdentifiers>maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
+<!--#else -->
+		<!-- Sailfish OS only: no MAUI workloads needed; add other heads later like any
+		     MAUI app. Needs the one-time workload manifest install (tools/sf-workload-install.sh). -->
+		<TargetFrameworks>net11.0-sailfish</TargetFrameworks>
+<!--#endif -->
+
+		<OutputType>Exe</OutputType>
+		<RootNamespace>MauiSailfishApp</RootNamespace>
+		<!-- The in-box heads build through the MAUI workload; the Sailfish head needs none. -->
+		<UseMaui Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'sailfish'">true</UseMaui>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<!-- Display name -->
+		<ApplicationTitle>MauiSailfishApp</ApplicationTitle>
+
+		<!-- App Identifier (Sailfish: the RPM is harbour-<last segment>) -->
+		<ApplicationId>com.companyname.mauisailfishapp</ApplicationId>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+<!--#if (!SailfishOnly) -->
+
+		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
+		<WindowsPackageType>None</WindowsPackageType>
+
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">17.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+<!--#endif -->
+	</PropertyGroup>
+
+	<!-- Sailfish OS head: `dotnet publish -f net11.0-sailfish` builds the harbour RPM;
+	     `dotnet build -f net11.0-sailfish -t:SailfishRun` deploys and launches it. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+		<!-- No MAUI workload on this head, so no $(MauiVersion) from it -->
+		<MauiVersion Condition="'$(MauiVersion)' == ''">11.0.0-rc.1.26451.6</MauiVersion>
+		<!-- Sailfish packaging (docs/sailfishos-packaging.md):
+		     <SailfishPermissions>Internet;Pictures</SailfishPermissions>  Sailjail sandbox (required by Harbour)
+		     <SailfishHarbour>true</SailfishHarbour>                       Jolla Store layout (validator-clean RPM)
+		     <SailfishSecureStorage>Secrets</SailfishSecureStorage>        SecureStorage on the Sailfish Secrets daemon
+		     <SailfishCover>true</SailfishCover>                           home-screen cover (or SailfishCover.SetContent in code)
+		     <SailfishOrientation>Portrait</SailfishOrientation>           Any (default, like MAUI on iOS/Android), Portrait or Landscape
+		     <RuntimeIdentifier>linux-arm</RuntimeIdentifier>              32-bit phones (default linux-arm64) -->
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- App Icon -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+
+		<!-- Splash Screen -->
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+
+		<!-- Images -->
+		<MauiImage Include="Resources\Images\*" />
+		<MauiImage Update="Resources\Images\dotnet_bot.png" BaseSize="222,185" />
+
+		<!-- Custom Fonts -->
+		<MauiFont Include="Resources\Fonts\*" />
+
+		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="11.0.0-*" />
+	</ItemGroup>
+
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="SAILFISH_PACKAGE_VERSION" />
+	</ItemGroup>
+
+</Project>

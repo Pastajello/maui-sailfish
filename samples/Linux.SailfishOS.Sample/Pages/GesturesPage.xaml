@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.GesturesPage"
+             Title="Gestures"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="14">
+
+            <Label Text="Tap / pan / swipe / pinch target" FontSize="16" TextColor="#4FC3F7" />
+            <BoxView x:Name="GestureTarget" Color="#2E6BB0" HeightRequest="220" HorizontalOptions="Fill">
+                <BoxView.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnTapped" NumberOfTapsRequired="1" />
+                    <PanGestureRecognizer PanUpdated="OnPanned" />
+                    <SwipeGestureRecognizer Direction="Left" Swiped="OnSwiped" />
+                    <SwipeGestureRecognizer Direction="Right" Swiped="OnSwiped" />
+                    <PinchGestureRecognizer PinchUpdated="OnPinched" />
+                </BoxView.GestureRecognizers>
+            </BoxView>
+
+            <Label Text="Horizontal ScrollView" FontSize="16" TextColor="#4FC3F7" />
+            <ScrollView Orientation="Horizontal" HeightRequest="90">
+                <HorizontalStackLayout Spacing="10">
+                    <BoxView Color="#FF5252" WidthRequest="160" HeightRequest="70" />
+                    <BoxView Color="#FFAB40" WidthRequest="160" HeightRequest="70" />
+                    <BoxView Color="#69F0AE" WidthRequest="160" HeightRequest="70" />
+                    <BoxView Color="#448AFF" WidthRequest="160" HeightRequest="70" />
+                    <BoxView Color="#E040FB" WidthRequest="160" HeightRequest="70" />
+                    <BoxView Color="#FFFF00" WidthRequest="160" HeightRequest="70" />
+                </HorizontalStackLayout>
+            </ScrollView>
+
+            <Label Text="RefreshView (pull down)" FontSize="16" TextColor="#4FC3F7" />
+            <RefreshView x:Name="Refresh" IsRefreshing="False" RefreshColor="#4FC3F7"
+                         HeightRequest="220" Refreshing="OnRefreshing">
+                <CollectionView x:Name="RefreshList">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Label Text="{Binding .}" FontSize="20" TextColor="White" Padding="8,10" />
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </RefreshView>
+
+            <Label Text="SwipeView (swipe row left)" FontSize="16" TextColor="#4FC3F7" />
+            <SwipeView>
+                <SwipeView.RightItems>
+                    <SwipeItems Mode="Reveal">
+                        <SwipeItem Text="Delete" BackgroundColor="#FF5252" Invoked="OnDeleteInvoked" />
+                        <SwipeItem Text="Archive" BackgroundColor="#37474F" Invoked="OnArchiveInvoked" />
+                    </SwipeItems>
+                </SwipeView.RightItems>
+                <Grid BackgroundColor="#1C1C28" Padding="16" HeightRequest="72">
+                    <Label Text="swipe me left" TextColor="White" FontSize="20" VerticalOptions="Center" />
+                </Grid>
+            </SwipeView>
+
+            <Label x:Name="StatusLabel" FontSize="18" TextColor="#9FB4C7"
+                   Text="taps: 0 | pan: 0,0 | swipe: - | pinch: 1.00 | refresh: 0 | swipeview: -" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

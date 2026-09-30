@@ -1,0 +1,11 @@
+<Shell
+    x:Class="MauiSailfishApp.AppShell"
+    xmlns:local="clr-namespace:MauiSailfishApp"
+    Title="MauiSailfishApp">
+
+    <ShellContent
+        Title="Home"
+        ContentTemplate="{DataTemplate local:MainPage}"
+        Route="MainPage" />
+
+</Shell>

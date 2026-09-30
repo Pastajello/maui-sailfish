@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.SearchPage"
+                     x:DataType="vm:SearchViewModel"
+                     Title="Search"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Clear history" Order="Secondary" Command="{Binding ClearHistoryCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
+
+        <!-- SearchBar maps to the Silica SearchField adapter, so this gets the
+             platform's own text field, VKB behaviour and cancel button. -->
+        <SearchBar Grid.Row="0" Margin="20,14,20,4"
+                   Placeholder="Search recipes…"
+                   Text="{Binding Query, Mode=TwoWay}"
+                   SearchCommand="{Binding SearchNowCommand}" />
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10" Padding="20,2,20,6">
+            <Label Grid.Column="0" Text="{Binding StatusText}" Style="{StaticResource Muted}"
+                   VerticalOptions="Center" />
+            <controls:SpinnerView Grid.Column="1" IsRunning="{Binding IsSearching}"
+                                  HeightRequest="20" WidthRequest="20" />
+        </Grid>
+
+        <!-- Recent searches. A vertical list rather than a horizontal chip strip: a
+             second ScrollView nested in the page would compete for the same flick
+             gesture on the native list. -->
+        <VerticalStackLayout Grid.Row="2" Padding="20,0,20,8" Spacing="6"
+                             IsVisible="{Binding HasRecent}">
+            <Label Text="RECENT" Style="{StaticResource SectionHeader}" Margin="0" />
+            <VerticalStackLayout Spacing="4" BindableLayout.ItemsSource="{Binding Recent}">
+                <BindableLayout.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                        <Button Text="{Binding .}"
+                                Style="{StaticResource SecondaryButton}"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:SearchViewModel}}, Path=UseRecentCommand}"
+                                CommandParameter="{Binding .}"
+                                HorizontalOptions="Start" />
+                    </DataTemplate>
+                </BindableLayout.ItemTemplate>
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+
+        <CollectionView x:Name="ResultsList" Grid.Row="3"
+                        ItemsSource="{Binding Meals}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedMeal, Mode=TwoWay}"
+                        RemainingItemsThresholdReached="OnResultsThresholdReached"
+                        Margin="20,4,20,0"
+                        BackgroundColor="Transparent">
+
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:MealCardViewModel">
+                    <Border Style="{StaticResource Card}" Padding="0">
+                        <Grid ColumnDefinitions="80,*,Auto" ColumnSpacing="12" Padding="10">
+                            <Grid Grid.Column="0">
+                                <Image Source="{Binding Thumbnail}" Style="{StaticResource ThumbImage}"
+                                       WidthRequest="80" HeightRequest="66" />
+                            </Grid>
+                            <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                                <Label Text="{Binding Name}" FontSize="17" FontAttributes="Bold"
+                                       MaxLines="2" LineBreakMode="TailTruncation" />
+                                <Label Text="{Binding Subtitle}" Style="{StaticResource Muted}" />
+                            </VerticalStackLayout>
+                            <Button Grid.Column="2" Text="{Binding FavoriteGlyph}"
+                                    Style="{StaticResource IconButton}"
+                                    Command="{Binding ToggleFavoriteCommand}"
+                                    VerticalOptions="Center" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+
+        </CollectionView>
+
+
+
+        <controls:StateSlot Grid.Row="3" Margin="20,4,20,0" VerticalOptions="Center"
+                            State="{Binding LoadState}">
+            <controls:StateSlot.LoadingTemplate>
+                <DataTemplate x:DataType="vm:SearchViewModel">
+                    <controls:SpinnerView IsRunning="True" HeightRequest="30" WidthRequest="30" />
+                </DataTemplate>
+            </controls:StateSlot.LoadingTemplate>
+            <controls:StateSlot.EmptyTemplate>
+                <DataTemplate x:DataType="vm:SearchViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="{Binding StatusText}" Style="{StaticResource Body}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.EmptyTemplate>
+            <controls:StateSlot.ErrorTemplate>
+                <DataTemplate x:DataType="vm:SearchViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                            <Button Text="Retry" Style="{StaticResource PrimaryButton}" Command="{Binding RetryCommand}" HorizontalOptions="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.ErrorTemplate>
+        </controls:StateSlot>
+        <controls:NotificationBanner x:Name="Banner" Grid.Row="3" />
+    </Grid>
+
+</views:ViewModelPage>

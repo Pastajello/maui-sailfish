@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pages="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Pages"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.CollectionAdvancedPage"
+             Title="Collections"
+             BackgroundColor="#101018">
+
+    <Grid RowDefinitions="Auto,*" Padding="20,12,20,8" RowSpacing="10">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,*,*" ColumnSpacing="10">
+            <Button Grid.Column="0" Text="ScrollTo 20" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnScrollToClicked" />
+            <Button Grid.Column="1" Text="Empty" BackgroundColor="#37474F" TextColor="White" Clicked="OnEmptyClicked" />
+            <Button Grid.Column="2" Text="Multi-select" BackgroundColor="#37474F" TextColor="White" Clicked="OnMultiClicked" />
+        </Grid>
+
+        <CollectionView x:Name="Grid" Grid.Row="1"
+                        SelectionMode="Single" SelectionChanged="OnSelectionChanged"
+                        ItemsUpdatingScrollMode="KeepLastItemInView">
+            <CollectionView.ItemsLayout>
+                <GridItemsLayout Orientation="Vertical" Span="2" HorizontalItemSpacing="10" VerticalItemSpacing="10" />
+            </CollectionView.ItemsLayout>
+
+            <CollectionView.Header>
+                <Label Text="HEADER — grouped 2-column grid" FontSize="18" TextColor="#4FC3F7" Padding="0,6" />
+            </CollectionView.Header>
+
+            <CollectionView.Footer>
+                <Label Text="FOOTER — end of collection" FontSize="18" TextColor="#4FC3F7" Padding="0,6" />
+            </CollectionView.Footer>
+
+            <CollectionView.EmptyView>
+                <Label Text="(empty collection)" FontSize="22" TextColor="#9FB4C7"
+                       HorizontalOptions="Center" VerticalOptions="Center" />
+            </CollectionView.EmptyView>
+
+            <CollectionView.GroupHeaderTemplate>
+                <DataTemplate x:DataType="pages:ItemGroup">
+                    <Label Text="{Binding Header}" FontSize="20" TextColor="#FFAB40" Padding="0,10,0,4" />
+                </DataTemplate>
+            </CollectionView.GroupHeaderTemplate>
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                    <Border Stroke="#2E6BB0" StrokeThickness="2" StrokeShape="RoundRectangle 10,10,10,10"
+                            BackgroundColor="#1C1C28" Padding="10" HeightRequest="84">
+                        <Label Text="{Binding .}" TextColor="White" FontSize="18" VerticalOptions="Center" />
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+    </Grid>
+
+</ContentPage>

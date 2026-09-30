@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.SettingsPage"
+                     x:DataType="vm:SettingsViewModel"
+                     Title="Settings"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Restore defaults" Order="Secondary" Command="{Binding ResetCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="*">
+        <ScrollView Grid.Row="0" BackgroundColor="Transparent">
+            <VerticalStackLayout Padding="20,14,20,24" Spacing="12">
+
+                <!-- BROWSING -->
+                <Label Text="BROWSING" Style="{StaticResource SectionHeader}" />
+                <Border Style="{StaticResource Card}">
+                    <VerticalStackLayout Spacing="14">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="Grid layout" Style="{StaticResource Body}" VerticalOptions="Center" />
+                            <Switch Grid.Column="1" IsToggled="{Binding IsGridLayout, Mode=TwoWay}" />
+                        </Grid>
+
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="{Binding GridSpanSummary}" Style="{StaticResource Caption}" />
+                            <Slider Minimum="1" Maximum="4"
+                                    Value="{Binding GridSpanValue, Mode=TwoWay}"
+                                    IsEnabled="{Binding IsGridLayout}" />
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="{Binding PageSizeSummary}" Style="{StaticResource Caption}" />
+                            <Slider Minimum="6" Maximum="48"
+                                    Value="{Binding PageSizeValue, Mode=TwoWay}" />
+                        </VerticalStackLayout>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                <Label Text="Animations" Style="{StaticResource Body}" />
+                                <Label Text="Card and hero transitions" Style="{StaticResource Muted}" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" IsToggled="{Binding AnimationsEnabled, Mode=TwoWay}"
+                                    VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- DATA -->
+                <Label Text="DATA AND NETWORK" Style="{StaticResource SectionHeader}" />
+                <Border Style="{StaticResource Card}">
+                    <VerticalStackLayout Spacing="14">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                <Label Text="Prefer offline" Style="{StaticResource Body}" />
+                                <Label Text="Serve cached recipes without re-fetching" Style="{StaticResource Muted}" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" IsToggled="{Binding PreferOffline, Mode=TwoWay}" VerticalOptions="Center" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                <Label Text="Offline mode" Style="{StaticResource Body}" />
+                                <Label Text="Never touch the network; bundled catalog only" Style="{StaticResource Muted}" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" IsToggled="{Binding OfflineMode, Mode=TwoWay}" VerticalOptions="Center" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                <Label Text="Cache images" Style="{StaticResource Body}" />
+                                <Label Text="Download thumbnails to the device" Style="{StaticResource Muted}" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" IsToggled="{Binding CacheImages, Mode=TwoWay}" VerticalOptions="Center" />
+                        </Grid>
+
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="{Binding CacheTtlSummary, StringFormat='Cache freshness: {0}'}"
+                                   Style="{StaticResource Caption}" />
+                            <Slider Minimum="0" Maximum="1440"
+                                    Value="{Binding CacheTtlValue, Mode=TwoWay}" />
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="{Binding DebounceSummary, StringFormat='Search debounce: {0}'}"
+                                   Style="{StaticResource Caption}" />
+                            <Slider Minimum="0" Maximum="2000"
+                                    Value="{Binding DebounceValue, Mode=TwoWay}" />
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- STORAGE -->
+                <Label Text="STORAGE" Style="{StaticResource SectionHeader}" />
+                <Border Style="{StaticResource Card}">
+                    <VerticalStackLayout Spacing="10">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Label Grid.Column="0" Text="Images" Style="{StaticResource Caption}" WidthRequest="92" />
+                            <Label Grid.Column="1" Text="{Binding CachedImagesSummary}" Style="{StaticResource Body}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Label Grid.Column="0" Text="Recipes" Style="{StaticResource Caption}" WidthRequest="92" />
+                            <Label Grid.Column="1" Text="{Binding CachedResponsesSummary}" Style="{StaticResource Body}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                            <Label Grid.Column="0" Text="Favourites" Style="{StaticResource Caption}" WidthRequest="92" />
+                            <Label Grid.Column="1" Text="{Binding FavoritesSummary}" Style="{StaticResource Body}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Button Grid.Column="0" Text="Trim images"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Command="{Binding PruneImageCacheCommand}" />
+                            <Button Grid.Column="1" Text="Clear images"
+                                    Style="{StaticResource DangerButton}"
+                                    Command="{Binding ClearImageCacheCommand}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Button Grid.Column="0" Text="Clear recipes"
+                                    Style="{StaticResource DangerButton}"
+                                    Command="{Binding ClearCatalogCacheCommand}" />
+                            <Button Grid.Column="1" Text="Clear favourites"
+                                    Style="{StaticResource DangerButton}"
+                                    Command="{Binding ClearFavoritesCommand}" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- DIAGNOSTICS -->
+                <Label Text="DIAGNOSTICS" Style="{StaticResource SectionHeader}" />
+                <Border Style="{StaticResource Card}">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="{Binding DeviceSummary, StringFormat='Device: {0}'}" Style="{StaticResource Caption}" />
+                        <Label Text="{Binding ConnectionSummary, StringFormat='Connection: {0}'}" Style="{StaticResource Caption}" />
+                        <Label Text="{Binding DataDirectory, StringFormat='Data dir: {0}'}" Style="{StaticResource Muted}" />
+                        <Label Text="Log: /tmp/kitchen.log" Style="{StaticResource Muted}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Label Text="Recipe data from TheMealDB (free tier, key &quot;1&quot;). This app is a MAUI-on-Sailfish OS sample."
+                       Style="{StaticResource Muted}" HorizontalTextAlignment="Center" Padding="0,8,0,0" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <controls:NotificationBanner x:Name="Banner" Grid.Row="0" />
+    </Grid>
+
+</views:ViewModelPage>

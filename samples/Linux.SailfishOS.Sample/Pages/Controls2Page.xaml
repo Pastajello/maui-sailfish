@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.Controls2Page"
+             Title="Controls II"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="14">
+
+            <Label Text="ActivityIndicator" FontSize="16" TextColor="#4FC3F7" />
+            <ActivityIndicator x:Name="Spinner" IsRunning="True" Color="#4FC3F7" />
+
+            <Label Text="RadioButton group" FontSize="16" TextColor="#4FC3F7" />
+            <RadioButton Content="Ambient (dark)" GroupName="theme" IsChecked="True"
+                         TextColor="White" CheckedChanged="OnThemeRadioChanged" />
+            <RadioButton Content="Light" GroupName="theme"
+                         TextColor="White" CheckedChanged="OnThemeRadioChanged" />
+
+            <Label Text="ImageButton" FontSize="16" TextColor="#4FC3F7" />
+            <ImageButton Source="sailfish_logo.png" WidthRequest="96" HeightRequest="96"
+                         HorizontalOptions="Start" Clicked="OnImageClicked" />
+
+            <Label Text="Border (stroke + round shape)" FontSize="16" TextColor="#4FC3F7" />
+            <Border Stroke="#4FC3F7" StrokeThickness="3" StrokeShape="RoundRectangle 18,18,18,18"
+                    BackgroundColor="#1C1C28" Padding="16" HorizontalOptions="Start">
+                <Label Text="inside a Border" TextColor="White" FontSize="20" />
+            </Border>
+
+            <Label Text="Frame (legacy)" FontSize="16" TextColor="#4FC3F7" />
+            <Frame BorderColor="#FF5252" CornerRadius="14" BackgroundColor="#241C20"
+                   Padding="16" HorizontalOptions="Start">
+                <Label Text="inside a Frame" TextColor="White" FontSize="20" />
+            </Frame>
+
+            <Label x:Name="StatusLabel" FontSize="18" TextColor="#9FB4C7" Text="radio: Ambient (dark) | image taps: 0" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

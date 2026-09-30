@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.VisualPage"
+             Title="Visual"
+             BackgroundColor="#101018">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,12" Spacing="14">
+
+            <Label Text="Linear gradient" FontSize="16" TextColor="#4FC3F7" />
+            <BoxView HeightRequest="90">
+                <BoxView.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#2E6BB0" Offset="0" />
+                        <GradientStop Color="#E040FB" Offset="0.5" />
+                        <GradientStop Color="#FFAB40" Offset="1" />
+                    </LinearGradientBrush>
+                </BoxView.Background>
+            </BoxView>
+
+            <Label Text="Radial gradient" FontSize="16" TextColor="#4FC3F7" />
+            <BoxView HeightRequest="90">
+                <BoxView.Background>
+                    <RadialGradientBrush Center="0.5,0.5" Radius="0.8">
+                        <GradientStop Color="#69F0AE" Offset="0" />
+                        <GradientStop Color="#0D3B2E" Offset="1" />
+                    </RadialGradientBrush>
+                </BoxView.Background>
+            </BoxView>
+
+            <Label Text="Corner radius + border" FontSize="16" TextColor="#4FC3F7" />
+            <BoxView Color="#2E6BB0" CornerRadius="28" HeightRequest="80" />
+
+            <Label Text="Shadow" FontSize="16" TextColor="#4FC3F7" />
+            <Border BackgroundColor="#1C1C28" StrokeThickness="0" Padding="18" HorizontalOptions="Start">
+                <Border.Shadow>
+                    <Shadow Brush="#4FC3F7" Offset="10,10" Radius="18" Opacity="0.8" />
+                </Border.Shadow>
+                <Label Text="shadowed card" TextColor="White" FontSize="20" />
+            </Border>
+
+            <Label Text="Opacity / rotation / scale / anchor" FontSize="16" TextColor="#4FC3F7" />
+            <Grid HeightRequest="140">
+                <BoxView Color="#FF5252" Opacity="0.35" WidthRequest="140" HeightRequest="120" HorizontalOptions="Start" />
+                <BoxView Color="#69F0AE" WidthRequest="140" HeightRequest="120" Rotation="18" HorizontalOptions="Center" />
+                <BoxView Color="#448AFF" WidthRequest="140" HeightRequest="120" Scale="0.6" AnchorX="0" AnchorY="0" HorizontalOptions="End" />
+            </Grid>
+
+            <Label Text="ZIndex overlap (blue above red)" FontSize="16" TextColor="#4FC3F7" />
+            <Grid HeightRequest="110">
+                <BoxView Color="#FF5252" WidthRequest="180" HeightRequest="100" HorizontalOptions="Start" ZIndex="1" />
+                <BoxView Color="#448AFF" WidthRequest="180" HeightRequest="100" HorizontalOptions="Start" Margin="90,10,0,0" ZIndex="5" />
+            </Grid>
+
+            <Label Text="VisualStateManager (tap the button)" FontSize="16" TextColor="#4FC3F7" />
+            <Button x:Name="StateButton" Text="state: normal" Clicked="OnStateClicked">
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroupList>
+                        <VisualStateGroup x:Name="CommonStates">
+                            <VisualState x:Name="Normal">
+                                <VisualState.Setters>
+                                    <Setter Property="BackgroundColor" Value="#37474F" />
+                                    <Setter Property="TextColor" Value="White" />
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="Disabled">
+                                <VisualState.Setters>
+                                    <Setter Property="BackgroundColor" Value="#222222" />
+                                    <Setter Property="TextColor" Value="#666666" />
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateGroupList>
+                </VisualStateManager.VisualStateGroups>
+            </Button>
+
+            <Button Text="Toggle app theme" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnThemeClicked" />
+            <Label x:Name="ThemeLabel" FontSize="18" TextColor="#9FB4C7" Text="theme: dark" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

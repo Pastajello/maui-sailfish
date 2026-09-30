@@ -1,0 +1,104 @@
+using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
+using Microsoft.Maui.SailfishOS.Handlers;
+
+namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
+
+/// <summary>
+/// The platform side of MAUI's layout: starts the measure/arrange of a page or collection item, and the handlers
+/// carry the arrange down (PlatformArrange → CrossPlatformArrange), as native containers do on the other platforms.
+/// Afterwards every element's Bounds is parent-relative in dp.
+/// </summary>
+public static class QtHostLayout
+{
+	/// <summary>
+	/// Attaches a handler to every element that has none; handlers must exist before Measure,
+	/// which consults Handler.GetDesiredSize.
+	/// </summary>
+	public static void AttachHandlers(IElement root, IMauiContext context)
+	{
+		ArgumentNullException.ThrowIfNull(context);
+		AttachHandlersCore(root, context);
+	}
+
+	private static void AttachHandlersCore(IElement element, IMauiContext context)
+	{
+		if (element.Handler is null)
+		{
+			// Resolve through the handler factory; instantiating directly would silently bypass every registration.
+			IElementHandler? handler = null;
+			try
+			{
+				handler = context.Handlers.GetHandler(element.GetType());
+			}
+			catch
+			{
+				handler = null;   // unregistered element: fall back below
+			}
+			handler ??= element is ScrollView
+				? new ScrollViewHandler()
+				: element is IView
+					? new NullViewHandler()
+					: new NullElementHandler();
+			handler.SetMauiContext(context);
+			handler.SetVirtualView(element);
+		}
+
+		if (element is IVisualTreeElement visualTreeElement)
+		{
+			foreach (var child in visualTreeElement.GetVisualChildren())
+			{
+				if (child is IElement childElement)
+					AttachHandlersCore(childElement, context);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Runs the full measure/arrange pass of one page, as a platform's native layout pass would: the page fills the
+	/// window, its content the area below the Silica chrome, and every descendant is arranged by its parent's handler
+	/// (<see cref="SailfishHandlerCore.ArrangeContent"/>), so Frames are parent-relative in dp.
+	/// </summary>
+	/// <param name="page">The MAUI page to lay out (ContentPage expected).</param>
+	/// <param name="windowDp">The full window size in dp (root space extent before insets).</param>
+	/// <param name="contentRectDp">Content area in dp (window minus Silica chrome insets) the content is arranged into.</param>
+	public static void MeasureAndArrange(Page page, Size windowDp, Rect contentRectDp)
+	{
+		page.Measure(windowDp.Width, windowDp.Height);
+		page.Arrange(new Rect(Point.Zero, windowDp));
+
+		if (page is ContentPage contentPage && contentPage.Content is IView contentView)
+		{
+			contentView.Measure(contentRectDp.Width, contentRectDp.Height);
+			contentView.Arrange(contentRectDp);
+		}
+	}
+
+	/// <summary>
+	/// Lays out one collection item view, which lives outside the page tree, at a fixed width.
+	/// Returns its height in dp.
+	/// </summary>
+	internal static double MeasureAndArrangeItem(IView view, double widthDp)
+	{
+		var desired = view.Measure(widthDp, double.PositiveInfinity);
+		var height = Math.Max(0, desired.Height);
+		view.Arrange(new Rect(0, 0, widthDp, height));
+		return height;
+	}
+
+	/// <summary>Lays out a horizontal-list item at a fixed height; returns its width in dp.</summary>
+	internal static double MeasureAndArrangeItemAcross(IView view, double heightDp)
+	{
+		var desired = view.Measure(double.PositiveInfinity, heightDp);
+		var width = Math.Max(0, desired.Width);
+		view.Arrange(new Rect(0, 0, width, heightDp));
+		return width;
+	}
+
+	/// <summary>Lays out a carousel item at exactly the given size.</summary>
+	internal static void MeasureAndArrangeItemFixed(IView view, double widthDp, double heightDp)
+	{
+		view.Measure(widthDp, heightDp);
+		view.Arrange(new Rect(0, 0, widthDp, heightDp));
+	}
+}

@@ -1,0 +1,897 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+  Sailfish OS harbour-style RPM packaging for .NET MAUI apps.
+      dotnet publish -f net11.0-sailfish                                   (RID, self-contained and RPM are leg defaults)
+      dotnet publish -r linux-arm64 -p:SelfContained=true -p:CreateSailfishRpm=true   (plain net11.0 leg)
+  Opt out with -p:CreateSailfishRpm=false. Uses host rpmbuild when present, else tools/sf-rpmbuild.py.
+  -->
+
+  <!-- ================= QML payload for PackageReference consumers ================= -->
+  <!-- Package consumers need the package's qml/ re-added as Content; in-repo imports get it via ProjectReference. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../../qml/adapters.json') And '$(SailfishIncludeQml)' != 'false'">
+    <Content Include="$(MSBuildThisFileDirectory)../../qml/**/*"
+             Link="qml/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             Visible="false" />
+  </ItemGroup>
+
+  <!-- ================= Native host shim presence check ================= -->
+  <!-- Without libsailfishhost.so the app dies on start, so fail the publish (the native asset lands in PublishDir, not OutDir).
+       The gate lives in the Error condition because a Target Condition misbehaved across import contexts. -->
+  <Target Name="_SailfishNativeHostCheck" AfterTargets="Publish">
+    <Error Condition="'$(SailfishSkipNativeCheck)' != 'true' And '$(RuntimeIdentifier)' != '' And $([System.String]::Copy('$(RuntimeIdentifier)').Contains('linux')) And !Exists('$(OutDir)libsailfishhost.so') And !Exists('$(PublishDir)libsailfishhost.so')"
+           Text="libsailfishhost.so is missing from the publish output ($(PublishDir)). Build it with ./tools/sf-native-build.sh, or reference a Microsoft.Maui.SailfishOS package carrying runtimes/$(RuntimeIdentifier)/native/. Override with -p:SailfishSkipNativeCheck=true." />
+  </Target>
+
+  <!-- ================= net11.0-sailfish TFM recognition ================= -->
+  <!-- Setting TargetPlatformSupported here avoids NETSDK1139 and gives the leg the defaults an in-box platform would. -->
+  <PropertyGroup>
+    <!-- TargetPlatformIdentifier is only set later in SDK targets, so compute the leg platform here, before its consumers. -->
+    <_SailfishLegPlatform>$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</_SailfishLegPlatform>
+  </PropertyGroup>
+
+  <!-- Packaging identity and store profile, for the sailfish leg and plain net11.0 apps alike. -->
+  <PropertyGroup>
+    <SailfishOrientation Condition="'$(SailfishOrientation)' == ''">Any</SailfishOrientation>
+    <SailfishCover Condition="'$(SailfishCover)' == ''">false</SailfishCover>
+    <SailfishOrganizationName Condition="'$(SailfishOrganizationName)' == ''">org.maui</SailfishOrganizationName>
+    <!-- Harbour profile: native launcher as the only ELF in /usr/bin, payload in /usr/share/PKG/lib, sandboxing required. -->
+    <SailfishHarbour Condition="'$(SailfishHarbour)' == ''">false</SailfishHarbour>
+    <!-- Harbour recommends all four launcher icon sizes. -->
+    <SailfishIconSizes Condition="'$(SailfishIconSizes)' == ''">86;108;128;172</SailfishIconSizes>
+    <!-- SailfishSecureStorage=Secrets adds the Secrets permission. A separate property because a global -p:SailfishPermissions cannot be overridden. -->
+    <_SailfishPermissions>$(SailfishPermissions)</_SailfishPermissions>
+    <_SailfishPermissions Condition="'$(SailfishSecureStorage)' == 'Secrets' And '$(SailfishPermissions)' != '' And !$([System.String]::Copy(';$(SailfishPermissions);').Contains(';Secrets;'))">$(SailfishPermissions);Secrets</_SailfishPermissions>
+    <_SailfishSandboxed>false</_SailfishSandboxed>
+    <_SailfishSandboxed Condition="'$(_SailfishPermissions)' != ''">true</_SailfishSandboxed>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <TargetPlatformSupported>true</TargetPlatformSupported>
+    <!-- The in-box platforms get IOS/ANDROID from their SDKs; this lets shared code use #if SAILFISH. -->
+    <DefineConstants>$(DefineConstants);SAILFISH</DefineConstants>
+    <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+    <!-- Device payload by default; self-contained because Sailfish OS has no shared .NET runtime. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <!-- The RPM is this leg's publish artifact; _SailfishRpmDefaulted keeps plain `dotnet build` from warning about it. -->
+    <_SailfishRpmDefaulted Condition="'$(CreateSailfishRpm)' == ''">true</_SailfishRpmDefaulted>
+    <CreateSailfishRpm Condition="'$(CreateSailfishRpm)' == ''">true</CreateSailfishRpm>
+    <!-- Restore can miss a RID that only these targets set (NETSDK1047); detect it so _SailfishRefreshRestoreForRid can fix it. -->
+    <_SailfishAssetsHasRid Condition="'$(RuntimeIdentifier)' != '' and Exists('$(ProjectAssetsFile)')">$([System.IO.File]::ReadAllText('$(ProjectAssetsFile)').Contains('$(TargetFramework)/$(RuntimeIdentifier)'))</_SailfishAssetsHasRid>
+    <EnableDefaultMauiItems Condition="'$(EnableDefaultMauiItems)' == ''">true</EnableDefaultMauiItems>
+    <EnableDefaultXamlItems Condition="'$(EnableDefaultXamlItems)' == ''">true</EnableDefaultXamlItems>
+    <MauiXamlInflator Condition="'$(MauiXamlInflator)' == ''">SourceGen</MauiXamlInflator>
+    <!-- A Platforms/SailfishOS/Program.cs brings its own Main (like Platforms/iOS/Program.cs); otherwise one is generated. -->
+    <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == '' And Exists('$(MSBuildProjectDirectory)/Platforms/SailfishOS/Program.cs')">false</SailfishGenerateMain>
+    <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == ''">true</SailfishGenerateMain>
+    <!-- Author manifest: shell orientation and optional generic cover. -->
+    <SailfishOrientation Condition="'$(SailfishOrientation)' == ''">Any</SailfishOrientation>
+    <SailfishCover Condition="'$(SailfishCover)' == ''">false</SailfishCover>
+  </PropertyGroup>
+
+  <!-- Bakes the metadata the Qt shell reads at startup next to the QML payload. -->
+  <Target Name="_SailfishWriteAppMeta" BeforeTargets="BeforeBuild"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true'">
+    <Error Condition="'$(SailfishCoverQml)' != '' And !Exists('$(SailfishCoverQml)')"
+           Text="SailfishCoverQml '$(SailfishCoverQml)' does not exist (a QML item file relative to the project)." />
+    <PropertyGroup>
+      <_SailfishCoverQmlRel Condition="'$(SailfishCoverQml)' != ''">cover/AppCover.qml</_SailfishCoverQmlRel>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(MSBuildProjectExtensionsPath)maui-appmeta.json"
+                      Lines='{"orientation":"$(SailfishOrientation)","cover":$(SailfishCover),"coverQml":"$(_SailfishCoverQmlRel)","title":"$(ApplicationTitle)","sandboxed":$(_SailfishSandboxed),"organization":"$(SailfishOrganizationName)","application":"$(SailfishPackageName)"}'
+                      Overwrite="true" />
+    <ItemGroup>
+      <Content Include="$(SailfishCoverQml)" Condition="'$(SailfishCoverQml)' != ''"
+               Link="qml/cover/AppCover.qml"
+               CopyToOutputDirectory="PreserveNewest"
+               CopyToPublishDirectory="PreserveNewest"
+               Visible="false" />
+      <Content Include="$(MSBuildProjectExtensionsPath)maui-appmeta.json"
+               Link="qml/maui-appmeta.json"
+               CopyToOutputDirectory="PreserveNewest"
+               CopyToPublishDirectory="PreserveNewest"
+               Visible="false" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <!-- Non-single-project apps include Platforms/SailfishOS explicitly; MAUI single projects get it from the platform-folder hook. -->
+    <Compile Include="Platforms/SailfishOS/**/*.cs" Condition="'$(SingleProject)' != 'true'" />
+    <!-- Images and fonts land where the platform resolvers probe; raw MauiImage copy only without the resizetizer. -->
+    <Content Include="@(MauiImage)" Link="images/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Condition="'@(MauiImage)' != '' And '$(_ResizetizerTaskAssemblyName)' == ''" />
+    <Content Include="@(MauiFont)" Link="fonts/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+             Condition="'@(MauiFont)' != ''" />
+  </ItemGroup>
+
+  <!-- MauiAsset goes to its LogicalName (or file name) under the app root, as on the in-box heads; a target because the path is per-item. -->
+  <Target Name="_SailfishMauiAssets" BeforeTargets="AssignTargetPaths"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '@(MauiAsset)' != ''">
+    <ItemGroup>
+      <_SailfishAsset Include="@(MauiAsset)" TargetLink="%(MauiAsset.LogicalName)" Condition="'%(MauiAsset.LogicalName)' != ''" />
+      <_SailfishAsset Include="@(MauiAsset)" TargetLink="%(MauiAsset.Filename)%(MauiAsset.Extension)" Condition="'%(MauiAsset.LogicalName)' == ''" />
+      <Content Include="@(_SailfishAsset)" Link="$([System.String]::Copy('%(_SailfishAsset.TargetLink)').Replace('\','/'))"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <_SailfishAsset Remove="@(_SailfishAsset)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Runs MAUI's resizetizer like the in-box heads; the "wpf" layout gives one 4x raster per image, and the composed app icon feeds the icon set. -->
+  <Target Name="_SailfishProcessMauiImages"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_ResizetizerTaskAssemblyName)' != '' And ('@(MauiImage)' != '' Or '@(MauiIcon)' != '')"
+          BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <_SailfishImageInput Include="@(MauiImage)" Condition="'%(MauiImage.Extension)' != '.gif' And '%(MauiImage.Filename)%(MauiImage.Extension)' != '.DS_Store'" />
+      <!-- Animated GIFs are copied, not rasterized (as MAUI does). -->
+      <_SailfishImageInput Include="@(MauiImage)" Condition="'%(MauiImage.Extension)' == '.gif'" Resize="False" />
+      <_SailfishImageInput Include="@(MauiIcon)" IsAppIcon="true" Link="sailfish-appicon%(MauiIcon.Extension)" />
+    </ItemGroup>
+    <ResizetizeImages PlatformType="wpf"
+                      IntermediateOutputPath="$(IntermediateOutputPath)sailfish-images/"
+                      InputsFile="$(IntermediateOutputPath)sailfish-images.inputs"
+                      Images="@(_SailfishImageInput)">
+      <Output TaskParameter="CopiedResources" ItemName="_SailfishProcessedImage" />
+    </ResizetizeImages>
+    <ItemGroup>
+      <Content Include="@(_SailfishProcessedImage)" Condition="'%(Filename)' != 'sailfish-appicon'"
+               Link="images/%(Filename)%(Extension)"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <FileWrites Include="@(_SailfishProcessedImage)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Registers Platforms/SailfishOS/ with MAUI's external-backend hook; MauiActiveBackend matches after the identifier is cleared. -->
+  <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <MauiActiveBackend Condition="'$(MauiActiveBackend)' == ''">sailfish</MauiActiveBackend>
+  </PropertyGroup>
+  <ItemGroup>
+    <MauiPlatformSpecificFolder Include="Platforms/SailfishOS/" TargetPlatformIdentifier="sailfish" BackendIdentity="sailfish" />
+  </ItemGroup>
+
+  <!-- Clears the platform identifier so the SDK does not turn MAUI packages into FrameworkReferences (NETSDK1073/1186); restore has already used it. -->
+  <Target Name="_SailfishDefuseMauiFrameworkConversion" BeforeTargets="ProcessFrameworkReferences"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <PropertyGroup>
+      <TargetPlatformIdentifier></TargetPlatformIdentifier>
+    </PropertyGroup>
+  </Target>
+
+  <!-- ================= Generated entry point ================= -->
+  <!-- With SailfishGenerateMain the app ships no Main; the scaffold finds a public static CreateMauiApp(). -->
+  <PropertyGroup>
+    <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == ''">false</SailfishGenerateMain>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(SailfishGenerateMain)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
+    <Compile Include="$(MSBuildThisFileDirectory)../scaffold/SailfishGeneratedEntryPoint.cs"
+             Link="SailfishGeneratedEntryPoint.cs" Visible="false" />
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)../scaffold/trimmer.xml" />
+  </ItemGroup>
+
+  <!-- ================= Property Defaults ================= -->
+  <PropertyGroup Condition="'$(CreateSailfishRpm)' == 'true'">
+    <_SailfishRpmEnabled>true</_SailfishRpmEnabled>
+
+    <!-- Metadata from MAUI conventions -->
+    <ApplicationTitle Condition="'$(ApplicationTitle)' == ''">$(AssemblyName)</ApplicationTitle>
+    <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">$(Version)</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">1.0.0</ApplicationDisplayVersion>
+
+    <!-- harbour- + last ApplicationId segment -->
+    <_SailfishNameFromId>$([System.Text.RegularExpressions.Regex]::Replace('$(ApplicationId)', '^.*\.', ''))</_SailfishNameFromId>
+    <SailfishPackageName Condition="'$(SailfishPackageName)' == ''">harbour-$(_SailfishNameFromId.ToLowerInvariant())</SailfishPackageName>
+
+    <SailfishVersion Condition="'$(SailfishVersion)' == ''">$(ApplicationDisplayVersion)</SailfishVersion>
+    <SailfishRelease Condition="'$(SailfishRelease)' == ''">1</SailfishRelease>
+    <SailfishSummary Condition="'$(SailfishSummary)' == ''">$(ApplicationTitle)</SailfishSummary>
+    <SailfishDescription Condition="'$(SailfishDescription)' == ''">$(Description)</SailfishDescription>
+    <SailfishDescription Condition="'$(SailfishDescription)' == ''">$(ApplicationTitle) built with .NET MAUI</SailfishDescription>
+    <SailfishVendor Condition="'$(SailfishVendor)' == ''">$(Authors)</SailfishVendor>
+    <SailfishVendor Condition="'$(SailfishVendor)' == ''">MAUI Developer</SailfishVendor>
+    <SailfishLicense Condition="'$(SailfishLicense)' == ''">$(PackageLicenseExpression)</SailfishLicense>
+    <SailfishLicense Condition="'$(SailfishLicense)' == ''">MIT</SailfishLicense>
+    <SailfishUrl Condition="'$(SailfishUrl)' == ''">$(PackageProjectUrl)</SailfishUrl>
+
+    <!-- Harbour RPM architecture mapping from RID -->
+    <_SailfishRidArch>$([System.Text.RegularExpressions.Regex]::Match('$(RuntimeIdentifier)', 'linux-(.+)').Groups[1].Value)</_SailfishRidArch>
+    <SailfishRpmArch Condition="'$(SailfishRpmArch)' == '' and '$(_SailfishRidArch)' == 'x64'">x86_64</SailfishRpmArch>
+    <SailfishRpmArch Condition="'$(SailfishRpmArch)' == '' and '$(_SailfishRidArch)' == 'arm64'">aarch64</SailfishRpmArch>
+    <SailfishRpmArch Condition="'$(SailfishRpmArch)' == '' and '$(_SailfishRidArch)' == 'arm'">armv7hl</SailfishRpmArch>
+    <SailfishRpmArch Condition="'$(SailfishRpmArch)' == ''">x86_64</SailfishRpmArch>
+    <!-- Full triple so rpmbuild stamps OS=linux even on macOS -->
+    <SailfishRpmTarget Condition="'$(SailfishRpmTarget)' == ''">$(SailfishRpmArch)-unknown-linux-gnu</SailfishRpmTarget>
+
+    <!-- Output -->
+    <SailfishRpmOutputDir Condition="'$(SailfishRpmOutputDir)' == ''">$(MSBuildProjectDirectory)/bin/SailfishRpm</SailfishRpmOutputDir>
+    <SailfishRpmFileName Condition="'$(SailfishRpmFileName)' == ''">$(SailfishPackageName)-$(SailfishVersion)-$(SailfishRelease).$(SailfishRpmArch).rpm</SailfishRpmFileName>
+
+    <!-- Install paths (inside the RPM) -->
+    <_SailfishInstallPrefix>/usr/share/$(SailfishPackageName)</_SailfishInstallPrefix>
+
+    <!-- Working directories -->
+    <_SailfishWorkDir>$(MSBuildProjectDirectory)/obj/SailfishRpm/$(SailfishPackageName)-$(SailfishVersion)-$(SailfishRelease).$(SailfishRpmArch)</_SailfishWorkDir>
+    <_SailfishBuildRoot>$(_SailfishWorkDir)/buildroot</_SailfishBuildRoot>
+    <_SailfishTopDir>$(_SailfishWorkDir)/topdir</_SailfishTopDir>
+    <_SailfishSpecFile>$(_SailfishWorkDir)/$(SailfishPackageName).spec</_SailfishSpecFile>
+  </PropertyGroup>
+
+  <!-- ================= Release payload profile ================= -->
+  <!-- SailfishTrim / SailfishReadyToRun payload profiles (docs/aot-and-trimming.md). NativeAOT is not supported: see _ValidateSailfishAotPolicy. -->
+  <PropertyGroup>
+    <!-- Release defaults to trim+R2R; Debug stays untrimmed and JIT-only for debuggability. -->
+    <SailfishTrim Condition="'$(SailfishTrim)' == '' and '$(Configuration)' == 'Release'">true</SailfishTrim>
+    <SailfishTrim Condition="'$(SailfishTrim)' == ''">false</SailfishTrim>
+    <SailfishReadyToRun Condition="'$(SailfishReadyToRun)' == '' and '$(Configuration)' == 'Release'">true</SailfishReadyToRun>
+    <SailfishReadyToRun Condition="'$(SailfishReadyToRun)' == ''">false</SailfishReadyToRun>
+    <SailfishTrimMode Condition="'$(SailfishTrimMode)' == ''">partial</SailfishTrimMode>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SailfishTrim)' == 'true'">
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>$(SailfishTrimMode)</TrimMode>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SailfishReadyToRun)' == 'true'">
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+
+  <!-- TieredPGO off: it re-jits hot R2R code after launch and costs idle CPU. SailfishTieredCompilation=false drops re-jitting entirely. -->
+  <PropertyGroup>
+    <TieredPGO Condition="'$(TieredPGO)' == ''">false</TieredPGO>
+    <TieredCompilation Condition="'$(TieredCompilation)' == '' and '$(SailfishTieredCompilation)' == 'false'">false</TieredCompilation>
+  </PropertyGroup>
+
+  <!-- MAUI's layout instrumentation (an ActivitySource span with a tag list per Measure/Arrange) runs whenever Meter is
+       supported. Release turns System.Diagnostics.Metrics off (SailfishMetrics=false → MetricsSupport=false): no per-layout
+       cost; dotnet-counters falls back to the runtime's EventCounters. SailfishMetrics=true keeps Meter in Release. -->
+  <PropertyGroup>
+    <SailfishMetrics Condition="'$(SailfishMetrics)' == '' and '$(Configuration)' == 'Release'">false</SailfishMetrics>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SailfishMetrics)' == 'false'">
+    <MetricsSupport Condition="'$(MetricsSupport)' == ''">false</MetricsSupport>
+  </PropertyGroup>
+
+  <!-- One-shot restore with the RID when the assets lack it. Single-TFM only: a global RID restore would hit every head of a multi-targeted project. -->
+  <Target Name="_SailfishRefreshRestoreForRid"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' and '$(TargetFrameworks)' == '' and '$(_SailfishAssetsHasRid)' != 'true' and '$(_SailfishRidRestoreDone)' != 'true'"
+          BeforeTargets="_CheckForNETCoreSdkIsPreview;Restore;Build;Publish;CreateSailfishRpm">
+    <Message Importance="high"
+             Text="Sailfish: assets lack the $(RuntimeIdentifier) target — refreshing restore once." />
+    <Exec Command="dotnet restore &quot;$(MSBuildProjectFullPath)&quot; -p:RuntimeIdentifier=&quot;$(RuntimeIdentifier)&quot; -p:_SailfishRidRestoreDone=true" />
+  </Target>
+
+  <!-- ================= Validate Properties ================= -->
+  <Target Name="_ValidateSailfishRpmProperties"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          BeforeTargets="CreateSailfishRpm">
+
+    <Error Condition="'$(ApplicationId)' == ''"
+           Text="Sailfish RPM packaging requires the ApplicationId property to be set in your project file." />
+
+    <Error Condition="'$(RuntimeIdentifier)' == ''"
+           Text="Sailfish RPM packaging requires a RuntimeIdentifier. Use: dotnet publish -r linux-x64 -p:SelfContained=true -p:CreateSailfishRpm=true" />
+
+    <Error Condition="!$(RuntimeIdentifier.StartsWith('linux-'))"
+           Text="Sailfish RPM packaging only supports Linux RuntimeIdentifiers (linux-x64, linux-arm64, linux-arm)." />
+
+    <Error Condition="!$(SailfishPackageName.StartsWith('harbour-'))"
+           Text="Sailfish harbour packages must be named harbour-*. Set the SailfishPackageName property to a harbour- prefixed name." />
+
+    <Error Condition="'$(SelfContained)' != 'true'"
+           Text="Sailfish RPM packaging requires self-contained publish. Add -p:SelfContained=true to your dotnet publish command." />
+  </Target>
+
+  <!-- Must fail before ILC, which runs as a Publish dependency; a Publish hook would surface a linker error instead. -->
+  <Target Name="_ValidateSailfishAotPolicy"
+          Condition="'$(PublishAot)' == 'true'"
+          BeforeTargets="Build;Publish;CreateSailfishRpm">
+
+    <Error Text="PublishAot is not supported by this backend yet (gate G2 in docs/aot-and-trimming.md): ILC cannot link a linux-arm64 ELF on a macOS build host, and the AOT payload has no DAC/DBI, so there is no vsdbg/SOS/hot reload. Use -p:SailfishTrim=true -p:SailfishReadyToRun=true instead." />
+  </Target>
+
+  <!-- On Publish because the RID is resolved by then; a RID-less publish would otherwise build a host-RID payload. -->
+  <Target Name="_ValidateSailfishReleaseProfile"
+          Condition="'$(SailfishTrim)' == 'true' or '$(SailfishReadyToRun)' == 'true'"
+          BeforeTargets="Publish;CreateSailfishRpm">
+
+    <Error Condition="'$(RuntimeIdentifier)' == ''"
+           Text="SailfishTrim/SailfishReadyToRun require a RuntimeIdentifier. Use: dotnet publish -r linux-arm64 -p:SelfContained=true" />
+
+    <Error Condition="!$(RuntimeIdentifier.StartsWith('linux-'))"
+           Text="The Sailfish payload profiles only support Linux RuntimeIdentifiers (linux-x64, linux-arm64, linux-arm); got '$(RuntimeIdentifier)'. Pass -r explicitly." />
+
+    <Error Condition="'$(SelfContained)' != 'true'"
+           Text="SailfishTrim/SailfishReadyToRun require a self-contained publish. Add -p:SelfContained=true to your dotnet publish command." />
+
+    <Message Importance="high"
+             Text="Sailfish: payload profile trim=$(SailfishTrim) trimMode=$(SailfishTrimMode) readyToRun=$(SailfishReadyToRun)" />
+  </Target>
+
+  <!-- ================= Prepare Staging Directory ================= -->
+  <Target Name="_PrepareSailfishRpmStaging"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          BeforeTargets="CreateSailfishRpm"
+          DependsOnTargets="_ValidateSailfishRpmProperties">
+
+    <!-- Clean and create the rpmbuild structure -->
+    <RemoveDir Directories="$(_SailfishWorkDir)" />
+    <MakeDir Directories="$(_SailfishBuildRoot)$(_SailfishInstallPrefix)" />
+    <MakeDir Directories="$(_SailfishBuildRoot)/usr/bin" />
+    <MakeDir Directories="$(_SailfishBuildRoot)/usr/share/applications" />
+    <MakeDir Directories="$(_SailfishBuildRoot)/usr/share/icons/hicolor/108x108/apps" />
+    <MakeDir Directories="$(_SailfishTopDir)/BUILD" />
+    <MakeDir Directories="$(_SailfishTopDir)/RPMS" />
+    <MakeDir Directories="$(_SailfishTopDir)/SOURCES" />
+    <MakeDir Directories="$(_SailfishTopDir)/SPECS" />
+    <MakeDir Directories="$(_SailfishTopDir)/SRPMS" />
+
+    <!-- Publish output goes to /usr/share/PKG/; Harbour: /usr/share/PKG/lib/ without apphost, createdump, the lttng provider (disallowed library) and the launcher. -->
+    <ItemGroup>
+      <_SailfishPublishFiles Include="$(PublishDir)**/*" />
+      <_SailfishPublishFiles Remove="$(PublishDir)$(AssemblyName);$(PublishDir)createdump;$(PublishDir)libcoreclrtraceptprovider.so;$(PublishDir)sailfish-launcher"
+                             Condition="'$(SailfishHarbour)' == 'true'" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_SailfishPayloadDir>$(_SailfishBuildRoot)$(_SailfishInstallPrefix)</_SailfishPayloadDir>
+      <_SailfishPayloadDir Condition="'$(SailfishHarbour)' == 'true'">$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib</_SailfishPayloadDir>
+    </PropertyGroup>
+    <Error Condition="'$(SailfishHarbour)' == 'true' And '$(_SailfishPermissions)' == ''"
+           Text="SailfishHarbour=true needs a sandboxed app: set SailfishPermissions (semicolon-separated Sailjail permissions, e.g. Internet;Pictures) — Harbour rejects Sandboxing=Disabled." />
+    <Error Condition="'$(SailfishHarbour)' == 'true' And !Exists('$(PublishDir)sailfish-launcher')"
+           Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with ./tools/sf-native-build.sh or reference a Microsoft.Maui.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
+
+    <Copy SourceFiles="@(_SailfishPublishFiles)"
+          DestinationFiles="@(_SailfishPublishFiles->'$(_SailfishPayloadDir)/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Message Importance="normal" Text="SailfishRpm: Prepared staging directory at $(_SailfishBuildRoot)" />
+  </Target>
+
+  <!-- Writes the per-app rpath into the prebuilt launcher's placeholder DT_RPATH (NUL-padded, same length). -->
+  <UsingTask TaskName="SailfishPatchLauncherRpath" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <File ParameterType="System.String" Required="true" />
+      <Rpath ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var bytes = System.IO.File.ReadAllBytes(File);
+        var marker = System.Text.Encoding.ASCII.GetBytes("/__SAILFISH_LAUNCHER_RPATH__");
+        var at = -1;
+        for (var i = 0; at < 0 && i + marker.Length <= bytes.Length; i++)
+        {
+            var hit = true;
+            for (var j = 0; j < marker.Length; j++)
+                if (bytes[i + j] != marker[j]) { hit = false; break; }
+            if (hit) at = i;
+        }
+        if (at < 0) { Log.LogError("sailfish-launcher has no rpath placeholder (rebuild it with ./tools/sf-native-build.sh)"); return false; }
+        var end = at;
+        while (end < bytes.Length && bytes[end] != 0) end++;
+        var value = System.Text.Encoding.ASCII.GetBytes(Rpath);
+        if (value.Length > end - at) { Log.LogError("rpath '" + Rpath + "' longer than the launcher placeholder"); return false; }
+        for (var i = at; i < end; i++) bytes[i] = 0;
+        System.Array.Copy(value, 0, bytes, at, value.Length);
+        System.IO.File.WriteAllBytes(File, bytes);
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <!-- ================= Generate Launcher (symlink to ELF binary) ================= -->
+  <!-- invoker + sailjail require /usr/bin/PKG to be an ELF (a script is killed), so it is a symlink to the apphost or the native launcher. -->
+  <Target Name="_GenerateSailfishRpmLauncher"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          AfterTargets="_PrepareSailfishRpmStaging"
+          BeforeTargets="CreateSailfishRpm">
+
+    <Exec Command="chmod +x '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)'" Condition="'$(SailfishHarbour)' != 'true' And Exists('$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)')" />
+
+    <!-- Relative symlink avoids rpmbuild's absolute-symlink warning -->
+    <Exec Command="ln -sf '../share/$(SailfishPackageName)/$(AssemblyName)' '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishHarbour)' != 'true'" />
+
+    <!-- Harbour: the native launcher is /usr/bin/PKG with rpath to the package lib dir; non-ELF payload files must not be executable. -->
+    <Copy SourceFiles="$(PublishDir)sailfish-launcher" DestinationFiles="$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)" Condition="'$(SailfishHarbour)' == 'true'" />
+    <SailfishPatchLauncherRpath File="$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)"
+                                Rpath="$ORIGIN/../share/$(SailfishPackageName)/lib"
+                                Condition="'$(SailfishHarbour)' == 'true'" />
+    <Exec Command="chmod 0755 '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishHarbour)' == 'true'" />
+    <Exec Command="find '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib' -type f -exec chmod 0644 {} + &amp;&amp; find '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib' -type f -name '*.so*' -exec chmod 0755 {} +"
+          Condition="'$(SailfishHarbour)' == 'true'" />
+
+    <Message Importance="normal" Text="SailfishRpm: /usr/bin/$(SailfishPackageName) → ../share/$(SailfishPackageName)/$(AssemblyName)" Condition="'$(SailfishHarbour)' != 'true'" />
+    <Message Importance="normal" Text="SailfishRpm: /usr/bin/$(SailfishPackageName) = native launcher (Harbour profile)" Condition="'$(SailfishHarbour)' == 'true'" />
+  </Target>
+
+  <!-- ================= Generate .desktop File ================= -->
+  <Target Name="_GenerateSailfishRpmDesktopFile"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          DependsOnTargets="_CopySailfishRpmIcon"
+          AfterTargets="_PrepareSailfishRpmStaging"
+          BeforeTargets="CreateSailfishRpm">
+
+    <PropertyGroup>
+      <!-- Absolute icon path, since lipstick's theme lookup can miss hicolor icons. Without permissions the app opts out via [X-Sailjail] Sandboxing=Disabled;
+           with them, ';' is escaped as %3B because WriteLinesToFile splits Lines on ';'. A sandboxed app must name its organization and application. -->
+      <_SailfishIconKey>/usr/share/icons/hicolor/108x108/apps/$(SailfishPackageName).png</_SailfishIconKey>
+      <_SailfishIconKey Condition="'$(_SailfishDesktopIconPath)' != ''">$(_SailfishDesktopIconPath)</_SailfishIconKey>
+      <!-- Harbour: icon by theme name and the booster type -->
+      <_SailfishIconKey Condition="'$(SailfishHarbour)' == 'true'">$(SailfishPackageName)</_SailfishIconKey>
+      <_SailfishAppTypeLine Condition="'$(SailfishHarbour)' == 'true'">X-Nemo-Application-Type=silica-qt5</_SailfishAppTypeLine>
+      <_SailfishSailjailSection Condition="'$(_SailfishPermissions)' == ''">[X-Sailjail]
+Sandboxing=Disabled</_SailfishSailjailSection>
+      <_SailfishSailjailSection Condition="'$(_SailfishPermissions)' != ''">[X-Sailjail]
+Permissions=$(_SailfishPermissions.Replace(';', '%3B'))
+OrganizationName=$(SailfishOrganizationName)
+ApplicationName=$(SailfishPackageName)</_SailfishSailjailSection>
+      <!-- A Debug build installs next to the Release one, so label its launcher entry. -->
+      <_SailfishDesktopName>$(ApplicationTitle)</_SailfishDesktopName>
+      <_SailfishDesktopName Condition="'$(Configuration)' == 'Debug'">$(ApplicationTitle) (Debug)</_SailfishDesktopName>
+      <_SailfishDesktopContent>[Desktop Entry]
+Type=Application
+Name=$(_SailfishDesktopName)
+Exec=$(SailfishPackageName)
+Icon=$(_SailfishIconKey)
+Terminal=false
+$(_SailfishAppTypeLine)
+
+$(_SailfishSailjailSection)
+</_SailfishDesktopContent>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(_SailfishBuildRoot)/usr/share/applications/$(SailfishPackageName).desktop"
+                      Lines="$(_SailfishDesktopContent)"
+                      Overwrite="true" />
+
+    <Message Importance="normal" Text="SailfishRpm: Generated .desktop file" />
+  </Target>
+
+  <!-- ================= App icons ================= -->
+  <!-- Resamples the square MauiIcon PNG to each hicolor size in plain C#, so packaging needs neither Python nor System.Drawing. -->
+  <UsingTask TaskName="SailfishIconSet" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Source ParameterType="System.String" Required="true" />
+      <HicolorDir ParameterType="System.String" Required="true" />
+      <Name ParameterType="System.String" Required="true" />
+      <Sizes ParameterType="System.String" Required="true" />
+      <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Class" Language="cs"><![CDATA[
+        using System;
+        using System.Collections.Generic;
+        using System.IO;
+        using System.IO.Compression;
+        using Microsoft.Build.Framework;
+        using Microsoft.Build.Utilities;
+
+        public class SailfishIconSet : Task
+        {
+            [Required] public string Source { get; set; }
+            [Required] public string HicolorDir { get; set; }
+            [Required] public string Name { get; set; }
+            [Required] public string Sizes { get; set; }
+            [Output] public ITaskItem[] Files { get; set; }
+
+            public override bool Execute()
+            {
+                int w, h;
+                float[] rgba;   // premultiplied, 0..1
+                try
+                {
+                    rgba = Decode(File.ReadAllBytes(Source), out w, out h);
+                }
+                catch (Exception ex)
+                {
+                    Log.LogError("MauiIcon " + Source + ": " + ex.Message +
+                                 " (the Sailfish icon set needs a non-interlaced 8-bit PNG; set -p:SailfishSkipIconCheck=true to copy it as the 108 px icon unchanged)");
+                    return false;
+                }
+                if (w != h)
+                {
+                    Log.LogError("MauiIcon must be square for the Sailfish icon set (got " + w + "x" + h + " from " + Source + ")");
+                    return false;
+                }
+                var files = new List<ITaskItem>();
+                foreach (var part in Sizes.Split(';'))
+                {
+                    int size;
+                    if (!int.TryParse(part.Trim(), out size) || size <= 0)
+                        continue;
+                    var dir = Path.Combine(HicolorDir, size + "x" + size, "apps");
+                    Directory.CreateDirectory(dir);
+                    var dest = Path.Combine(dir, Name + ".png");
+                    if (size == w)
+                        File.Copy(Source, dest, true);
+                    else
+                    {
+                        if (size > w)
+                            Log.LogWarning("MauiIcon " + Source + " is " + w + "x" + w + " — upscaled to " + size + "x" + size +
+                                           "; ship a source of at least 172x172 for crisp Sailfish icons");
+                        File.WriteAllBytes(dest, Encode(Resize(rgba, w, h, size, size), size, size));
+                    }
+                    files.Add(new TaskItem("/usr/share/icons/hicolor/" + size + "x" + size + "/apps/" + Name + ".png"));
+                }
+                Files = files.ToArray();
+                return !Log.HasLoggedErrors;
+            }
+
+            // ---- PNG decode (8-bit gray/gray+alpha/RGB/RGBA/palette, non-interlaced) ----
+            static float[] Decode(byte[] png, out int w, out int h)
+            {
+                if (png.Length < 8 || png[0] != 0x89 || png[1] != (byte)'P' || png[2] != (byte)'N' || png[3] != (byte)'G')
+                    throw new InvalidDataException("not a PNG");
+                int pos = 8, depth = 0, type = 0, interlace = 0;
+                w = h = 0;
+                byte[] palette = null, trns = null;
+                var idat = new MemoryStream();
+                while (pos + 8 <= png.Length)
+                {
+                    int len = (png[pos] << 24) | (png[pos + 1] << 16) | (png[pos + 2] << 8) | png[pos + 3];
+                    string kind = System.Text.Encoding.ASCII.GetString(png, pos + 4, 4);
+                    int data = pos + 8;
+                    if (kind == "IHDR")
+                    {
+                        w = (png[data] << 24) | (png[data + 1] << 16) | (png[data + 2] << 8) | png[data + 3];
+                        h = (png[data + 4] << 24) | (png[data + 5] << 16) | (png[data + 6] << 8) | png[data + 7];
+                        depth = png[data + 8]; type = png[data + 9]; interlace = png[data + 12];
+                    }
+                    else if (kind == "PLTE") { palette = new byte[len]; Array.Copy(png, data, palette, 0, len); }
+                    else if (kind == "tRNS") { trns = new byte[len]; Array.Copy(png, data, trns, 0, len); }
+                    else if (kind == "IDAT") idat.Write(png, data, len);
+                    else if (kind == "IEND") break;
+                    pos = data + len + 4;
+                }
+                if (w <= 0 || h <= 0) throw new InvalidDataException("missing IHDR");
+                if (depth != 8) throw new InvalidDataException("bit depth " + depth + " is not supported");
+                if (interlace != 0) throw new InvalidDataException("interlaced PNGs are not supported");
+                int channels = type == 0 ? 1 : type == 2 ? 3 : type == 3 ? 1 : type == 4 ? 2 : type == 6 ? 4 : 0;
+                if (channels == 0) throw new InvalidDataException("color type " + type + " is not supported");
+                if (type == 3 && palette == null) throw new InvalidDataException("palette image without PLTE");
+                int stride = w * channels;
+                var raw = new byte[(stride + 1) * h];
+                var zlib = idat.ToArray();
+                using (var inflate = new DeflateStream(new MemoryStream(zlib, 2, zlib.Length - 2), CompressionMode.Decompress))
+                {
+                    int read = 0, n;
+                    while (read < raw.Length && (n = inflate.Read(raw, read, raw.Length - read)) > 0)
+                        read += n;
+                    if (read != raw.Length) throw new InvalidDataException("truncated image data");
+                }
+                var pixels = new byte[stride * h];
+                var prev = new byte[stride];
+                for (int y = 0; y < h; y++)
+                {
+                    int filter = raw[y * (stride + 1)];
+                    int src = y * (stride + 1) + 1, dst = y * stride;
+                    for (int x = 0; x < stride; x++)
+                    {
+                        int a = x >= channels ? pixels[dst + x - channels] : 0;
+                        int b = prev[x];
+                        int c = x >= channels ? prev[x - channels] : 0;
+                        int v = raw[src + x];
+                        switch (filter)
+                        {
+                            case 1: v += a; break;
+                            case 2: v += b; break;
+                            case 3: v += (a + b) >> 1; break;
+                            case 4:
+                                int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c);
+                                v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+                                break;
+                        }
+                        pixels[dst + x] = (byte)v;
+                    }
+                    Array.Copy(pixels, dst, prev, 0, stride);
+                }
+                var outp = new float[w * h * 4];
+                for (int i = 0; i < w * h; i++)
+                {
+                    float r, g, bl, al = 1f;
+                    int o = i * channels;
+                    switch (type)
+                    {
+                        case 0: r = g = bl = pixels[o] / 255f; if (trns != null && trns.Length >= 2 && pixels[o] == trns[1]) al = 0f; break;
+                        case 2: r = pixels[o] / 255f; g = pixels[o + 1] / 255f; bl = pixels[o + 2] / 255f; break;
+                        case 3:
+                            int idx = pixels[o];
+                            r = palette[idx * 3] / 255f; g = palette[idx * 3 + 1] / 255f; bl = palette[idx * 3 + 2] / 255f;
+                            if (trns != null && idx < trns.Length) al = trns[idx] / 255f;
+                            break;
+                        case 4: r = g = bl = pixels[o] / 255f; al = pixels[o + 1] / 255f; break;
+                        default: r = pixels[o] / 255f; g = pixels[o + 1] / 255f; bl = pixels[o + 2] / 255f; al = pixels[o + 3] / 255f; break;
+                    }
+                    outp[i * 4] = r * al; outp[i * 4 + 1] = g * al; outp[i * 4 + 2] = bl * al; outp[i * 4 + 3] = al;
+                }
+                return outp;
+            }
+
+            // ---- separable tent-filter resampling (area-like when shrinking) ----
+            static float[] Resize(float[] src, int sw, int sh, int dw, int dh)
+            {
+                var tmp = new float[dw * sh * 4];
+                Pass(src, sw, sh, tmp, dw, true);
+                var dst = new float[dw * dh * 4];
+                Pass(tmp, dw, sh, dst, dh, false);
+                return dst;
+            }
+
+            static void Pass(float[] src, int sw, int sh, float[] dst, int dlen, bool horizontal)
+            {
+                int slen = horizontal ? sw : sh, lines = horizontal ? sh : sw;
+                double scale = (double)slen / dlen, support = Math.Max(1.0, scale);
+                for (int d = 0; d < dlen; d++)
+                {
+                    double center = (d + 0.5) * scale;
+                    int lo = Math.Max(0, (int)Math.Floor(center - support)), hi = Math.Min(slen - 1, (int)Math.Ceiling(center + support));
+                    var weights = new double[hi - lo + 1];
+                    double total = 0;
+                    for (int s = lo; s <= hi; s++)
+                    {
+                        double wgt = Math.Max(0.0, 1.0 - Math.Abs(s + 0.5 - center) / support);
+                        weights[s - lo] = wgt; total += wgt;
+                    }
+                    for (int line = 0; line < lines; line++)
+                    {
+                        double r = 0, g = 0, b = 0, a = 0;
+                        for (int s = lo; s <= hi; s++)
+                        {
+                            int i = horizontal ? (line * sw + s) * 4 : (s * sw + line) * 4;
+                            double wgt = weights[s - lo];
+                            r += src[i] * wgt; g += src[i + 1] * wgt; b += src[i + 2] * wgt; a += src[i + 3] * wgt;
+                        }
+                        int o = horizontal ? (line * dlen + d) * 4 : (d * sw + line) * 4;
+                        dst[o] = (float)(r / total); dst[o + 1] = (float)(g / total); dst[o + 2] = (float)(b / total); dst[o + 3] = (float)(a / total);
+                    }
+                }
+            }
+
+            // ---- PNG encode (RGBA8, filter None, zlib-wrapped deflate) ----
+            static byte[] Encode(float[] px, int w, int h)
+            {
+                var raw = new byte[(w * 4 + 1) * h];
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        int i = (y * w + x) * 4, o = y * (w * 4 + 1) + 1 + x * 4;
+                        float a = px[i + 3];
+                        for (int c = 0; c < 3; c++)
+                            raw[o + c] = ToByte(a > 0 ? px[i + c] / a : 0f);
+                        raw[o + 3] = ToByte(a);
+                    }
+                var z = new MemoryStream();
+                z.WriteByte(0x78); z.WriteByte(0x9C);
+                using (var deflate = new DeflateStream(z, CompressionLevel.Optimal, true))
+                    deflate.Write(raw, 0, raw.Length);
+                uint s1 = 1, s2 = 0;
+                foreach (var bt in raw) { s1 = (s1 + bt) % 65521; s2 = (s2 + s1) % 65521; }
+                WriteBE(z, (s2 << 16) | s1);
+                var png = new MemoryStream();
+                png.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, 0, 8);
+                var ihdr = new MemoryStream();
+                WriteBE(ihdr, (uint)w); WriteBE(ihdr, (uint)h);
+                ihdr.Write(new byte[] { 8, 6, 0, 0, 0 }, 0, 5);
+                Chunk(png, "IHDR", ihdr.ToArray());
+                Chunk(png, "IDAT", z.ToArray());
+                Chunk(png, "IEND", new byte[0]);
+                return png.ToArray();
+            }
+
+            static byte ToByte(float v) { return (byte)Math.Max(0, Math.Min(255, (int)Math.Round(v * 255f))); }
+
+            static void WriteBE(Stream s, uint v)
+            {
+                s.WriteByte((byte)(v >> 24)); s.WriteByte((byte)(v >> 16)); s.WriteByte((byte)(v >> 8)); s.WriteByte((byte)v);
+            }
+
+            static uint[] _crc;
+
+            static void Chunk(Stream s, string kind, byte[] data)
+            {
+                if (_crc == null)
+                {
+                    _crc = new uint[256];
+                    for (uint n = 0; n < 256; n++)
+                    {
+                        uint c = n;
+                        for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                        _crc[n] = c;
+                    }
+                }
+                WriteBE(s, (uint)data.Length);
+                var head = System.Text.Encoding.ASCII.GetBytes(kind);
+                s.Write(head, 0, 4); s.Write(data, 0, data.Length);
+                uint crc = 0xFFFFFFFFu;
+                foreach (var b in head) crc = _crc[(crc ^ b) & 0xFF] ^ (crc >> 8);
+                foreach (var b in data) crc = _crc[(crc ^ b) & 0xFF] ^ (crc >> 8);
+                WriteBE(s, crc ^ 0xFFFFFFFFu);
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="_CopySailfishRpmIcon"
+          Condition="'$(_SailfishRpmEnabled)' == 'true' and '@(MauiIcon)' != ''"
+          AfterTargets="_PrepareSailfishRpmStaging"
+          BeforeTargets="CreateSailfishRpm">
+
+    <PropertyGroup>
+      <!-- Prefer the resizetizer-composed icon when it was built -->
+      <_SailfishIconSource>%(MauiIcon.Identity)</_SailfishIconSource>
+      <_SailfishIconSource Condition="Exists('$(IntermediateOutputPath)sailfish-images/sailfish-appicon.png')">$(IntermediateOutputPath)sailfish-images/sailfish-appicon.png</_SailfishIconSource>
+    </PropertyGroup>
+    <SailfishIconSet Source="$(_SailfishIconSource)" HicolorDir="$(_SailfishBuildRoot)/usr/share/icons/hicolor"
+                     Name="$(SailfishPackageName)" Sizes="$(SailfishIconSizes)"
+                     Condition="'$(SailfishSkipIconCheck)' != 'true'">
+      <Output TaskParameter="Files" ItemName="_SailfishIconFiles" />
+    </SailfishIconSet>
+
+    <!-- Bypass: copy the MauiIcon as the 108 px icon, unvalidated -->
+    <Copy SourceFiles="@(MauiIcon->'%(Identity)')"
+          DestinationFiles="$(_SailfishBuildRoot)/usr/share/icons/hicolor/108x108/apps/$(SailfishPackageName).png"
+          Condition="'$(SailfishSkipIconCheck)' == 'true'" />
+    <ItemGroup Condition="'$(SailfishSkipIconCheck)' == 'true'">
+      <_SailfishIconFiles Include="/usr/share/icons/hicolor/108x108/apps/$(SailfishPackageName).png" />
+    </ItemGroup>
+
+    <!-- lipstick caches icons by path, so outside Harbour the .desktop points at a copy named after the icon's hash. -->
+    <PropertyGroup>
+      <_SailfishIcon108>$(_SailfishBuildRoot)/usr/share/icons/hicolor/108x108/apps/$(SailfishPackageName).png</_SailfishIcon108>
+    </PropertyGroup>
+    <GetFileHash Files="$(_SailfishIcon108)" Algorithm="SHA256"
+                 Condition="'$(SailfishHarbour)' != 'true' And Exists('$(_SailfishIcon108)')">
+      <Output TaskParameter="Hash" PropertyName="_SailfishIconHash" />
+    </GetFileHash>
+    <PropertyGroup Condition="'$(_SailfishIconHash)' != ''">
+      <_SailfishDesktopIconPath>$(_SailfishInstallPrefix)/appicon-$([System.String]::Copy('$(_SailfishIconHash)').Substring(0, 12).ToLowerInvariant()).png</_SailfishDesktopIconPath>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_SailfishIcon108)" DestinationFiles="$(_SailfishBuildRoot)$(_SailfishDesktopIconPath)"
+          Condition="'$(_SailfishDesktopIconPath)' != ''" />
+
+    <Message Importance="normal" Text="SailfishRpm: app icons @(_SailfishIconFiles->'%(Identity)', ', ')" />
+  </Target>
+
+  <!-- ================= Generate Spec File ================= -->
+  <Target Name="_GenerateSailfishRpmSpec"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          AfterTargets="_PrepareSailfishRpmStaging;_GenerateSailfishRpmLauncher;_GenerateSailfishRpmDesktopFile;_CopySailfishRpmIcon"
+          BeforeTargets="CreateSailfishRpm">
+
+    <PropertyGroup>
+      <!-- Harbour rejects a Vendor tag -->
+      <_SailfishVendorLine Condition="'$(SailfishHarbour)' != 'true'">Vendor: $(SailfishVendor)</_SailfishVendorLine>
+      <!-- Harbour allows only these package names; the daemon pulls in libsailfishsecrets. -->
+      <_SailfishRequiresLines Condition="'$(SailfishSecureStorage)' == 'Secrets'">Requires: sailfishsecretsdaemon
+Requires: sailfishsecretsdaemon-secretsplugins-default</_SailfishRequiresLines>
+      <_SailfishSpecContent>Name: $(SailfishPackageName)
+Version: $(SailfishVersion)
+Release: $(SailfishRelease)
+Summary: $(SailfishSummary)
+License: $(SailfishLicense)
+$(_SailfishVendorLine)
+$(_SailfishRequiresLines)
+AutoReqProv: no
+%25description
+$(SailfishDescription)
+%25files
+%25defattr(-,root,root,-)
+/usr/bin/$(SailfishPackageName)
+$(_SailfishInstallPrefix)
+/usr/share/applications/$(SailfishPackageName).desktop
+</_SailfishSpecContent>
+
+      <_SailfishSpecContent Condition="'@(_SailfishIconFiles)' != ''">$(_SailfishSpecContent)@(_SailfishIconFiles->'%(Identity)', '%0A')
+</_SailfishSpecContent>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(_SailfishSpecFile)"
+                      Lines="$(_SailfishSpecContent)"
+                      Overwrite="true" />
+
+    <Message Importance="normal" Text="SailfishRpm: Generated spec file at $(_SailfishSpecFile)" />
+  </Target>
+
+  <!-- ================= Build RPM Package ================= -->
+  <!-- Host rpmbuild when present, else the packaged Python fallback with the same command line. -->
+  <Target Name="_ResolveSailfishRpmBuilder"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          BeforeTargets="CreateSailfishRpm">
+    <Exec Command="command -v rpmbuild" ContinueOnError="WarnAndContinue"
+          StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_SailfishRpmbuildProbe" />
+    </Exec>
+    <PropertyGroup>
+      <!-- Packaged: tools/ next to this file; in-repo: the repo root's tools/. -->
+      <_SailfishRpmFallbackPy Condition="Exists('$(MSBuildThisFileDirectory)tools/sf-rpmbuild.py')">$(MSBuildThisFileDirectory)tools/sf-rpmbuild.py</_SailfishRpmFallbackPy>
+      <_SailfishRpmFallbackPy Condition="'$(_SailfishRpmFallbackPy)' == ''">$(MSBuildThisFileDirectory)../../../tools/sf-rpmbuild.py</_SailfishRpmFallbackPy>
+      <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' == '0'">rpmbuild</_SailfishRpmBuilder>
+      <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' != '0'">python3 "$(_SailfishRpmFallbackPy)"</_SailfishRpmBuilder>
+    </PropertyGroup>
+    <Message Importance="high" Text="SailfishRpm: builder = $(_SailfishRpmBuilder)" />
+  </Target>
+
+  <Target Name="CreateSailfishRpm"
+          Condition="'$(_SailfishRpmEnabled)' == 'true'"
+          AfterTargets="Publish"
+          DependsOnTargets="_ResolveSailfishRpmBuilder;_ValidateSailfishRpmProperties;_PrepareSailfishRpmStaging;_GenerateSailfishRpmLauncher;_GenerateSailfishRpmDesktopFile;_CopySailfishRpmIcon;_GenerateSailfishRpmSpec">
+
+    <MakeDir Directories="$(SailfishRpmOutputDir)" />
+
+    <PropertyGroup>
+      <_SailfishOutputPath>$(SailfishRpmOutputDir)/$(SailfishRpmFileName)</_SailfishOutputPath>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="SailfishRpm: Creating $(SailfishRpmFileName)..." />
+
+    <Exec Command="$(_SailfishRpmBuilder) -bb --target $(SailfishRpmTarget) --buildroot '$(_SailfishBuildRoot)' --define '_topdir $(_SailfishTopDir)' --define '_buildhost localhost' --define '_rpmdir $(SailfishRpmOutputDir)' --define '_rpmfilename %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' '$(_SailfishSpecFile)'" />
+
+    <Message Importance="high" Text="SailfishRpm: Created $(_SailfishOutputPath)" />
+  </Target>
+
+  <!-- ================= Release signing + store metadata ================= -->
+  <!-- Opt-in: SailfishRpmSignKey signs with host rpm (the Python fallback cannot sign); SailfishStoreMetadata writes an OpenRepos-style YAML. -->
+  <Target Name="_SignSailfishRpm"
+          Condition="'$(SailfishRpmSignKey)' != ''"
+          AfterTargets="CreateSailfishRpm">
+    <Error Condition="'$(_SailfishRpmBuilder)' != 'rpmbuild' and '$(SailfishRpmSignKey)' != '' and !Exists('$(SailfishRpmOutputDir)/$(SailfishRpmFileName)')"
+           Text="Nothing to sign." />
+    <Exec Command="rpm --addsign --define '_gpg_name $(SailfishRpmSignKey)' '$(SailfishRpmOutputDir)/$(SailfishRpmFileName)'" />
+    <Message Importance="high" Text="SailfishRpm: signed with key $(SailfishRpmSignKey)" />
+  </Target>
+
+  <Target Name="_GenerateSailfishStoreMetadata"
+          Condition="'$(SailfishStoreMetadata)' == 'true'"
+          AfterTargets="CreateSailfishRpm;_SignSailfishRpm">
+    <Exec Command="python3 -c &quot;import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())&quot; '$(SailfishRpmOutputDir)/$(SailfishRpmFileName)' > '$(SailfishRpmOutputDir)/$(SailfishRpmFileName).sha256'" />
+    <WriteLinesToFile File="$(SailfishRpmOutputDir)/$(SailfishRpmFileName).yaml" Overwrite="true"
+                      Lines="name: $(SailfishPackageName);version: $(Version);release: 1;arch: $(SailfishRpmArch);summary: $(ApplicationTitle);description: $(ApplicationTitle) — .NET MAUI app for Sailfish OS;rpm: $(SailfishRpmFileName);sha256: $([System.IO.File]::ReadAllText('$(SailfishRpmOutputDir)/$(SailfishRpmFileName).sha256').Trim())" />
+    <Message Importance="high" Text="SailfishRpm: store metadata at $(SailfishRpmOutputDir)/$(SailfishRpmFileName).yaml" />
+  </Target>
+
+  <!-- ================= Device run verb ================= -->
+  <!-- -t:SailfishRun deploys over SSH and streams the device log; tools come from the repo clone or the package. -->
+  <PropertyGroup>
+    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == '' and Exists('$(MSBuildThisFileDirectory)../../../tools/sf-run.sh')">$(MSBuildThisFileDirectory)../../../tools/</SailfishToolsDir>
+    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == ''">$(MSBuildThisFileDirectory)tools/</SailfishToolsDir>
+  </PropertyGroup>
+
+  <!-- No Publish dependency: sf-deploy.sh publishes itself, and a dependency would publish twice. -->
+  <Target Name="SailfishRun"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <Error Condition="!Exists('$(SailfishToolsDir)sf-run.sh')"
+           Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf-setup.sh&quot; --if-needed" />
+    <Message Importance="high" Text="SailfishRun: deploying $(SailfishPackageName) and launching on the device (tools: $(SailfishToolsDir))..." />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; bash &quot;$(SailfishToolsDir)sf-deploy.sh&quot;" />
+    <Exec Command="SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; bash &quot;$(SailfishToolsDir)sf-run.sh&quot;" />
+  </Target>
+
+  <!-- ================= Build-time Warning ================= -->
+  <!-- One-time phone setup: -t:SailfishSetup (-p:SailfishSetupForce=true to redo). -->
+  <Target Name="SailfishSetup"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <Error Condition="!Exists('$(SailfishToolsDir)sf-setup.sh')"
+           Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
+    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf-setup.sh&quot;$(_SailfishSetupForceArg)" />
+  </Target>
+  <PropertyGroup>
+    <_SailfishSetupForceArg Condition="'$(SailfishSetupForce)' == 'true'"> --force</_SailfishSetupForceArg>
+  </PropertyGroup>
+
+  <Target Name="_WarnSailfishRpmRequiresPublish"
+          Condition="'$(CreateSailfishRpm)' == 'true' and '$(_SailfishRpmDefaulted)' != 'true'"
+          AfterTargets="Build"
+          BeforeTargets="Publish">
+
+    <Warning Text="CreateSailfishRpm=true has no effect with dotnet build. Use dotnet publish -f net11.0-sailfish (or -r linux-x64 -p:SelfContained=true -p:CreateSailfishRpm=true on the plain net11.0 leg) instead."
+             Condition="'$(IsPublishing)' != 'true' and '$(_IsPublishing)' != 'true' and '$(DeployOnBuild)' != 'true'" />
+  </Target>
+
+</Project>

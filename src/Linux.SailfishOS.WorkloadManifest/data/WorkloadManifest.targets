@@ -1,0 +1,26 @@
+<Project>
+  <!-- Loaded before restore, the only point early enough to accept the net11.0-sailfish TFM; the package targets do the rest. -->
+  <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
+    <TargetPlatformSupported>true</TargetPlatformSupported>
+    <!-- NuGet needs a platform version (NU1012); 1.0 keeps the TFM OS-version-neutral. -->
+    <TargetPlatformVersion Condition="'$(TargetPlatformVersion)' == ''">1.0</TargetPlatformVersion>
+    <SupportedOSPlatformVersion Condition="'$(SupportedOSPlatformVersion)' == ''">1.0</SupportedOSPlatformVersion>
+    <!-- The device RID must be known at restore (NETSDK1047 otherwise), and restore never sees the package's targets;
+         a multi-head app would need it in its csproj without this. 32-bit phones set linux-arm. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <!-- The backend package comes with the TFM, like an in-box workload's packs: adding net11.0-sailfish to
+       TargetFrameworks is enough. An explicit PackageReference wins; SailfishImplicitPackageReference=false opts out. -->
+  <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
+    <SailfishPackageVersion Condition="'$(SailfishPackageVersion)' == ''">0.1.0</SailfishPackageVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And '$(SailfishImplicitPackageReference)' != 'false' And '@(PackageReference->WithMetadataValue(&quot;Identity&quot;, &quot;Microsoft.Maui.SailfishOS&quot;))' == ''">
+    <PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(SailfishPackageVersion)" />
+  </ItemGroup>
+
+  <!-- The SDK validates the platform version against this list (NETSDK1140 without it). -->
+  <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
+    <SdkSupportedTargetPlatformVersion Include="1.0" />
+  </ItemGroup>
+</Project>

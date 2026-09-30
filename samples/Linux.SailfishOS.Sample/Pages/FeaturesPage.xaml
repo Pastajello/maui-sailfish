@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pages="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Pages"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.FeaturesPage"
+             Title="Features"
+             BackgroundColor="#101018">
+
+    <!-- Hub of feature galleries: one row per platform capability area. -->
+    <CollectionView x:Name="FeatureList" SelectionMode="Single" SelectionChanged="OnFeatureSelected">
+        <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="pages:FeatureItem">
+                <Grid HeightRequest="96" Padding="20,0" ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                    <BoxView Grid.Column="0" Color="{Binding Accent}"
+                             WidthRequest="10" HeightRequest="56" VerticalOptions="Center" />
+                    <VerticalStackLayout Grid.Column="1" Spacing="4" VerticalOptions="Center">
+                        <Label Text="{Binding Title}" FontSize="24" TextColor="White" />
+                        <Label Text="{Binding Subtitle}" FontSize="16" TextColor="#9FB4C7" />
+                    </VerticalStackLayout>
+                </Grid>
+            </DataTemplate>
+        </CollectionView.ItemTemplate>
+    </CollectionView>
+
+</ContentPage>

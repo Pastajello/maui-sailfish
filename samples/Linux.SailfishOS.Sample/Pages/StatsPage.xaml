@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:services="clr-namespace:Microsoft.Maui.SailfishOS.Sample.Services"
+             x:Class="Microsoft.Maui.SailfishOS.Sample.Pages.StatsPage"
+             Title="Statistics"
+             BackgroundColor="#101018">
+
+    <Grid RowDefinitions="Auto,*" Padding="24,16,24,8">
+
+        <VerticalStackLayout Grid.Row="0" Spacing="10">
+            <Label x:Name="HeadlineLabel" FontSize="26" TextColor="White" />
+            <Label x:Name="CompletionLabel" FontSize="19" TextColor="#9FB4C7" />
+            <ProgressBar x:Name="CompletionBar" ProgressColor="#4FC3F7" />
+            <Label Text="Per category" FontSize="20" TextColor="#9FB4C7" Margin="0,8,0,0" />
+            <!-- Q5 adapter gallery: exercises the qml/controls adapters
+                 (entry/switch/slider/progress-bar) in the Qt-host reconcile run.
+                 Q6: the mirror labels below are driven by MANAGED event handlers
+                 (TextChanged/Toggled/ValueChanged) — they only change when the
+                 adapter events are written back into MAUI by the bridge. -->
+            <Label Text="Q5 adapter gallery" FontSize="20" TextColor="#9FB4C7" Margin="0,8,0,0" />
+            <Entry x:Name="AdapterEntry" Placeholder="Entry adapter (Q5)" TextColor="White" />
+            <Label x:Name="EntryMirrorLabel" Text="Entry mirror: (empty)" FontSize="16" TextColor="#9FB4C7" />
+            <HorizontalStackLayout Spacing="12">
+                <Switch x:Name="AdapterSwitch" IsToggled="True" />
+                <Label x:Name="SwitchStateLabel" Text="Switch adapter: ON" FontSize="18" TextColor="White" VerticalOptions="Center" />
+            </HorizontalStackLayout>
+            <Slider x:Name="AdapterSlider" Minimum="0" Maximum="10" Value="3" />
+            <Label x:Name="SliderValueLabel" Text="Slider: 3.0" FontSize="16" TextColor="#9FB4C7" />
+            <!-- Q9 text input: the Editor adapter (Silica TextArea) plus the
+                 witness label driven by MANAGED handlers — Completed (Return
+                 via hardware keyboard or the Sailfish VKB → the adapter's
+                 accepted → Entry.SendCompleted), Focused/Unfocused (Qt is the
+                 focus source) and Editor.TextChanged (native → managed
+                 write-back). They only change when the Q9 text-input bridge
+                 legs really deliver. -->
+            <Label Text="Q9 text input" FontSize="20" TextColor="#9FB4C7" Margin="0,8,0,0" />
+            <Editor x:Name="AdapterEditor" Placeholder="Editor adapter (Q9)" TextColor="White"
+                    HeightRequest="88" AutoSize="Disabled" />
+            <Label x:Name="TextWitnessLabel" Text="text-input: (idle)" FontSize="16" TextColor="#69F0AE" />
+        </VerticalStackLayout>
+
+        <CollectionView x:Name="StatsList" Grid.Row="1" SelectionMode="None" Margin="0,6,0,0">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="services:CategoryStat">
+                    <VerticalStackLayout Spacing="6" Padding="4,8">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="{Binding Category}" FontSize="22" TextColor="White" />
+                            <Label Grid.Column="1" Text="{Binding Summary}" FontSize="18" TextColor="#9FB4C7" />
+                        </Grid>
+                        <ProgressBar Progress="{Binding Ratio}" ProgressColor="#BA68C8" />
+                    </VerticalStackLayout>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+    </Grid>
+
+</ContentPage>

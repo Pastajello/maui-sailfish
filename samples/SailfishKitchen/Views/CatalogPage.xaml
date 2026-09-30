@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.CatalogPage"
+                     x:DataType="vm:CatalogViewModel"
+                     Title="{Binding Title}"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <!-- Primary items become the top Silica pulley, Secondary the bottom one. Refresh lives in the pulley
+         because this backend has no RefreshView adapter. -->
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Refresh" Order="Primary" Command="{Binding RefreshCommand}" />
+        <ToolbarItem Text="Grid / list" Order="Primary" Command="{Binding ToggleLayoutCommand}" />
+        <ToolbarItem Text="Search" Order="Secondary" Command="{Binding OpenSearchCommand}" />
+        <ToolbarItem Text="Clear image cache" Order="Secondary" Command="{Binding ClearImageCacheCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <!-- The status row lives in CollectionView.Header, which inherits the page BindingContext and scrolls with the list. -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <VerticalStackLayout Grid.Row="0" Padding="20,14,20,6" Spacing="6">
+            <Label Text="{Binding Subtitle}" Style="{StaticResource Caption}" />
+            <ProgressBar Progress="{Binding LoadProgress}"
+                         IsVisible="{Binding IsProgressKnown}"
+                         HeightRequest="4" />
+        </VerticalStackLayout>
+
+        <!-- RemainingItemsThreshold is evaluated by the Qt host on each native scroll report; the footer button is the manual fallback. -->
+        <CollectionView x:Name="MealsList" Grid.Row="1"
+                        ItemsSource="{Binding Meals}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedMeal, Mode=TwoWay}"
+                        RemainingItemsThresholdReached="OnMealsThresholdReached"
+                        Margin="20,4,20,0"
+                        BackgroundColor="Transparent">
+
+            <CollectionView.Header>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Padding="0,0,0,8">
+                    <Label Grid.Column="0" Text="{Binding StatusText}" Style="{StaticResource Muted}"
+                           VerticalOptions="Center" />
+                    <controls:SpinnerView Grid.Column="1" IsRunning="{Binding IsBusy}"
+                                          HeightRequest="20" WidthRequest="20" />
+                </Grid>
+            </CollectionView.Header>
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:MealCardViewModel">
+                    <Border Style="{StaticResource Card}" Padding="0" HeightRequest="196">
+                        <Grid RowDefinitions="120,*">
+                            <Grid Grid.Row="0">
+                                <Image Source="{Binding Thumbnail}" Style="{StaticResource ThumbImage}" />
+                                <Button Text="{Binding FavoriteGlyph}"
+                                        BackgroundColor="Transparent"
+                                        BorderColor="Transparent"
+                                        TextColor="{x:Static local:Palette.Accent}"
+                                        FontSize="20" Padding="6"
+                                        MinimumWidthRequest="40" MinimumHeightRequest="40"
+                                        Command="{Binding ToggleFavoriteCommand}"
+                                        HorizontalOptions="End" VerticalOptions="Start"
+                                        Margin="0,4,4,0" />
+                            </Grid>
+                            <VerticalStackLayout Grid.Row="1" Spacing="2" Padding="12,8">
+                                <Label Text="{Binding Name}" FontSize="17" FontAttributes="Bold"
+                                       MaxLines="2" LineBreakMode="TailTruncation" />
+                                <Label Text="{Binding Subtitle}" Style="{StaticResource Muted}"
+                                       MaxLines="1" LineBreakMode="TailTruncation" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+
+
+        <!-- Manual trigger for when scrolling never crosses the prefetch threshold. -->
+        <Button Grid.Row="2" Text="Load more" Style="{StaticResource SecondaryButton}"
+                Margin="20,6,20,18" IsEnabled="{Binding HasMore}"
+                Command="{Binding LoadMoreCommand}" />
+
+        <!-- First-load skeleton, over the still-empty list. -->
+
+        <!-- Error with rows already on screen: overlay, do not replace the list. -->
+
+        <controls:StateSlot Grid.Row="1" Margin="20,4,20,0" VerticalOptions="Center"
+                            State="{Binding LoadState}">
+            <controls:StateSlot.LoadingTemplate>
+                <DataTemplate x:DataType="vm:CatalogViewModel">
+                    <controls:SkeletonPanel Rows="3" Columns="2" />
+                </DataTemplate>
+            </controls:StateSlot.LoadingTemplate>
+            <controls:StateSlot.EmptyTemplate>
+                <DataTemplate x:DataType="vm:CatalogViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="No recipes here." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                            <Label Text="Try the pulley menu to refresh, or load more below." Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.EmptyTemplate>
+            <controls:StateSlot.ErrorTemplate>
+                <DataTemplate x:DataType="vm:CatalogViewModel">
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="10" Padding="6,10">
+                            <Label Text="Something went wrong." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                            <Label Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                            <Button Text="Retry" Style="{StaticResource PrimaryButton}" Command="{Binding RetryCommand}" HorizontalOptions="Center" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </controls:StateSlot.ErrorTemplate>
+        </controls:StateSlot>
+        <controls:NotificationBanner x:Name="Banner" Grid.Row="1" />
+    </Grid>
+
+</views:ViewModelPage>

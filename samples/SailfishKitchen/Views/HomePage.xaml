@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<views:ViewModelPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+                     xmlns:local="clr-namespace:SailfishKitchen"
+                     xmlns:controls="clr-namespace:SailfishKitchen.Controls"
+                     xmlns:vm="clr-namespace:SailfishKitchen.ViewModels"
+                     xmlns:views="clr-namespace:SailfishKitchen.Views"
+                     x:Class="SailfishKitchen.Views.HomePage"
+                     x:DataType="vm:HomeViewModel"
+                     Title="Sailfish Kitchen"
+                     BackgroundColor="{x:Static local:Palette.Background}">
+
+    <!-- Order=Primary maps to the top Silica pulley (PullDownMenu), Secondary to the bottom one (PushUpMenu). -->
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Search" Order="Primary" Command="{Binding OpenSearchCommand}" />
+        <ToolbarItem Text="Favourites" Order="Primary" Command="{Binding OpenFavoritesCommand}" />
+        <ToolbarItem Text="Settings" Order="Secondary" Command="{Binding OpenSettingsCommand}" />
+    </ContentPage.ToolbarItems>
+
+    <!-- One scrolling surface: the intro, picker and suggestions ride in the list's Header, so the categories keep
+         the whole height in landscape instead of the strip a fixed block above the list leaves them. -->
+    <Grid>
+        <CollectionView x:Name="CategoriesList"
+                        ItemsSource="{Binding Categories}"
+                        SelectionMode="Single"
+                        SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                        Margin="20,0,20,0"
+                        BackgroundColor="Transparent">
+
+            <CollectionView.Header>
+                <VerticalStackLayout Padding="0,14,0,4" Spacing="12">
+                    <Label Text="Sailfish Kitchen" Style="{StaticResource PageTitle}" />
+                    <Label Text="{Binding Subtitle}" Style="{StaticResource Caption}" />
+
+                    <!-- Offline / no-connection notice. Hidden entirely when online. -->
+                    <Border IsVisible="{Binding IsOffline}"
+                            Style="{StaticResource Card}"
+                            BackgroundColor="#2A2116"
+                            Stroke="{x:Static local:Palette.Warning}"
+                            Padding="12">
+                        <Label Text="{Binding OfflineBanner}"
+                               TextColor="{x:Static local:Palette.Warning}"
+                               FontSize="14" />
+                    </Border>
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <Button Grid.Column="0" Text="Surprise me"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding SurpriseMeCommand}" />
+                        <Button Grid.Column="1" Text="Browse all"
+                                Style="{StaticResource SecondaryButton}"
+                                Command="{Binding BrowseAllCommand}" />
+                    </Grid>
+
+                    <!-- A Picker, not a horizontal CollectionView: two nested native ListViews would fight over the flick gesture. -->
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="JUMP TO A CUISINE" Style="{StaticResource SectionHeader}" Margin="0" />
+                        <Picker Title="Choose a cuisine…"
+                                ItemsSource="{Binding Cuisines}"
+                                ItemDisplayBinding="{Binding Country}"
+                                SelectedItem="{Binding SelectedCuisine, Mode=TwoWay}" />
+                    </VerticalStackLayout>
+
+                    <!-- A plain stack, so the page keeps one scrolling surface. -->
+                    <VerticalStackLayout Spacing="10"
+                                         IsVisible="{Binding HasSuggestions}"
+                                         BindableLayout.ItemsSource="{Binding Suggestions}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SuggestionViewModel">
+                                <Border Style="{StaticResource Card}" Padding="0">
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer NumberOfTapsRequired="1"
+                                                              Command="{Binding Source={RelativeSource AncestorType={x:Type vm:HomeViewModel}}, Path=OpenSuggestionCommand}"
+                                                              CommandParameter="{Binding .}" />
+                                    </Border.GestureRecognizers>
+                                    <Grid ColumnDefinitions="104,*" ColumnSpacing="12" Padding="10">
+                                        <Image Grid.Column="0" Source="{Binding Thumbnail}"
+                                               Aspect="AspectFill"
+                                               BackgroundColor="{x:Static local:Palette.Skeleton}"
+                                               WidthRequest="104" HeightRequest="86" />
+                                        <VerticalStackLayout Grid.Column="1" Spacing="3" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}" FontSize="18"
+                                                   FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                                            <Label Text="{Binding Subtitle}" Style="{StaticResource Caption}" />
+                                            <Label Text="{Binding IngredientsSummary}" Style="{StaticResource Muted}"
+                                                   LineBreakMode="TailTruncation" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+
+                    <Label Text="CATEGORIES" Style="{StaticResource SectionHeader}" />
+
+                    <!-- Skeleton / empty / error in place of the grid until categories arrive. -->
+                    <controls:StateSlot IsVisible="{Binding DoesntHaveContent}"
+                                        State="{Binding LoadState}">
+                        <controls:StateSlot.LoadingTemplate>
+                            <DataTemplate x:DataType="vm:HomeViewModel">
+                                <controls:SkeletonPanel Rows="3" Columns="2" />
+                            </DataTemplate>
+                        </controls:StateSlot.LoadingTemplate>
+                        <controls:StateSlot.EmptyTemplate>
+                            <DataTemplate x:DataType="vm:HomeViewModel">
+                                <Border Style="{StaticResource Card}">
+                                    <VerticalStackLayout Spacing="10" Padding="6,10">
+                                        <Label Text="Nothing to show yet." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                                        <Label Text="Pull the top pulley or tap Retry to load the catalog." Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                                        <Button Text="Retry1" Style="{StaticResource PrimaryButton}" Command="{Binding LoadCommand}" HorizontalOptions="Center" />
+                                    </VerticalStackLayout>
+                                </Border>
+                            </DataTemplate>
+                        </controls:StateSlot.EmptyTemplate>
+                        <controls:StateSlot.ErrorTemplate>
+                            <DataTemplate x:DataType="vm:HomeViewModel">
+                                <Border Style="{StaticResource Card}">
+                                    <VerticalStackLayout Spacing="10" Padding="6,10">
+                                        <Label Text="Could not load the catalog." Style="{StaticResource Body}" HorizontalOptions="Center" />
+                                        <Label Text="{Binding ErrorMessage}" Style="{StaticResource Caption}" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
+                                        <Button Text="Retry2" Style="{StaticResource PrimaryButton}" Command="{Binding LoadCommand}" HorizontalOptions="Center" />
+                                    </VerticalStackLayout>
+                                </Border>
+                            </DataTemplate>
+                        </controls:StateSlot.ErrorTemplate>
+                    </controls:StateSlot>
+                </VerticalStackLayout>
+            </CollectionView.Header>
+
+            <CollectionView.ItemsLayout>
+                <GridItemsLayout Orientation="Vertical" Span="2"
+                                 HorizontalItemSpacing="12" VerticalItemSpacing="12" />
+            </CollectionView.ItemsLayout>
+
+
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="vm:CategoryTileViewModel">
+                    <Border Style="{StaticResource Card}" Padding="0" HeightRequest="150">
+                        <Grid RowDefinitions="*,Auto">
+                            <Image Grid.Row="0" Source="{Binding Thumbnail}"
+                                   Aspect="AspectFill"
+                                   BackgroundColor="{x:Static local:Palette.Skeleton}" />
+                            <VerticalStackLayout Grid.Row="1" Spacing="1" Padding="12,8">
+                                <Label Text="{Binding Name}" FontSize="18" FontAttributes="Bold" />
+                                <Label Text="{Binding Description}"
+                                       Style="{StaticResource Muted}"
+                                       MaxLines="2"
+                                       LineBreakMode="TailTruncation" />
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+
+            <CollectionView.Footer>
+                <Label Text="{Binding FooterNote}" Style="{StaticResource Muted}"
+                       HorizontalTextAlignment="Center" Padding="0,8,0,14" />
+            </CollectionView.Footer>
+        </CollectionView>
+
+        <controls:NotificationBanner x:Name="Banner" />
+    </Grid>
+
+</views:ViewModelPage>

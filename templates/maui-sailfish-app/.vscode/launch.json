@@ -1,0 +1,99 @@
+{
+  // F5 for a standalone Sailfish app. To debug use "F5 DEBUG (deploy + attach)";
+  // the 1/2 + 2/2 pair is the same flow split up (1/2 never debugs, 2/2 attaches
+  // without a redeploy). Device settings come from connect.info, never this file.
+  // The debug configs need SF_TOOLS_DIR pointing at the tools dir (checkout or NuGet package).
+  // First time: run the task "sf: push vsdbg to device" (vsdbg is not in the RPM).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Sailfish: F5 Deploy & Run (device)",
+      "type": "node-terminal",
+      "request": "launch",
+      // publish → RPM → install → launch via the package's SailfishRun target. The first
+      // run asks for the phone here; DOTNET_CLI_USE_MSBUILD_SERVER=0 keeps a terminal.
+      "command": "DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build -c Release -f net11.0-sailfish -t:SailfishRun",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Sailfish: F5 DEBUG (deploy + attach)",
+      "type": "coreclr",
+      "request": "attach",
+      // The preLaunchTask deploys and launches the Debug build unsandboxed, then vsdbg
+      // attaches on the device. Costs a full redeploy each time.
+      //
+      // For zero prompts use "processName": "<binary>" instead of processId: vsdbg matches
+      // the basename of /proc/<pid>/exe (the AssemblyName, default MauiSailfishApp), not
+      // comm or the package name, and fails if two processes match.
+      "processId": "${command:pickRemoteProcess}",
+      "pipeTransport": {
+        "pipeCwd": "${workspaceFolder}",
+        "pipeProgram": "${env:SF_TOOLS_DIR}/sf-debug-pipe.sh",
+        "pipeArgs": [],
+        "debuggerPath": "/tmp/vsdbg/vsdbg",
+        "quoteArgs": false
+      },
+      "preLaunchTask": "sf: deploy & run (Debug)",
+      "logging": {
+        "engineLogging": true,
+        "moduleLoad": true
+      }
+    },
+    {
+      "name": "Sailfish: 1/2 Deploy & Run (Debug, device)",
+      "type": "node-terminal",
+      "request": "launch",
+      // Step 1 of 2, does not debug; Debug installs as harbour-<dir>-debug next to Release.
+      "command": "SF_CONFIGURATION=Debug SF_DIAGNOSTICS=1 SF_TFM=net11.0-sailfish SF_SAMPLE_DIR='${workspaceFolder}' ${env:SF_TOOLS_DIR}/sf-deploy.sh --run",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "sf: preflight (Debug)"
+    },
+    {
+      "name": "Sailfish: 2/2 DEBUGGER attach (pick remote process)",
+      "type": "coreclr",
+      "request": "attach",
+      // Step 2 of 2, the one that debugs. sf-debug-pipe.sh must exec ssh directly (not
+      // the expect wrapper) or the DAP stream is swallowed. Pick the *-debug process;
+      // only an app started by sf-run.sh (not sandboxed) can be ptraced.
+      "processId": "${command:pickRemoteProcess}",
+      "pipeTransport": {
+        "pipeCwd": "${workspaceFolder}",
+        "pipeProgram": "${env:SF_TOOLS_DIR}/sf-debug-pipe.sh",
+        "pipeArgs": [],
+        "debuggerPath": "/tmp/vsdbg/vsdbg",
+        "quoteArgs": false
+      },
+      "logging": {
+        "engineLogging": true,
+        "moduleLoad": true
+      }
+    },
+    {
+      "name": "Sailfish: 2/2 DEBUGGER attach (pid...)",
+      "type": "coreclr",
+      "request": "attach",
+      // Fallback when pickRemoteProcess cannot list device processes; the pid comes
+      // from the task "sf: debug attach prep" (DEVICE_PID).
+      "processId": "${input:devicePid}",
+      "pipeTransport": {
+        "pipeCwd": "${workspaceFolder}",
+        "pipeProgram": "${env:SF_TOOLS_DIR}/sf-debug-pipe.sh",
+        "pipeArgs": [],
+        "debuggerPath": "/tmp/vsdbg/vsdbg",
+        "quoteArgs": false
+      },
+      "logging": {
+        "engineLogging": true,
+        "moduleLoad": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "devicePid",
+      "type": "promptString",
+      "description": "Device pid to attach to - the DEVICE_PID printed by the 'sf: debug attach prep' task.",
+      "default": ""
+    }
+  ]
+}

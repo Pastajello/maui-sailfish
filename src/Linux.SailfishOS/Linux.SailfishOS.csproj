@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>Microsoft.Maui.SailfishOS</RootNamespace>
+    <AssemblyName>Microsoft.Maui.SailfishOS</AssemblyName>
+    <PackageId>Microsoft.Maui.SailfishOS</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Description>A .NET MAUI backend for Sailfish OS: MAUI apps render as native Qt Quick / Sailfish Silica UI on the device compositor and ship as harbour-style RPMs (linux-arm64, SFOS 5.2+).</Description>
+    <PackageTags>maui;sailfish;sailfishos;linux;rpm;harbour;dotnet;cross-platform</PackageTags>
+    <IsPackable>true</IsPackable>
+    <IsShipping>true</IsShipping>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The diagnostics assembly drives renderer internals. -->
+    <InternalsVisibleTo Include="Microsoft.Maui.SailfishOS.Diagnostics" />
+    <!-- Host-side handler parity tests. -->
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <!-- The Essentials service interfaces live here. -->
+    <PackageReference Include="Microsoft.Maui.Essentials" Version="$(MauiVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <!-- Per-file PackagePath: a directory-style one keeps the project-relative path and breaks the auto-import layout. -->
+    <None Include="buildTransitive/**" Pack="true"
+          PackagePath="buildTransitive/net11.0/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The QML runtime payload: Content for in-repo outputs, packed once under qml/ (per file, as above) for package consumers. -->
+    <Content Include="Platform/QtHost/qml/**/*.qml;Platform/QtHost/qml/**/*.json;Platform/QtHost/qml/**/*.js"
+             Link="qml/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+             Pack="true" PackagePath="qml/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- scaffold/ ships to consumers as source; compiling it here would add a second Main. -->
+  <ItemGroup>
+    <Compile Remove="scaffold/**" />
+    <None Include="scaffold/**" Pack="true" PackagePath="buildTransitive/scaffold/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The rpmbuild fallback and device tools ship in the package, so package consumers need no rpm toolchain or repo clone. -->
+  <ItemGroup>
+    <None Include="../../tools/sf-rpmbuild.py" Pack="true"
+          PackagePath="buildTransitive/net11.0/tools/sf-rpmbuild.py" />
+    <None Include="../../tools/sf-lib.sh;../../tools/sf-setup.sh;../../tools/sf-pair.sh;../../tools/sf-deploy.sh;../../tools/sf-run.sh;../../tools/sf-run-remote.sh;../../tools/sf-remote-env.sh;../../tools/sf-kill.sh;../../tools/sf-kill-remote.sh;../../tools/sf-preflight.sh;../../tools/sf-verify.sh;../../tools/sf-rpmquery.py;../../tools/sf_rpm.py;../../tools/sf-debug-attach.sh;../../tools/sf-debug-pipe.sh;../../tools/sf-debug-dap-filter.py"
+          Pack="true" PackagePath="buildTransitive/net11.0/tools/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The native shim as a NuGet native asset; pack fails without it, since the app would die on start. -->
+  <ItemGroup Condition="Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
+    <None Include="../../artifacts/native/aarch64/libsailfishhost.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/libsailfishhost.so" />
+    <!-- Harbour launcher (SailfishHarbour=true) -->
+    <None Include="../../artifacts/native/aarch64/sailfish-launcher"
+          Condition="Exists('../../artifacts/native/aarch64/sailfish-launcher')"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/sailfish-launcher" />
+    <!-- Sailfish Secrets bridge (dlopen'ed, optional) -->
+    <None Include="../../artifacts/native/aarch64/libsailfishsecretsbridge.so"
+          Condition="Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/libsailfishsecretsbridge.so" />
+  </ItemGroup>
+  <!-- Optional 32-bit ARM assets (SF_ARCH=armv7hl sf-native-build.sh) for -r linux-arm. -->
+  <ItemGroup Condition="Exists('../../artifacts/native/armv7hl/libsailfishhost.so')">
+    <None Include="../../artifacts/native/armv7hl/libsailfishhost.so"
+          Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishhost.so" />
+    <None Include="../../artifacts/native/armv7hl/sailfish-launcher"
+          Condition="Exists('../../artifacts/native/armv7hl/sailfish-launcher')"
+          Pack="true" PackagePath="runtimes/linux-arm/native/sailfish-launcher" />
+    <None Include="../../artifacts/native/armv7hl/libsailfishsecretsbridge.so"
+          Condition="Exists('../../artifacts/native/armv7hl/libsailfishsecretsbridge.so')"
+          Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishsecretsbridge.so" />
+  </ItemGroup>
+
+  <Target Name="_SailfishShimRequiredForPack" BeforeTargets="Pack"
+          Condition="'$(SailfishAllowMissingShim)' != 'true' And !Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
+    <Error Text="libsailfishhost.so is missing - run ./tools/sf-native-build.sh before packing (override with -p:SailfishAllowMissingShim=true)." />
+  </Target>
+
+</Project>
