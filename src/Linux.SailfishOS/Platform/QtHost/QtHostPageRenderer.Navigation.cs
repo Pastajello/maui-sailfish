@@ -371,6 +371,7 @@ public sealed partial class QtHostPageRenderer
 	private void ResetModelPageScopedState(string reason)
 	{
 		_renderedTitle = string.Empty;
+		_renderedBusy = string.Empty;
 		_renderedBackground = string.Empty;
 		_lastScrollPush = string.Empty;
 		_layoutDirty = true;

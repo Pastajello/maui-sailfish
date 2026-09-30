@@ -22,6 +22,9 @@ PullDownMenu {
     property bool mauiDetached: true
     property var mauiPage: null
 
+    // Page.IsBusy pulses the bar natively; a clone keeps its bar hidden (the busy timer would re-show it).
+    busy: !mauiForceFlick && mauiPage !== null && mauiPage.mauiBusy && mauiPage.mauiBusyOnPulley
+
     property string mauiItems: "[]"
     property var __items: []
     property int __tries: 0

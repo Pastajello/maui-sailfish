@@ -137,6 +137,9 @@ public sealed partial class QtHostPageRenderer
 					}
 					break;
 				}
+				case "remorse-done":
+					SailfishRemorse.OnDone(payload);   // RemorsePopup/RemorseItem countdown ended or was cancelled
+					break;
 				case "toolbar-activated":
 					ApplyToolbarActivated(payload); // pulley MenuItem → ToolbarItem
 					break;

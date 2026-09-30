@@ -46,5 +46,9 @@ public class SailfishApplication : SailfishMauiApplication
 	protected override void OnQuitting()
 	{
 		using var sheet = new SailfishBottomSheet { Text = "Bye", Dock = "bottom" };
+		// Remorse: page-wide and over one element.
+		_ = SailfishRemorse.ExecuteAsync("Clearing", () => { });
+		_ = SailfishRemorse.ExecuteAsync(new Label(), null, () => { }, SailfishRemorse.DefaultTimeoutMs);
+		SailfishRemorse.CancelAll();
 	}
 }

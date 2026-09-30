@@ -403,6 +403,34 @@ SilicaListView {
         visible: root.count === 0 && height > 0
     }
 
+    // A plain-text EmptyView: the native empty-state text, shown while the list has no rows.
+    property string mauiPlaceholderText: ""
+    ViewPlaceholder {
+        objectName: "maui_" + root.mauiId + "__placeholder"
+        flickable: root
+        enabled: root.count === 0 && root.mauiPlaceholderText.length > 0
+        text: root.mauiPlaceholderText
+    }
+
+    // ScrollBarVisibility per axis: 0 Default (while moving), 1 Always, 2 Never. A carousel pages, it has none.
+    property int mauiVBar: 0
+    property int mauiHBar: 0
+    VerticalScrollDecorator {
+        id: vDecorator
+        flickable: root
+        visible: !root.__horizontal && !root.mauiCarousel && root.mauiVBar !== 2
+    }
+    HorizontalScrollDecorator {
+        id: hDecorator
+        flickable: root
+        visible: root.__horizontal && !root.mauiCarousel && root.mauiHBar !== 2
+    }
+    Binding { target: vDecorator; property: "opacity"; value: 1.0; when: root.mauiVBar === 1 }
+    Binding { target: hDecorator; property: "opacity"; value: 1.0; when: root.mauiHBar === 1 }
+    // Diagnostics readback of the decorators, as on ScrollView.qml.
+    readonly property string mauiBars: "h=" + (hDecorator.visible ? hDecorator.opacity : "hidden") +
+                                       " v=" + (vDecorator.visible ? vDecorator.opacity : "hidden")
+
     // RefreshView spinner, pinned to the viewport like the empty slot.
     BusyIndicator {
         size: BusyIndicatorSize.Medium

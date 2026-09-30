@@ -41,6 +41,10 @@ Page {
     // Top safe-area inset (status area + PageHeader + tab bar) in Qt scene units, as reported to managed.
     property double topInset: ((page.statusHeight !== undefined) ? page.statusHeight : 0) + pageHeader.height + tabBar.height
 
+    // Page.IsBusy: the pull-down menu pulses (PullDownMenu.busy) when the page has one, else a PageBusyIndicator runs.
+    property bool mauiBusy: false
+    property bool mauiBusyOnPulley: false
+
     // Tab bar (Shell tabs / TabbedPage), hidden with fewer than two tabs. Its height counts
     // as header, so the MAUI content area shrinks with it.
     property var mauiTabs: []
@@ -188,6 +192,7 @@ Page {
         for (var i = 0; i < ops.length; ++i) {
             var o = ops[i];
             if (o.op === "title") { pageTitle = o.text; continue; }
+            if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
             if (o.op === "background") {
                 mauiBackground = o.color || "transparent";
                 mauiBackgroundImage = o.image || "";
@@ -487,6 +492,58 @@ Page {
     // Page-level adapters use this to register as the flickable's pullDownMenu/pushUpMenu.
     function mauiFlickable() { return flick; }
 
+    // SailfishRemorse: the Silica "undo" countdown. {token, text|null, timeout, dg|host|none}. On a list row (dg) or an
+    // element (host) it is a RemorseItem covering it, otherwise a RemorsePopup at the top of the page. "remorse-done"
+    // {token, executed} reports once: executed after the countdown, false when tapped away or cancelled.
+    Component { id: remorsePopupComponent; RemorsePopup {} }
+    Component { id: remorseItemComponent; RemorseItem {} }
+    property var __remorse: ({})
+    function mauiRemorse(json) {
+        var o = JSON.parse(json);
+        var target = null;
+        if (o.dg)
+            target = __mauiFindByName(o.dg);
+        else if (o.host && __hosts[o.host])
+            target = __hosts[o.host].item;
+        if ((o.dg || o.host) && !target) {
+            mauiNotify("remorse-done", JSON.stringify({ token: o.token, executed: false, error: "target gone" }));
+            return "no target";
+        }
+        var r = target ? remorseItemComponent.createObject(target.parent) : remorsePopupComponent.createObject(page);
+        var done = false;
+        function finish(executed) {
+            if (done)
+                return;
+            done = true;
+            delete __remorse[o.token];
+            mauiNotify("remorse-done", JSON.stringify({ token: o.token, executed: executed }));
+            r.destroy(1500);   // after Silica's own close animation
+        }
+        __remorse[o.token] = r;
+        r.canceled.connect(function() { finish(false); });
+        var text = o.text === null || o.text === undefined ? undefined : o.text;
+        if (target)
+            r.execute(target, text, function() { finish(true); }, o.timeout);
+        else
+            r.execute(text, function() { finish(true); }, o.timeout);
+        return "ok";
+    }
+    function mauiRemorseCancel(token) {
+        var r = __remorse[token];
+        if (r)
+            r.cancel();
+    }
+
+    // Managed calls this after the layout pass that placed a new pulley's page: hosts of a tab coming back are
+    // shown only by that geometry batch, so a menu created before it found no visible list for its clone.
+    function mauiReattachPulleys() {
+        for (var id in __hosts) {
+            var h = __hosts[id];
+            if ((h.uri === "pull-down-menu" || h.uri === "push-up-menu") && h.item && h.item.__attach)
+                h.item.__attach();
+        }
+    }
+
     // Diag (MAUI_SAILFISH_OPEN_PULLEY): the scroller that actually carries the pulley
     // (a hosted list on collection pages, the page flickable otherwise).
     function mauiPulleySurface(which) {
@@ -743,56 +800,65 @@ Page {
             x: (flick.width - width) / 2
             y: flick.contentY + Theme.paddingMedium
         }
-    }
 
-    // Silica chrome declared after the flickable so scrolled content paints under the header.
-    Item {
-        id: chrome
-        x: 0
-        y: 0
-        width: parent.width
-        height: page.topInset
-
-        PageHeader { id: pageHeader; title: page.pageTitle }
-
-        // Sailfish-style tab row; tapping one tells managed to switch the MAUI tab.
+        // Silica chrome inside the flickable, after the canvas so it paints above the hosts: a pulley drags
+        // the header and tabs with the content, as a PageHeader in a SilicaFlickable (or a TabView's TabBar)
+        // does natively. The flickable scrolls no content otherwise, so at rest the header stays put.
         Item {
-            id: tabBar
-            anchors.top: pageHeader.bottom
-            width: parent.width
-            visible: page.mauiTabs.length > 1
-            height: visible ? Theme.itemSizeSmall : 0
-            onHeightChanged: page.reportWindowGeometry()
+            id: chrome
+            x: 0
+            y: 0
+            width: page.width
+            height: page.topInset
 
-            Row {
-                id: tabRow
-                anchors.fill: parent
-                Repeater {
-                    model: page.mauiTabs
-                    BackgroundItem {
-                        width: tabRow.width / Math.max(1, page.mauiTabs.length)
-                        height: tabRow.height
-                        objectName: "mauiTab_" + index
-                        Label {
-                            anchors.centerIn: parent
-                            width: parent.width - 2 * Theme.paddingSmall
-                            horizontalAlignment: Text.AlignHCenter
-                            truncationMode: TruncationMode.Fade
-                            text: modelData
-                            color: index === page.mauiTabIndex ? Theme.highlightColor : Theme.secondaryColor
-                            font.pixelSize: Theme.fontSizeMedium
+            PageHeader { id: pageHeader; title: page.pageTitle }
+
+            // Sailfish-style tab row; tapping one tells managed to switch the MAUI tab.
+            Item {
+                id: tabBar
+                anchors.top: pageHeader.bottom
+                width: parent.width
+                visible: page.mauiTabs.length > 1
+                height: visible ? Theme.itemSizeSmall : 0
+                onHeightChanged: page.reportWindowGeometry()
+
+                Row {
+                    id: tabRow
+                    anchors.fill: parent
+                    Repeater {
+                        model: page.mauiTabs
+                        BackgroundItem {
+                            width: tabRow.width / Math.max(1, page.mauiTabs.length)
+                            height: tabRow.height
+                            objectName: "mauiTab_" + index
+                            Label {
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.paddingSmall
+                                horizontalAlignment: Text.AlignHCenter
+                                truncationMode: TruncationMode.Fade
+                                text: modelData
+                                color: index === page.mauiTabIndex ? Theme.highlightColor : Theme.secondaryColor
+                                font.pixelSize: Theme.fontSizeMedium
+                            }
+                            Rectangle {
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                height: Theme.paddingSmall / 2
+                                color: Theme.highlightColor
+                                visible: index === page.mauiTabIndex
+                            }
+                            onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index }))
                         }
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: Theme.paddingSmall / 2
-                            color: Theme.highlightColor
-                            visible: index === page.mauiTabIndex
-                        }
-                        onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index }))
                     }
                 }
             }
         }
+    }
+
+
+    // Page.IsBusy without a pull-down menu: the Silica page loading indicator, centred over the content.
+    PageBusyIndicator {
+        objectName: "mauiPageBusy"
+        running: page.mauiBusy && !page.mauiBusyOnPulley
     }
 }

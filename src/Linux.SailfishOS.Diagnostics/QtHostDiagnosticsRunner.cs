@@ -261,6 +261,12 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				_qtContainersDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_CONTAINERS_DIAG");
 				// Pulley menus across navigation (QtHostDiagnosticsRunner.Pulley.cs).
 				_qtPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_PULLEY_DIAG");
+				// Pulley menus following the selected tab (QtHostDiagnosticsRunner.TabPulley.cs).
+				_qtTabPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_TABPULLEY_DIAG");
+				// Native Silica idioms behind MAUI APIs (QtHostDiagnosticsRunner.Silica.cs).
+				_qtSilicaDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_SILICA_DIAG");
+				// Recording scenes for docs/sailfish-apis.md (QtHostDiagnosticsRunner.ApiDemo.cs).
+				_qtApiDemo = SailfishEnv.Get("MAUI_SAILFISH_QT_HOST_APIDEMO") is { Length: > 0 } demo ? demo : null;
 				// Forward navigation after a back swipe (QtHostDiagnosticsRunner.NavBack.cs).
 				_qtNavBackDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_NAVBACK_DIAG");
 				// Adapter creation cost and candidate pixel parity (QtHostDiagnosticsRunner.AdapterBench.cs).
@@ -3920,6 +3926,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		(_qtShellDiag, (r, d, _) => RunQtShellDiagnostics(r, d)),
 		(_qtContainersDiag, (r, d, _) => RunQtContainersDiagnostics(r, d)),
 		(_qtPulleyDiag, (r, d, _) => RunQtPulleyDiagnostics(r, d)),
+		(_qtTabPulleyDiag, (r, d, _) => RunQtTabPulleyDiagnostics(r, d)),
+		(_qtSilicaDiag, (r, d, _) => RunQtSilicaDiagnostics(r, d)),
+		(_qtApiDemo is not null, (r, d, _) => RunQtApiDemo(r, d)),
 		(_qtF3Diag, (r, d, _) => RunQtF3Diagnostics(r, d)),
 		(_qtF4Diag, (r, d, _) => RunQtF4Diagnostics(r, d)),
 		(_qtFeaturesDiag, (r, d, _) => RunQtFeaturesDiagnostics(r, d)),

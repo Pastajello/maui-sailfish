@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/sf-lib.sh
 . "$SCRIPT_DIR/../lib/sf-lib.sh"
 
-ALL_LEGS="page controls nav popup collection collection10 collection100 collection500 shapes visual text input geometry reconcile bridge stress perf error tree shell containers pulley navback features f3 f4 adapterbench"
+ALL_LEGS="page controls nav popup collection collection10 collection100 collection500 shapes visual text input geometry reconcile bridge stress perf error tree shell containers pulley tabpulley silica navback features f3 f4 adapterbench"
 LEGS="${*:-$ALL_LEGS}"
 # Checked up front: leg_env/leg_marker run in $(...), where sf_die only leaves the subshell.
 for leg in $LEGS; do
@@ -48,6 +48,8 @@ leg_env() {
 		shell)      echo "MAUI_SAILFISH_QT_HOST_SHELL_DIAG=1" ;;
 		containers) echo "MAUI_SAILFISH_QT_HOST_CONTAINERS_DIAG=1" ;;
 		pulley)     echo "MAUI_SAILFISH_QT_HOST_PULLEY_DIAG=1" ;;
+		tabpulley)  echo "MAUI_SAILFISH_QT_HOST_TABPULLEY_DIAG=1" ;;
+		silica)     echo "MAUI_SAILFISH_QT_HOST_SILICA_DIAG=1" ;;
 		navback)    echo "MAUI_SAILFISH_QT_HOST_NAVBACK_DIAG=1" ;;
 		features)   echo "MAUI_SAILFISH_QT_HOST_FEATURES_DIAG=1" ;;
 		adapterbench) echo "MAUI_SAILFISH_QT_HOST_ADAPTERBENCH_DIAG=1" ;;
@@ -80,6 +82,8 @@ leg_marker() {
 		shell)       echo 'Qt shell diag: ACCEPTANCE' ;;
 		containers)  echo 'Qt containers diag: ACCEPTANCE' ;;
 		pulley)      echo 'Qt pulley diag: ACCEPTANCE' ;;
+		tabpulley)   echo 'Qt tab pulley diag: ACCEPTANCE' ;;
+		silica)      echo 'Qt silica diag: ACCEPTANCE' ;;
 		navback)     echo 'Qt navback diag: ACCEPTANCE' ;;
 		features)    echo 'Qt features diag: ACCEPTANCE' ;;
 		adapterbench) echo 'Qt adapterbench diag: ACCEPTANCE' ;;

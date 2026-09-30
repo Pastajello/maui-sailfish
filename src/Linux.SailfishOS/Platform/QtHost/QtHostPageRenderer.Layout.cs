@@ -278,6 +278,13 @@ public sealed partial class QtHostPageRenderer
 				FlushGeometry();
 				PushScrollState();   // page flickable state → native
 				PushRefreshState();  // armed RefreshView id + spinner state
+				if (_pulleyReattachPending)
+				{
+					// The geometry batch just showed the page's hosts (a returning tab's list): menus created before it
+					// pick their surface and clone again.
+					_pulleyReattachPending = false;
+					QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiReattachPulleys"));
+				}
 				var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 				static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 				LastLayoutSplit = (Ms(t0, t1), Ms(t1, t2), Ms(t2, t3));
@@ -562,10 +569,15 @@ public sealed partial class QtHostPageRenderer
 				QtHostDiag.Trace(QtHostDiagChannel.Input, $"OPEN_PULLEY eval seq={_renderedPageSeq} spec={openSpec} -> {openResult}");
 			}
 		}
-		if (json == _lastScrollPush)
+		// Addressed by the top model-page id like the ops batch: window.mauiModelPage can still name the outgoing
+		// page right after a root swap, and the diff would then never deliver "enabled" to the new one (its pulley
+		// stayed on an unfilled list and the first pull did nothing). The id joins the diff basis for the same reason.
+		var target = TopModelPageJs;
+		var key = (NativeTopPageId ?? string.Empty) + "|" + json;
+		if (key == _lastScrollPush)
 			return;
-		_lastScrollPush = json;
-		QtHostRuntime.Eval($"{QmlPage.Model}.setMauiScroll({BridgeValue.Quote(json)})");
+		_lastScrollPush = key;
+		QtHostRuntime.Eval($"{target}.setMauiScroll({BridgeValue.Quote(json)})");
 		if (GeometryTrace)
 			QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"page flickable push {json}");
 	}
@@ -603,9 +615,10 @@ public sealed partial class QtHostPageRenderer
 		var json = "{\"id\":\"" + (armed ? RefreshId : string.Empty) +
 		           "\",\"refreshing\":" + (refreshing ? "true" : "false") +
 		           ",\"color\":\"" + color + "\"}";
-		if (json == _lastRefreshPush)
+		var key = (NativeTopPageId ?? string.Empty) + "|" + json;
+		if (key == _lastRefreshPush)
 			return;
-		_lastRefreshPush = json;
-		QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "setMauiRefresh", BridgeValue.Quote(json)));
+		_lastRefreshPush = key;
+		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "setMauiRefresh", BridgeValue.Quote(json)));   // see PushScrollState
 	}
 }

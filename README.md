@@ -25,6 +25,10 @@ the device compositor (lipstick), packaged as a harbour-style RPM.
 >
 > What is left: [`docs/parity-plan.md`](docs/parity-plan.md) (roadmap) and
 > [`BUG_LIST.md`](BUG_LIST.md) (open defects).
+>
+> Sailfish-only APIs (remorse, cover, bottom sheet, notifications, lifecycle) with examples and clips:
+> [`docs/sailfish-apis.md`](docs/sailfish-apis.md). Native Silica features a MAUI app gets, and the test
+> behind each: [`docs/silica-parity.md`](docs/silica-parity.md).
 
 This repository is the Sailfish evolution of the maui-labs Linux backend
 experiment. The active backend is `src/Linux.SailfishOS`; the GTK4-era
@@ -485,6 +489,8 @@ Sailfish OS and iOS (the iOS leg is the rendering reference): Shell, a
 | [`BUG_LIST.md`](BUG_LIST.md) | open defects (fixed ones leave the list; their cause and evidence are in the commit) |
 | [`docs/architecture.md`](docs/architecture.md) | design rules of the backend and the Sailfish/Qt 5.6 facts they rest on |
 | [`docs/handler-parity.md`](docs/handler-parity.md) | generated mapper-key parity against the official MAUI handlers |
+| [`docs/sailfish-apis.md`](docs/sailfish-apis.md) | Sailfish-only APIs (remorse, bottom sheet, notifications, cover, lifecycle) with examples and clips |
+| [`docs/silica-parity.md`](docs/silica-parity.md) | native Silica/Sailfish features: what a MAUI app gets, the Sailfish-only APIs, the leg that checks each |
 | [`docs/add-sailfish-to-existing-app.md`](docs/add-sailfish-to-existing-app.md) | adding the Sailfish head to an existing MAUI app; Platforms/SailfishOS and the lifecycle hooks |
 | [`docs/custom-controls.md`](docs/custom-controls.md) | Sailfish handlers for custom and library controls: mapper customization, registration, own QML adapters |
 | [`docs/native-interop.md`](docs/native-interop.md) | Reaching native Sailfish from an app (P/Invoke, D-Bus, QML modules, own C++/Qt): what works today, the gaps, the implementation plan |

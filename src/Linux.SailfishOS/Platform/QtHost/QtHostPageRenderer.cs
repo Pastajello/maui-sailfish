@@ -78,6 +78,7 @@ public sealed partial class QtHostPageRenderer
 	}
 	private Page? _rendered;
 	private string _renderedTitle = string.Empty;
+	private string _renderedBusy = string.Empty;           // Page.IsBusy + pulley presence last pushed
 	private string _renderedBackground = string.Empty;
 
 	// --- Window geometry / layout state ---
@@ -119,6 +120,7 @@ public sealed partial class QtHostPageRenderer
 	private NativeElementHost? _scrollRefreshHost;
 	private readonly HashSet<string> _layoutFailStackOnce = new(StringComparer.Ordinal);
 	private string _lastScrollPush = string.Empty;          // setMauiScroll diff basis
+	private bool _pulleyReattachPending;                    // new pulley hosts: re-attach after the next layout pass
 	private bool _pulleyOpened;                              // diag: MAUI_SAILFISH_OPEN_PULLEY
 	private int _renderedPageSeq;                            // distinct page renders (diag trigger)
 
@@ -479,6 +481,16 @@ public sealed partial class QtHostPageRenderer
 	/// <summary>The CollectionView ⇄ native ListView bridge.</summary>
 	internal QtHostCollectionBridge Collection => _collection;
 
+	/// <summary>The id of the nearest attached host at or above <paramref name="element"/> (a flattened layout has
+	/// none of its own), or null.</summary>
+	internal string? HostIdOf(Element element)
+	{
+		for (Element? e = element; e is not null && e is not Page; e = e.Parent)
+			if (_cache.TryGet(e, out var host) && host is { IsAttached: true })
+				return host.Id;
+		return null;
+	}
+
 	/// <summary>The MAUI page that should be visible right now (NavigationPage-aware).</summary>
 	public Page? CurrentPage => ResolveCurrentPage();
 
@@ -827,6 +839,7 @@ public sealed partial class QtHostPageRenderer
 			_fullResetsDone = 0;   // the rebuild cap is per page
 			// Title/background/tabs belong to the model page instance, which is fresh or cleared after navigation, so re-emit them.
 			_renderedTitle = string.Empty;
+			_renderedBusy = string.Empty;
 			_renderedBackground = string.Empty;
 			_renderedTabs = string.Empty;
 			_layoutDirty = true;
@@ -881,6 +894,13 @@ public sealed partial class QtHostPageRenderer
 		{
 			_renderedTitle = title;
 			ops.Add(BridgeOps.Title(title));
+		}
+		// Silica shows a busy page as a pulsing pulley bar when it has a pull-down menu, else a PageBusyIndicator.
+		var busy = (page.IsBusy ? "1" : "0") + (_pullHost is not null ? "p" : "");
+		if (busy != _renderedBusy)
+		{
+			_renderedBusy = busy;
+			ops.Add(BridgeOps.Busy(page.IsBusy, _pullHost is not null));
 		}
 
 		// The tab bar (Shell tabs / TabbedPage) belongs to the model page instance; pushed when it changes.
@@ -1019,6 +1039,14 @@ public sealed partial class QtHostPageRenderer
 			foreach (var host in created)
 				_awaitingArrange.Remove(host.Element);   // a skipped shape got its size and its host
 			var json = BridgeValue.Serialize(ops);
+			// A pulley created in this batch attaches to the page flickable only if it is already interactive;
+			// otherwise it settles on a hosted list and is moved later, which Silica does not fully follow (the
+			// push-up bar stayed unpainted). So the flickable state goes first, as in a Silica page's declaration.
+			if (created.Any(h => ReferenceEquals(h, _pullHost) || ReferenceEquals(h, _pushHost)))
+			{
+				PushScrollState();
+				_pulleyReattachPending = true;   // after the layout pass shows this page's hosts
+			}
 			// Addressed by the top model-page id (see TopModelPageJs).
 			var opsTs = System.Diagnostics.Stopwatch.GetTimestamp();
 			QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "applyMauiOps", BridgeValue.Quote(json)));

@@ -102,6 +102,27 @@ internal sealed class QtHostCollectionBridge
 		}
 	}
 
+	/// <summary>Diagnostics: the MAUI view of one cell of a built row of the first active list, or null.</summary>
+	internal View? RowView(int rowIndex, int cell = 0)
+	{
+		foreach (var state in ActiveLists)
+			if (rowIndex >= 0 && rowIndex < state.Rows.Count && cell < state.Rows[rowIndex].CellViews.Count)
+				return state.Rows[rowIndex].CellViews[cell];
+		return null;
+	}
+
+	/// <summary>The objectName of the list delegate showing <paramref name="element"/> (inside a row's content), or null.</summary>
+	internal string? DelegateOf(Element element)
+	{
+		foreach (var state in ActiveLists)
+			foreach (var dg in state.Delegates.Values)
+				foreach (var (root, _) in dg.Cells)
+					for (Element? x = element; x is not null; x = x.Parent)
+						if (ReferenceEquals(x, root))
+							return dg.Obj;
+		return null;
+	}
+
 	/// <summary>Diagnostics: one row's delegate, host and bounds state.</summary>
 	public string DescribeRow(int rowIndex)
 	{
@@ -745,6 +766,7 @@ internal sealed class QtHostCollectionBridge
 		nameof(StructuredItemsView.ItemsLayout), nameof(StructuredItemsView.Header), nameof(StructuredItemsView.Footer),
 		nameof(ItemsView.EmptyView), nameof(ItemsView.ItemTemplate), nameof(GroupableItemsView.IsGrouped),
 		nameof(GroupableItemsView.GroupHeaderTemplate), nameof(GroupableItemsView.GroupFooterTemplate),
+		nameof(ItemsView.VerticalScrollBarVisibility), nameof(ItemsView.HorizontalScrollBarVisibility),
 	};
 
 

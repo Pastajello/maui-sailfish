@@ -21,6 +21,7 @@ public sealed partial class QtHostPageRenderer
 	private void AddSyntheticHosts(Page page, List<NativeElementHost> desired,
 	                               Dictionary<NativeElementHost, Dictionary<string, object?>> props)
 	{
+		WatchToolbarItems(page);
 		var pull = new List<ToolbarItem>();
 		var push = new List<ToolbarItem>();
 		foreach (var item in page.ToolbarItems)
@@ -72,6 +73,38 @@ public sealed partial class QtHostPageRenderer
 				: new Dictionary<string, object?>();
 			desired.Add(kv.Value);
 		}
+	}
+
+	// The rendered page's ToolbarItems and their items: a Text/IsEnabled/Order change or an added item re-syncs the
+	// pulley in place, as a Silica MenuItem binding would (nothing else asks for a reconcile then).
+	private Page? _toolbarPage;
+	private readonly HashSet<ToolbarItem> _toolbarWatched = new();
+
+	private void WatchToolbarItems(Page page)
+	{
+		if (!ReferenceEquals(_toolbarPage, page))
+		{
+			if (_toolbarPage is not null)
+				((System.Collections.Specialized.INotifyCollectionChanged)_toolbarPage.ToolbarItems).CollectionChanged -= OnToolbarItemsChanged;
+			foreach (var old in _toolbarWatched)
+				old.PropertyChanged -= OnToolbarItemChanged;
+			_toolbarWatched.Clear();
+			_toolbarPage = page;
+			((System.Collections.Specialized.INotifyCollectionChanged)page.ToolbarItems).CollectionChanged += OnToolbarItemsChanged;
+		}
+		foreach (var item in page.ToolbarItems)
+			if (_toolbarWatched.Add(item))
+				item.PropertyChanged += OnToolbarItemChanged;
+	}
+
+	private static void OnToolbarItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
+		RequestPoll();
+
+	private static void OnToolbarItemChanged(object? sender, PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName is nameof(ToolbarItem.Text) or nameof(MenuItem.IsEnabled) or nameof(ToolbarItem.Order)
+		    or nameof(ToolbarItem.Priority))
+			RequestPoll();
 	}
 
 	/// <summary>Pull-down menu entries (flyout + primary ToolbarItems), index-aligned with the adapter's MenuItems.</summary>

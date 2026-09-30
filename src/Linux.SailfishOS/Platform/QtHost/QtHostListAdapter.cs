@@ -89,6 +89,8 @@ internal sealed class QtHostListAdapter
 			}
 			case nameof(CarouselView.IsSwipeEnabled):
 			case nameof(CarouselView.IsBounceEnabled):
+			case nameof(ItemsView.VerticalScrollBarVisibility):
+			case nameof(ItemsView.HorizontalScrollBarVisibility):
 				PushLayout();
 				break;
 			case nameof(CarouselView.PeekAreaInsets):
@@ -386,8 +388,12 @@ internal sealed class QtHostListAdapter
 			InheritOwnerContext(siv, HeaderView);
 			InheritOwnerContext(siv, FooterView);
 		}
-		EmptySlotView = CreateSlotView(view.EmptyView, view.EmptyViewTemplate);
+		// A plain-text EmptyView on a vertical list is Silica's ViewPlaceholder (the native empty-state text);
+		// views, templates and other layouts keep the MAUI content in the empty slot.
+		var placeholder = view.EmptyView is string text && view.EmptyViewTemplate is null && !Horizontal && !Carousel ? text : null;
+		EmptySlotView = placeholder is null ? CreateSlotView(view.EmptyView, view.EmptyViewTemplate) : null;
 		InheritOwnerContext(view, EmptySlotView);
+		Push("mauiPlaceholderText", placeholder ?? string.Empty);
 
 		_bridge.RowsBuilt += Rows.Count;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject, $"collection '{Host}' rows={Rows.Count} span={span} " +
@@ -547,6 +553,9 @@ internal sealed class QtHostListAdapter
 			["mauiSpacing"] = SpacingDp * SailfishDisplay.Density,
 			["mauiOrientation"] = Horizontal ? "horizontal" : "vertical",
 			["mauiCarousel"] = Carousel,
+			// ScrollBarVisibility (Default 0 / Always 1 / Never 2) → the Silica scroll decorator every SilicaListView has.
+			["mauiVBar"] = (int)View.VerticalScrollBarVisibility,
+			["mauiHBar"] = (int)View.HorizontalScrollBarVisibility,
 		};
 		if (View is CarouselView carousel)
 		{
