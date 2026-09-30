@@ -1025,8 +1025,12 @@ internal sealed class QtHostListAdapter
 			dg = recycled;
 			if (dg.Obj != dgObj)
 			{
-				// The recycled delegate was renamed for its new row: re-key the registry.
-				Delegates.Remove(dg.Obj);
+				// The recycled delegate was renamed for its new row: re-key the name index. Renames cascade on an
+				// insert (r0→r1, r1→r2, …), so the old name may already be the next delegate's: drop it only while it
+				// is still this one's. A delegate not renamed yet may still hold the new name; it re-keys itself on
+				// its own rebind, and ByHandle keeps it meanwhile (the name index is only a lookup by name).
+				if (Delegates.TryGetValue(dg.Obj, out var holder) && ReferenceEquals(holder, dg))
+					Delegates.Remove(dg.Obj);
 				dg.Obj = dgObj;
 				Delegates[dgObj] = dg;
 			}
@@ -1047,13 +1051,14 @@ internal sealed class QtHostListAdapter
 		}
 		else
 		{
-			if (Delegates.Count >= MaxDelegates)
+			if (ByHandle.Count >= MaxDelegates)
 			{
 				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"collection delegate cap ({MaxDelegates}) reached — row {rowIndex} not materialized");
 				return;
 			}
-			// A different (dead) delegate may still hold the name — drop it.
-			if (Delegates.TryGetValue(dgObj, out var stale))
+			// A different delegate may still hold the name: a dead one is dropped; a live one is only waiting for its
+			// rename (an insert shifts every row) and keeps its content.
+			if (Delegates.TryGetValue(dgObj, out var stale) && !QtHostRuntime.TryItemGeometry(stale.Handle, out _))
 			{
 				ByHandle.Remove(stale.Handle);
 				ClearDg(stale);
@@ -1062,7 +1067,7 @@ internal sealed class QtHostListAdapter
 			Delegates[dgObj] = dg;
 			ByHandle[handle] = dg;
 			QtHostDiag.Trace(QtHostDiagChannel.QmlObject,
-				$"Q14 row {rowIndex} dg '{dgObj}' fresh delegate (registry={Delegates.Count})");
+				$"Q14 row {rowIndex} dg '{dgObj}' fresh delegate (registry={ByHandle.Count})");
 		}
 
 		var row = Rows[rowIndex];
@@ -1137,7 +1142,7 @@ internal sealed class QtHostListAdapter
 					return true;
 			return false;
 		}
-		foreach (var dg in Delegates.Values.ToList())
+		foreach (var dg in ByHandle.Values.ToList())
 		{
 			if (dg.Row is not { } row || !dg.Cells.Any(c => Holds(c.Root, element)))
 				continue;
@@ -1170,7 +1175,8 @@ internal sealed class QtHostListAdapter
 	internal void UnmaterializeDg(DgState dg)
 	{
 		ClearDg(dg);
-		Delegates.Remove(dg.Obj);
+		if (Delegates.TryGetValue(dg.Obj, out var holder) && ReferenceEquals(holder, dg))
+			Delegates.Remove(dg.Obj);
 		ByHandle.Remove(dg.Handle);
 	}
 
@@ -1381,7 +1387,7 @@ internal sealed class QtHostListAdapter
 	/// the adapter itself.</summary>
 	internal void CleanupList()
 	{
-		foreach (var dg in Delegates.Values.ToList())
+		foreach (var dg in ByHandle.Values.ToList())
 			ClearDg(dg);
 		Delegates.Clear();
 		ByHandle.Clear();

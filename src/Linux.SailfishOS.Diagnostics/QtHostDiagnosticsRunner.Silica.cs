@@ -98,6 +98,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 				("L dispatcher timers", () => SilicaTimersL(dispatcher, nav)),
 				("M lifecycle events", () => SilicaLifecycleM(dispatcher)),
 				("O two levels back", () => SilicaTwoLevelsBackO(renderer, dispatcher, nav)),
+				("P insert, cover, back", () => SilicaInsertCoverBackP(renderer, dispatcher, nav)),
 				// Last: the viewer it starts may come to the front seconds later and leave this app Inactive.
 				("N open file", () => SilicaOpenFileN(dispatcher)),
 			})
@@ -643,6 +644,37 @@ internal sealed partial class QtHostDiagnosticsRunner
 		}
 		await Back(p2, list2, "first pop");
 		await Back(p1, list1, "second pop (two levels down)");
+		await nav.PopAsync();
+		await SilicaWait(dispatcher, 900);
+	}
+	/// <summary>An insert at the top renames every delegate (r0→r1, r1→r2, …); covering the page and coming back with
+	/// the back swipe then sweeps QML hosts the renderer does not know. Every row must still paint its content (a
+	/// cascading rename once dropped the shifted rows from the registry and the sweep destroyed their hosts).</summary>
+	private async Task SilicaInsertCoverBackP(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav)
+	{
+		var items = new System.Collections.ObjectModel.ObservableCollection<string>(Enumerable.Range(1, 12).Select(i => $"insert row {i}"));
+		var list = SilicaList(items);
+		var page = SilicaPage("Silica P", list);
+		await nav.PushAsync(page);
+		await SilicaWait(dispatcher, 1300);
+		items.Insert(0, "inserted at the top");
+		await SilicaWait(dispatcher, 900);
+		var covering = SilicaPage("Silica P cover", new Label { Text = "cover", Margin = new Thickness(16) });
+		await nav.PushAsync(covering);
+		await SilicaWait(dispatcher, 1300);
+		var materialized = renderer.Collection.ItemsMaterialized;
+		var swiped = new TaskCompletionSource();
+		InjectBackSwipe(dispatcher, () => swiped.TrySetResult());
+		await swiped.Task;
+		await SilicaWait(dispatcher, 1500);
+		var rows = NativeElementHostOf(renderer, list, out var host) && host is not null ? ColEmptyVisibleRows("maui_" + host.Id) : "?";
+		var parts = rows.Split(':');
+		var painted = parts.Length == 2 && int.TryParse(parts[0], out var visible) && visible > 0 && parts[1].Length == 0;
+		var rebuilt = renderer.Collection.ItemsMaterialized - materialized;
+		await SilicaShot(dispatcher, "silica-p-after-back");
+		_qtSilicaChecks.Check($"P: after an insert at the top, a covering push and the back swipe every visible row paints " +
+			$"(visible:empty rows {rows}) and none was rebuilt ({rebuilt} materialized == 0; page '{renderer.CurrentPage?.Title}')",
+			ReferenceEquals(renderer.CurrentPage, page) && painted && rebuilt == 0);
 		await nav.PopAsync();
 		await SilicaWait(dispatcher, 900);
 	}

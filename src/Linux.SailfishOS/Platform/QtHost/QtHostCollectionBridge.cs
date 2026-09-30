@@ -115,7 +115,7 @@ internal sealed class QtHostCollectionBridge
 	internal string? DelegateOf(Element element)
 	{
 		foreach (var state in ActiveLists)
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 				foreach (var (root, _) in dg.Cells)
 					for (Element? x = element; x is not null; x = x.Parent)
 						if (ReferenceEquals(x, root))
@@ -131,7 +131,7 @@ internal sealed class QtHostCollectionBridge
 			if (rowIndex < 0 || rowIndex >= state.Rows.Count)
 				continue;
 			var row = state.Rows[rowIndex];
-			var dg = state.Delegates.Values.FirstOrDefault(d => d.Row?.Index == rowIndex);
+			var dg = state.ByHandle.Values.FirstOrDefault(d => d.Row?.Index == rowIndex);
 			if (dg is null)
 				return $"list {state.Host.Id} row {rowIndex}: no delegate";
 			var cells = string.Join(";", dg.Cells.Select(c => $"{c.Root.GetType().Name} bounds={c.Root.Bounds}"));
@@ -154,7 +154,7 @@ internal sealed class QtHostCollectionBridge
 		xQt = yQt = -1;
 		foreach (var state in ActiveLists)
 		{
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 			{
 				if (dg.Row?.Index != rowIndex)
 					continue;
@@ -350,7 +350,7 @@ internal sealed class QtHostCollectionBridge
 	{
 		foreach (var state in _byElement.Values)
 		{
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 				foreach (var host in dg.Children)
 					byId[host.Id] = host;
 			foreach (var slot in state.Slots.Values)
@@ -559,7 +559,7 @@ internal sealed class QtHostCollectionBridge
 	{
 		foreach (var state in _byElement.Values)
 		{
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 			{
 				var i = dg.Children.IndexOf(host);
 				if (i < 0)
@@ -592,7 +592,7 @@ internal sealed class QtHostCollectionBridge
 	{
 		foreach (var state in _byElement.Values)
 		{
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 				if (dg.Children.Contains(host))
 					return true;
 			foreach (var slot in state.Slots.Values)
@@ -828,7 +828,7 @@ internal sealed class QtHostCollectionBridge
 		_sceneDirty = false;
 		foreach (var state in _byElement.Values)
 		{
-			foreach (var dg in state.Delegates.Values)
+			foreach (var dg in state.ByHandle.Values)
 				state.UpdateDgGeometry(dg);
 			foreach (var slot in state.Slots.Values)
 				state.UpdateSlotGeometry(slot);

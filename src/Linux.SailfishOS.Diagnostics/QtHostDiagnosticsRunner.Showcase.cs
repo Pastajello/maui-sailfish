@@ -17,7 +17,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 		void Do(int waitMs, string name, Action run) => steps.Add((waitMs, name, next => { run(); next(); }));
 
 		// --- the tour ---------------------------------------------------------
-		// MAUI_SAILFISH_QT_HOST_SHOWCASE_TOUR=short|perf; perf visits each feature page twice (cold vs warm).
+		// MAUI_SAILFISH_QT_HOST_SHOWCASE_TOUR=short|native|perf; perf visits each feature page twice (cold vs warm).
 		var tour = SailfishEnv.Get("MAUI_SAILFISH_QT_HOST_SHOWCASE_TOUR");
 		if (string.Equals(tour, "short", StringComparison.Ordinal))
 		{
@@ -42,6 +42,73 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Step(1100, "scroll Collections", next => Flick(dispatcher, 516, 1800, 516, 700, next));
 			Step(1200, "back (swipe)", next => InjectBackSwipe(dispatcher, next));
 			Step(1500, "back home (swipe)", next => InjectBackSwipe(dispatcher, next));
+		}
+		else if (string.Equals(tour, "native", StringComparison.Ordinal))
+		{
+			// ~50 s: MAUI controls and navigation in the sample, then the Silica idioms MAUI code gets (pulley from
+			// ToolbarItems, busy pulley from IsBusy, ViewPlaceholder from EmptyView) and the Sailfish APIs (remorse,
+			// bottom sheet, notification) on a task list, driven by real pulls. Recorded 2× for the README.
+			Do(1500, "home", () => { });
+			Do(1200, "add a task", () => TapButton(renderer, "+ Add task"));
+			Do(1700, "open Controls", () => TapButton(renderer, "Controls"));
+			Do(900, "toggle a switch", () => TapFirst<Switch>(renderer));
+			Do(900, "tick a checkbox", () => TapFirst<CheckBox>(renderer));
+			Step(1100, "drag a slider", next => DragAcross<Slider>(renderer, dispatcher, next));
+			Step(1100, "scroll Controls", next => Flick(dispatcher, 516, 1800, 516, 800, next));
+			Step(1300, "back (swipe)", next => InjectBackSwipe(dispatcher, next));
+			Do(1500, "open Features", () => TapButton(renderer, "Features"));
+			Do(1800, "Visual", () => TapListRow(renderer, 6));
+			Step(1100, "scroll Visual", next => Flick(dispatcher, 516, 1800, 516, 900, next));
+			Step(1200, "back (swipe)", next => InjectBackSwipe(dispatcher, next));
+			Do(1900, "Shapes & images", () => TapListRow(renderer, 9));
+			Step(1200, "back (swipe)", next => InjectBackSwipe(dispatcher, next));
+			Step(1500, "back home (swipe)", next => InjectBackSwipe(dispatcher, next));
+
+			var items = new System.Collections.ObjectModel.ObservableCollection<string>(
+				new[] { "Buy milk", "Call the bank", "Book train tickets", "Water the plants", "Pay the rent", "Renew passport" });
+			ContentPage? tasks = null;
+			Do(2000, "open the task list", () =>
+			{
+				var list = SilicaList(items);
+				list.EmptyView = "No tasks yet";
+				tasks = SilicaPage("Tasks", list);
+				tasks.ToolbarItems.Add(new ToolbarItem("Clear all", null, () =>
+				{
+					Console.Error.WriteLine("[Sailfish] SHOWCASE pulley chose 'Clear all'");
+					_ = SailfishRemorse.ExecuteAsync("Clearing all tasks", items.Clear, 3000);
+				}));
+				tasks.ToolbarItems.Add(new ToolbarItem("Sync now", null, () =>
+				{
+					Console.Error.WriteLine("[Sailfish] SHOWCASE pulley chose 'Sync now'");
+					tasks.IsBusy = true;
+					dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(2200), () =>
+					{
+						tasks.IsBusy = false;
+						items.Insert(0, "Synced: 2 new tasks");
+					});
+				}));
+				_ = RootNav?.PushAsync(tasks);
+			});
+			Step(3200, "pull: Sync now (busy pulley)", next => PullAndRelease(dispatcher, ShowcasePullNear, next));
+			Step(3700, "remorse over a row", next =>
+			{
+				if (renderer.Collection.RowView(2) is { } row)
+					_ = SailfishRemorse.ExecuteAsync(row, "Deleting", () => items.RemoveAt(2), 3000);
+				next();
+			});
+			Do(2600, "bottom sheet", () =>
+			{
+				var sheet = new SailfishBottomSheet { Text = "3 tasks due today" };
+				sheet.Show();
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1900), () => { sheet.Hide(); dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1000), sheet.Dispose); });
+			});
+			Do(3600, "notification", () =>
+			{
+				var id = SailfishNotifications.Show("Reminder", "Pay the rent today");
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(6000), () => SailfishNotifications.Close(id));
+			});
+			Step(5200, "pull: Clear all (remorse → placeholder)", next => PullAndRelease(dispatcher, ShowcasePullFar, next));
+			Step(1600, "back home (swipe)", next => InjectBackSwipe(dispatcher, next));
 		}
 		else if (string.Equals(tour, "perf", StringComparison.Ordinal))
 		{
@@ -224,6 +291,43 @@ internal sealed partial class QtHostDiagnosticsRunner
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(16), Move);
 		}
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(16), Move);
+	}
+
+	// Pull distances (px, scene) for the "native" tour's two-item pulley: the item next to the content, and the far one.
+	private static readonly double ShowcasePullNear = SailfishEnv.Int("MAUI_SAILFISH_QT_HOST_SHOWCASE_PULL_NEAR") ?? 330;
+	private static readonly double ShowcasePullFar = SailfishEnv.Int("MAUI_SAILFISH_QT_HOST_SHOWCASE_PULL_FAR") ?? 420;
+
+	/// <summary>A slow pull down from mid-screen, held on the highlighted pulley item, then released onto it (how a
+	/// Silica menu item is chosen).</summary>
+	private static void PullAndRelease(SailfishDispatcher dispatcher, double distance, Action next)
+	{
+		const double x = 516, y0 = 700;
+		const int steps = 40;
+		var i = 0;
+		QtHost.QtHostRuntime.InjectPointer(0, x, y0);
+		void Move()
+		{
+			i++;
+			var y = y0 + distance * Math.Min(i, steps) / steps;
+			QtHost.QtHostRuntime.InjectPointer(2, x, y);
+			if (i < steps)
+			{
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(20), Move);
+				return;
+			}
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+			{
+				Console.Error.WriteLine("[Sailfish] SHOWCASE pull held: " + QtHost.QtHostRuntime.Eval(
+					"(function(){var h=pageStack.currentPage.__hosts;var r=[];for(var k in h){if(h[k].uri!=='pull-down-menu')continue;" +
+					"var m=h[k].item;var f=m.flickable;r.push({id:k,active:m.active,busy:m.busy,items:m.__items.length," +
+					"f:f?(f.model!==undefined?'list':'flick'):null,cy:f?Math.round(f.contentY):null,oy:f?Math.round(f.originY):null," +
+					"inter:f?f.interactive:null,drag:f?f.dragging:null,clone:m.__clone?{active:m.__clone.active,cy:Math.round(m.__clone.flickable.contentY)}:null});}" +
+					"return JSON.stringify(r);})()"));
+				QtHost.QtHostRuntime.InjectPointer(1, x, y);
+				next();
+			});
+		}
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(20), Move);
 	}
 
 	private static void DragAcross<T>(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Action next) where T : View

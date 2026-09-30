@@ -12,7 +12,8 @@
 #   --manual  record the screen for --seconds N (default 30); no app is started
 #
 # Other --env values replace the showcase env; recording then stops when the app exits
-# or after --max-seconds (150). --width defaults to 720. --keep DIR keeps the raw
+# or after --max-seconds (150) — or at "SHOWCASE done" when they include
+# MAUI_SAILFISH_QT_HOST_SHOWCASE=1 (e.g. with MAUI_SAILFISH_QT_HOST_SHOWCASE_TOUR=native). --width defaults to 720. --keep DIR keeps the raw
 # recording and app log for tools/sf page-load. Needs ffmpeg.
 
 set -euo pipefail
@@ -56,6 +57,8 @@ trap 'rm -rf "$WORK"' EXIT
 # The app's process pattern with its first letter bracketed, so pgrep never matches the ssh shell itself.
 PKG_PATTERN="[${SF_PKG:0:1}]${SF_PKG:1}"
 SHOWCASE=0
+# --env MAUI_SAILFISH_QT_HOST_SHOWCASE=1 (e.g. with a _SHOWCASE_TOUR) is still a showcase: it ends on "SHOWCASE done".
+case " ${ENVS[*]:-} " in *" MAUI_SAILFISH_QT_HOST_SHOWCASE=1 "*) SHOWCASE=1 ;; esac
 if [ "$MODE" != manual ] && [ ${#ENVS[@]} -eq 0 ]; then
 	SHOWCASE=1
 	ENVS=(--env MAUI_SAILFISH_QT_HOST=1 --env MAUI_SAILFISH_QT_HOST_DIAG=1 --env MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN=1
