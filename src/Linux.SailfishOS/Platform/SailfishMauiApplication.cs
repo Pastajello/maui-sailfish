@@ -41,6 +41,17 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 	protected abstract MauiApp CreateMauiApp();
 
 	/// <summary>
+	/// Makes the Sailfish provider MAUI's current one before the app's container exists. A plain UseMauiApp app
+	/// registers IDispatcherProvider as DispatcherProvider.Current, whose plain-net default has no dispatcher, so its
+	/// singletons were constructed with a null IDispatcher (GitTrends' ThemeService).
+	/// </summary>
+	internal static void InstallDispatcherProvider()
+	{
+		if (Microsoft.Maui.Dispatching.DispatcherProvider.Current is not SailfishDispatcherProvider)
+			Microsoft.Maui.Dispatching.DispatcherProvider.SetCurrent(new SailfishDispatcherProvider());
+	}
+
+	/// <summary>
 	/// Builds the MAUI app and runs the Qt/Silica loop on the current thread until the host shuts down.
 	/// </summary>
 	public void Run(string[] args)
@@ -75,6 +86,8 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		IPlatformApplication.Current = this;
 
 		Console.Error.WriteLine("[Sailfish] Creating MAUI app...");
+		SailfishEssentials.InstallEarly();
+		InstallDispatcherProvider();
 		var mauiApp = CreateMauiApp();
 		Console.Error.WriteLine("[Sailfish] MAUI app created");
 
@@ -82,6 +95,12 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		// Dispatcher.GetForCurrentThread() reads DispatcherProvider.Current, which plain UseMauiApp never sets.
 		if (Services.GetService(typeof(Microsoft.Maui.Dispatching.IDispatcherProvider)) is Microsoft.Maui.Dispatching.IDispatcherProvider currentProvider)
 			Microsoft.Maui.Dispatching.DispatcherProvider.SetCurrent(currentProvider);
+		// Essentials' MainThread runs on this thread, the Qt loop's, through its dispatcher.
+		if (Microsoft.Maui.Dispatching.Dispatcher.GetForCurrentThread() is { } loopDispatcher)
+		{
+			SailfishMainThread.Install(action => loopDispatcher.Dispatch(action));
+			SailfishDevTaps.Schedule(loopDispatcher);   // MAUI_SAILFISH_TAPS only
+		}
 		// Essentials statics must be installed before the app object and its pages exist.
 		SailfishEssentials.Install(Services);
 		// Device.GetNamedSize (FontSize="Large") asks DependencyService, which has no Sailfish entry otherwise.

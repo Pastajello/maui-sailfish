@@ -111,6 +111,21 @@ internal sealed class QtHostListAdapter
 	public ItemsView View = null!;
 	public NativeElementHost Host = null!;
 	public readonly List<Row> Rows = new();
+
+	private double _measuredExtentDp;
+
+	/// <summary>The rows' extent along the scroll axis with the spacing between them (dp): what the list measures to
+	/// when nothing bounds it along that axis (SailfishMeasure.Collection).</summary>
+	internal double ContentExtentDp
+	{
+		get
+		{
+			double extent = 0;
+			foreach (var row in Rows)
+				extent += row.HeightDp;
+			return Rows.Count > 1 ? extent + (Rows.Count - 1) * SpacingDp : extent;
+		}
+	}
 	public readonly Dictionary<object, Queue<Row>> Reusable = new(ReferenceEqualityComparer.Instance);   // RebuildRows scratch
 	public readonly Dictionary<string, DgState> Delegates = new(StringComparer.Ordinal);
 	public readonly Dictionary<long, DgState> ByHandle = new();   // ListView recycles+renames delegates
@@ -408,6 +423,13 @@ internal sealed class QtHostListAdapter
 		RecomputeSelection();
 		PushSelection();
 		SlotsDirty = true;
+		// A list measured without a bound along its scroll axis (in a StackLayout or ScrollView) sizes to its rows,
+		// as RecyclerView/UICollectionView do; its first measure ran before the rows existed.
+		if (Math.Abs(ContentExtentDp - _measuredExtentDp) > 0.5)
+		{
+			_measuredExtentDp = ContentExtentDp;
+			((Microsoft.Maui.IView)View).InvalidateMeasure();
+		}
 		_bridge.SchedulePending();
 		// A carousel always has a current page, as with the in-box handlers.
 		if (View is CarouselView carouselView && TotalItems > 0)
@@ -709,7 +731,7 @@ internal sealed class QtHostListAdapter
 			sb.Append("{\"k\":").Append(row.Key.ToString(CultureInfo.InvariantCulture))
 			  .Append(",\"r\":").Append(i.ToString(CultureInfo.InvariantCulture))
 			  .Append(",\"h\":").Append(QtHostUnits.ToQtUnits(row.HeightDp).ToString("R", CultureInfo.InvariantCulture))
-			  .Append(",\"t\":").Append(selectable && row.Kind == KindItem ? '1' : '0')
+			  .Append(",\"t\":").Append(row.Kind != KindItem ? '0' : selectable ? '1' : RowHasTap(row) ? '2' : '0')
 			  .Append(",\"n\":").Append((row.Kind == KindItem ? row.CellItems.Count : 0).ToString(CultureInfo.InvariantCulture))
 			  .Append('}');
 		}
@@ -1201,13 +1223,89 @@ internal sealed class QtHostListAdapter
 		_renderer.PushItemGeometry(slot.Root, 0, new HashSet<NativeElementHost>(slot.Children));
 	}
 
-	internal void OnRowTapped(int rowIndex, int cellIndex)
+	/// <summary>Whether a cell's template carries a TapGestureRecognizer: the delegate then reports taps on an
+	/// unselectable list too (the ListView consumes the press, so the input router never sees the row's content).</summary>
+	private static bool RowHasTap(Row row)
+	{
+		foreach (var view in row.CellViews)
+			if (view is not null && HasTap(view))
+				return true;
+		return false;
+
+		static bool HasTap(View view)
+		{
+			foreach (var recognizer in view.GestureRecognizers)
+				if (recognizer is TapGestureRecognizer)
+					return true;
+			foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
+				if (child is View v && HasTap(v))
+					return true;
+			return false;
+		}
+	}
+
+	/// <summary>
+	/// The template's TapGestureRecognizer under a delegate-relative point (dp): the deepest visible, hit-testable
+	/// element in the cell, then up to the cell root, as gestures bubble elsewhere. Position is cell-root relative.
+	/// </summary>
+	internal static bool TryFindRowTap(View cellRoot, double cellX, bool horizontal, double xDp, double yDp,
+	                                   out TapGestureRecognizer? tap, out View? owner, out Point position)
+	{
+		var local = horizontal
+			? new Point(xDp - cellRoot.Bounds.X, yDp - cellX - cellRoot.Bounds.Y)
+			: new Point(xDp - cellX - cellRoot.Bounds.X, yDp - cellRoot.Bounds.Y);
+		position = local;
+		var hit = cellRoot;
+		var p = local;
+		for (var descended = true; descended;)
+		{
+			descended = false;
+			var children = ((IVisualTreeElement)hit).GetVisualChildren();
+			for (var i = children.Count - 1; i >= 0; i--)
+			{
+				if (children[i] is not View child || !child.IsVisible || child.InputTransparent || !child.Bounds.Contains(p))
+					continue;
+				p = new Point(p.X - child.Bounds.X, p.Y - child.Bounds.Y);
+				hit = child;
+				descended = true;
+				break;
+			}
+		}
+		for (View? v = hit; v is not null; v = ReferenceEquals(v, cellRoot) ? null : v.Parent as View)
+		{
+			if (!v.IsEnabled)
+				break;
+			foreach (var recognizer in v.GestureRecognizers)
+				if (recognizer is TapGestureRecognizer t)
+				{
+					tap = t;
+					owner = v;
+					return true;
+				}
+		}
+		tap = null;
+		owner = null;
+		return false;
+	}
+
+	internal void OnRowTapped(int rowIndex, int cellIndex, double xQt = double.NaN, double yQt = double.NaN)
 	{
 		if (rowIndex < 0 || rowIndex >= Rows.Count)
 			return;
 		var row = Rows[rowIndex];
-		if (row.Kind != KindItem || cellIndex < 0 || cellIndex >= row.CellItems.Count ||
-		    View is not SelectableItemsView sel || sel.SelectionMode == SelectionMode.None)
+		if (row.Kind != KindItem || cellIndex < 0 || cellIndex >= row.CellItems.Count)
+			return;
+		// A tap recognizer in the template takes the tap, as on Android, where it consumes the touch before selection.
+		if (!double.IsNaN(xQt) && cellIndex < row.CellViews.Count && row.CellViews[cellIndex] is { } cellRoot &&
+		    TryFindRowTap(cellRoot, row.CellX[cellIndex], Horizontal, QtHostUnits.ToLogical(xQt), QtHostUnits.ToLogical(yQt),
+			    out var tap, out var owner, out var position))
+		{
+			_bridge.RowTapsFired++;
+			QtHostDiag.Trace(QtHostDiagChannel.Input, $"collection row {rowIndex} cell {cellIndex} tapped → {owner!.GetType().Name} TapGestureRecognizer");
+			QtHostInputRouter.SendTapped(tap!, owner, position);
+			return;
+		}
+		if (View is not SelectableItemsView sel || sel.SelectionMode == SelectionMode.None)
 			return;
 		var item = row.CellItems[cellIndex];
 

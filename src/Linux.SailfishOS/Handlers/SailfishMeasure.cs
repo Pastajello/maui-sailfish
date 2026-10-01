@@ -153,6 +153,21 @@ internal static class SailfishMeasure
 		var pad = view is Microsoft.Maui.Controls.Button { } b && b.IsSet(Microsoft.Maui.Controls.Button.PaddingProperty)
 			? b.Padding
 			: Thickness.Zero;
+		// The image (Silica's Icon paints it at its native pixels) beside or above the text, per ContentLayout.
+		if (view is Microsoft.Maui.Controls.Button { ImageSource: { } source } withImage &&
+		    QtHostImages.PixelSize(source) is { } px)
+		{
+			var density = Platform.SailfishDisplay.Density > 0 ? Platform.SailfishDisplay.Density : 1;
+			var (iw, ih) = (px.Width / density, px.Height / density);
+			var layout = withImage.ContentLayout;
+			var gap = text.Length > 0 ? layout.Spacing : 0;
+			if (layout.Position is Microsoft.Maui.Controls.Button.ButtonContentLayout.ImagePosition.Top
+			    or Microsoft.Maui.Controls.Button.ButtonContentLayout.ImagePosition.Bottom)
+				return Constrain(Math.Max(tw, iw) + 48 + pad.HorizontalThickness,
+					Math.Max(48, ih + gap + (text.Length > 0 ? th : 0) + 20 + pad.VerticalThickness), wc, hc);
+			return Constrain(tw + iw + gap + 48 + pad.HorizontalThickness,
+				Math.Max(48, Math.Max(th, ih) + 20 + pad.VerticalThickness), wc, hc);
+		}
 		return Constrain(tw + 48 + pad.HorizontalThickness, Math.Max(48, th + 20 + pad.VerticalThickness), wc, hc);
 	}
 
@@ -176,6 +191,9 @@ internal static class SailfishMeasure
 
 	public static Size Radio(IView view, double wc, double hc)
 	{
+		// Templated (ControlTemplate): sized by the template tree, as a ContentView.
+		if (view is IContentView { PresentedContent: IView } templated)
+			return MeasureContent(templated, wc, hc);
 		// Uses the Silica theme font size unless the app set one, like the adapter paints.
 		var radio = view as Microsoft.Maui.Controls.RadioButton;
 		var text = radio?.Content?.ToString() ?? string.Empty;
@@ -292,6 +310,21 @@ internal static class SailfishMeasure
 	}
 
 	public static Size Switch(IView view, double wc, double hc) => Constrain(64, 36, wc, hc);
+
+	/// <summary>A CollectionView fills what its layout gives it; unbounded along its scroll axis (a StackLayout or a
+	/// ScrollView) it sizes to its rows, as RecyclerView/UICollectionView do, instead of collapsing to 0.</summary>
+	public static Size Collection(IView view, double wc, double hc)
+	{
+		if (view.Handler is not SailfishListViewHandler { Adapter: { } adapter })
+			return Constrain(0, 0, wc, hc);
+		var horizontal = adapter.Horizontal;
+		if (horizontal ? IsFinite(wc) : IsFinite(hc))
+			return Constrain(0, 0, wc, hc);
+		var extent = adapter.ContentExtentDp;
+		return horizontal
+			? new Size(extent, IsFinite(hc) ? hc : 0)
+			: new Size(IsFinite(wc) ? wc : 0, extent);
+	}
 
 	public static Size Slider(IView view, double wc, double hc) => Constrain(200, 44, wc, hc);
 

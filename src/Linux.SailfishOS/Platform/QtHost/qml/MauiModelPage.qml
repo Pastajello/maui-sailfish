@@ -194,6 +194,7 @@ Page {
             var o = ops[i];
             if (o.op === "title") { pageTitle = o.text; continue; }
             if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
+            if (o.op === "back") { backNavigation = !!o.on; continue; }
             if (o.op === "background") {
                 mauiBackground = o.color || "transparent";
                 mauiBackgroundImage = o.image || "";
@@ -852,6 +853,9 @@ Page {
                                 text: modelData
                                 color: index === page.mauiTabIndex ? Theme.highlightColor : Theme.secondaryColor
                                 font.pixelSize: Theme.fontSizeMedium
+                                // Four tabs share the width: a long title ("Transactions") shrinks before it fades.
+                                fontSizeMode: Text.HorizontalFit
+                                minimumPixelSize: Theme.fontSizeSmall
                             }
                             Rectangle {
                                 anchors.bottom: parent.bottom

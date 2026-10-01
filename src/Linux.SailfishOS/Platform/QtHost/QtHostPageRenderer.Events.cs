@@ -574,12 +574,11 @@ public sealed partial class QtHostPageRenderer
 			var index = (int)BridgeJson.Num(doc.RootElement, "index");
 			if (!TryResolveHost(doc.RootElement, out _, out var host) || host.Element is not SwipeView swipe)
 				return;
-			var items = side == "left" ? swipe.LeftItems : swipe.RightItems;
-			var visible = items?.OfType<SwipeItem>().Where(i => i.IsVisible).ToList() ?? new();
+			var visible = VisibleSwipeItems(side == "left" ? swipe.LeftItems : swipe.RightItems);
 			if (index >= 0 && index < visible.Count)
 			{
-				QtHostDiag.Trace(QtHostDiagChannel.Input, $"swipe item '{visible[index].Text}' ({side}) invoked");
-				((ISwipeItem)visible[index]).OnInvoked();
+				QtHostDiag.Trace(QtHostDiagChannel.Input, $"swipe item {index} ({visible[index].GetType().Name}, {side}) invoked");
+				visible[index].OnInvoked();
 			}
 		}
 		catch (Exception ex)

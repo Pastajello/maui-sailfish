@@ -374,6 +374,7 @@ public sealed partial class QtHostPageRenderer
 	{
 		_renderedTitle = string.Empty;
 		_renderedBusy = string.Empty;
+		_renderedBack = string.Empty;
 		_renderedBackground = string.Empty;
 		_lastScrollPush = string.Empty;
 		_layoutDirty = true;

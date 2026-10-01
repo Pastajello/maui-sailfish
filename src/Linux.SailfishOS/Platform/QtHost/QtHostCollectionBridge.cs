@@ -68,6 +68,9 @@ internal sealed class QtHostCollectionBridge
 	public long SameRowRebuilds { get; internal set; }
 	public long ListEvents { get; private set; }
 	public long SelectionsApplied { get; internal set; }
+
+	/// <summary>Row taps delivered to a TapGestureRecognizer in the item template.</summary>
+	public long RowTapsFired { get; internal set; }
 	public long ScrollsReported { get; internal set; }
 
 	/// <summary>RemainingItemsThresholdReached deliveries.</summary>
@@ -740,7 +743,8 @@ internal sealed class QtHostCollectionBridge
 						root.GetProperty("to").GetString() ?? string.Empty);
 					break;
 				case "list-item-tapped":
-					state.OnRowTapped((int)BridgeJson.Num(root, "row", -1), BridgeJson.Int(root, "cell", 0));
+					state.OnRowTapped((int)BridgeJson.Num(root, "row", -1), BridgeJson.Int(root, "cell", 0),
+						BridgeJson.Num(root, "x", double.NaN), BridgeJson.Num(root, "y", double.NaN));
 					break;
 				case "carousel-position":
 					state.OnCarouselPosition((int)BridgeJson.Num(root, "index", -1));

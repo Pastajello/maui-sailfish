@@ -153,6 +153,20 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		return null;
 	}
 
+	/// <summary>
+	/// The Sailfish handler of the nearest built-in control <paramref name="type"/> derives from, ignoring app and
+	/// library registrations; null for other views. The fallback when a library handler built on a stock one throws
+	/// in CreatePlatformView on this TFM (UraniumUI's StatefulButtonHandler : ButtonHandler, Plainer's EntryView):
+	/// the control then works without the library's platform tweaks instead of vanishing.
+	/// </summary>
+	internal static IElementHandler? BuiltInFallback(Type type)
+	{
+		for (var t = type; t is not null && t != typeof(View); t = t.BaseType)
+			if (ExactRow(t) is { } row)
+				return row.Create();
+		return null;
+	}
+
 	/// <summary>The Sailfish handler type for a view type with no registrations (also used by the parity test).</summary>
 	internal static Type ResolveViewHandlerType(Type type)
 	{

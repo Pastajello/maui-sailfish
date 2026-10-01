@@ -52,6 +52,10 @@ Text {
     rightPadding: mauiPadR
     bottomPadding: mauiPadB
 
+    // Qt 5.6: a Text created hidden and shown later (IsVisible bound to a view-model flag) can keep an empty layout
+    // (lineCount 0, nothing painted) although its text and width are set; re-setting the text lays it out.
+    onVisibleChanged: if (visible && lineCount === 0 && text.length > 0) { var t = text; text = ""; text = t }
+
     // Child rect, so the root stays a Label and the bridge keeps setting `text` directly.
     Rectangle {
         anchors.fill: parent

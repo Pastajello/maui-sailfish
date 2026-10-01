@@ -237,6 +237,9 @@ public sealed partial class QtHostPageRenderer
 			["readOnly"] = input.IsReadOnly,
 			// Spell checking off also turns VKB suggestions off (Qt has no separate hint; MAUI Android does the same).
 			["mauiHints"] = MapInputMethodHints(input.Keyboard, input.IsTextPredictionEnabled && input.IsSpellCheckEnabled),
+			// A set BackgroundColor/Background replaces the native background, underline included, as on Android
+			// (the "borderless entry" idiom: BackgroundColor="Transparent" inside the app's own frame).
+			["mauiNoUnderline"] = input.IsSet(VisualElement.BackgroundColorProperty) || input.IsSet(VisualElement.BackgroundProperty),
 		};
 		if (echoMode is { } echo)
 			props["echoMode"] = echo;
@@ -643,15 +646,15 @@ public sealed partial class QtHostPageRenderer
 	}
 
 
-	/// <summary>The SwipeView snapshot: Left/Right items as JSON, modes and threshold. Top/Bottom items and
-	/// SwipeItemView content are not rendered yet (warned once).</summary>
+	/// <summary>The SwipeView snapshot: Left/Right items as JSON, modes and threshold. Top/Bottom items are not
+	/// rendered yet (warned once).</summary>
 	internal static Dictionary<string, object?> SwipeProps(SwipeView swipe)
 	{
 		if ((swipe.TopItems?.Count > 0 || swipe.BottomItems?.Count > 0) && _swipeWarned.Add(swipe))
 			QtHostDiag.Warn(QtHostDiagChannel.QtHost, "SwipeView Top/BottomItems are not rendered yet (horizontal swipes only)");
 		var props = ContainerProps(swipe);
-		props["mauiLeftItems"] = SwipeItemsJson(swipe, swipe.LeftItems);
-		props["mauiRightItems"] = SwipeItemsJson(swipe, swipe.RightItems);
+		props["mauiLeftItems"] = SwipeItemsJson(swipe.LeftItems);
+		props["mauiRightItems"] = SwipeItemsJson(swipe.RightItems);
 		props["mauiLeftMode"] = swipe.LeftItems?.Mode == SwipeMode.Execute ? "execute" : "reveal";
 		props["mauiRightMode"] = swipe.RightItems?.Mode == SwipeMode.Execute ? "execute" : "reveal";
 		props["mauiThreshold"] = swipe.Threshold > 0 ? swipe.Threshold * SailfishDisplay.Density : 0.0;
@@ -662,31 +665,78 @@ public sealed partial class QtHostPageRenderer
 
 	private static readonly HashSet<SwipeView> _swipeWarned = new();
 
-	private static string SwipeItemsJson(SwipeView owner, SwipeItems? items)
+	/// <summary>The visible items of one side, in the order the adapter shows (and reports) them.</summary>
+	internal static List<ISwipeItem> VisibleSwipeItems(SwipeItems? items)
+	{
+		var list = new List<ISwipeItem>();
+		if (items is null)
+			return list;
+		foreach (var element in items)
+			if (element is SwipeItem { IsVisible: true } or SwipeItemView { IsVisible: true })
+				list.Add((ISwipeItem)element);
+		return list;
+	}
+
+	private static string SwipeItemsJson(SwipeItems? items)
 	{
 		var list = new List<Dictionary<string, object?>>();
-		if (items is not null)
+		foreach (var element in VisibleSwipeItems(items))
 		{
-			foreach (var element in items)
+			switch (element)
 			{
-				if (element is SwipeItem item)
-				{
-					if (!item.IsVisible)
-						continue;
+				case SwipeItem item:
 					list.Add(new Dictionary<string, object?>
 					{
 						["text"] = item.Text ?? string.Empty,
 						["icon"] = QtHostImages.Resolve(item.IconImageSource) ?? string.Empty,
 						["bg"] = item.BackgroundColor is { } bg ? BridgeValue.ColorString(bg) : string.Empty,
 					});
-				}
-				else if (_swipeWarned.Add(owner))
-				{
-					QtHostDiag.Warn(QtHostDiagChannel.QtHost, "SwipeItemView (custom swipe content) is not rendered yet — only SwipeItem");
-				}
+					break;
+				case SwipeItemView view:
+					list.Add(SwipeItemViewJson(view));
+					break;
 			}
 		}
 		return BridgeValue.Serialize(list);   // trimmed app: no reflection-based JsonSerializer
+	}
+
+	/// <summary>
+	/// A SwipeItemView as a Silica swipe action: its custom content is not hosted, so it shows the first opaque
+	/// background, Image and Label found in it (an icon in a coloured circle reads as that icon on that colour).
+	/// </summary>
+	private static Dictionary<string, object?> SwipeItemViewJson(SwipeItemView view)
+	{
+		Color? bg = null;
+		string? icon = null, text = null;
+		var pending = new Stack<Element>();
+		pending.Push(view);
+		while (pending.Count > 0 && (bg is null || icon is null || text is null))
+		{
+			var element = pending.Pop();
+			if (element is VisualElement { IsVisible: false })
+				continue;
+			if (bg is null && element is VisualElement visual && QtHostPaint.Background(visual) is { Alpha: > 0 } fill)
+				bg = fill;
+			switch (element)
+			{
+				case Image image when icon is null:
+					icon = QtHostImages.Resolve(image.Source);
+					break;
+				case Label label when text is null && !string.IsNullOrEmpty(label.Text):
+					text = label.Text;
+					break;
+			}
+			var children = ((IVisualTreeElement)element).GetVisualChildren();
+			for (var i = children.Count - 1; i >= 0; i--)
+				if (children[i] is Element child)
+					pending.Push(child);
+		}
+		return new Dictionary<string, object?>
+		{
+			["text"] = text ?? string.Empty,
+			["icon"] = icon ?? string.Empty,
+			["bg"] = bg is { } color ? BridgeValue.ColorString(color) : string.Empty,
+		};
 	}
 
 	/// <summary>The Stepper snapshot.</summary>
@@ -740,6 +790,25 @@ public sealed partial class QtHostPageRenderer
 		buttonProps["mauiStrokeColor"] = button.BorderColor ?? Colors.Transparent;
 		buttonProps["mauiStrokeWidth"] = button.BorderWidth >= 0 ? button.BorderWidth * density : -1.0;
 		buttonProps["mauiIconSource"] = QtHostImages.Resolve(button.ImageSource) ?? string.Empty;
+		// Button.ContentLayout: where the image sits against the text, and the gap (px).
+		buttonProps["mauiIconPosition"] = button.ContentLayout.Position switch
+		{
+			Button.ButtonContentLayout.ImagePosition.Top => "top",
+			Button.ButtonContentLayout.ImagePosition.Bottom => "bottom",
+			Button.ButtonContentLayout.ImagePosition.Right => "right",
+			_ => "left",
+		};
+		buttonProps["mauiIconSpacing"] = button.ContentLayout.Spacing * density;
+		// The plate (MAUI's background) covers the whole frame when the app sized the button or stacks its image;
+		// otherwise it keeps Silica's itemSizeExtraSmall height inside the frame.
+		buttonProps["mauiFillPlate"] = button.HeightRequest > 0 || button.MinimumHeightRequest > 0 ||
+			(button.ImageSource is not null && button.ContentLayout.Position is
+				Button.ButtonContentLayout.ImagePosition.Top or Button.ButtonContentLayout.ImagePosition.Bottom);
+		// An unset FontSize paints at Theme.fontSizeMedium, larger than the 14 dp MAUI layouts are made for: let the
+		// label shrink to fit a narrower button (a fixed 100 dp column) down to that 14 dp instead of fading out.
+		buttonProps["mauiFitPixelSize"] = HasAppFontSize(button, Button.FontSizeProperty, button.FontSize)
+			? 0.0
+			: Handlers.SailfishMeasure.DefaultFontSize * density;
 		return buttonProps;
 	}
 

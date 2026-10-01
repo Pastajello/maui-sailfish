@@ -53,10 +53,14 @@ public static class QtHostLayout
 				// A library without a Sailfish asset resolves its plain-net handler, whose CreatePlatformView throws
 				// (NotImplementedException). The element stays handler-less then, so fall back to the empty one: it
 				// renders as an empty container with its children, instead of failing every layout pass.
+				// A library handler built on a stock one (UraniumUI's Button) falls back to the Sailfish handler of that
+				// control, so it still renders and works; anything else renders empty.
+				var fallback = element is IView ? SailfishHandlersFactory.BuiltInFallback(element.GetType()) : null;
 				if (FailedHandlerTypes.TryAdd(handler.GetType(), 0))
 					QtHostDiag.Warn(QtHostDiagChannel.QtHost,
-						$"{handler.GetType().FullName} failed for {element.GetType().FullName} ({ex.GetType().Name}: {ex.Message}) — rendered as an empty container");
-				handler = element is IView ? new NullViewHandler() : new NullElementHandler();
+						$"{handler.GetType().FullName} failed for {element.GetType().FullName} ({ex.GetType().Name}: {ex.Message}) — " +
+						(fallback is null ? "rendered as an empty container" : $"falling back to {fallback.GetType().Name}"));
+				handler = fallback ?? (element is IView ? new NullViewHandler() : new NullElementHandler());
 				handler.SetMauiContext(context);
 				handler.SetVirtualView(element);
 			}
@@ -87,8 +91,13 @@ public static class QtHostLayout
 
 		if (page is ContentPage contentPage && contentPage.Content is IView contentView)
 		{
-			contentView.Measure(contentRectDp.Width, contentRectDp.Height);
-			contentView.Arrange(contentRectDp);
+			// Page.Padding insets the content, as ContentPage's own arrange does on the other platforms.
+			var padding = contentPage.Padding;
+			var inner = new Rect(contentRectDp.X + padding.Left, contentRectDp.Y + padding.Top,
+				Math.Max(0, contentRectDp.Width - padding.HorizontalThickness),
+				Math.Max(0, contentRectDp.Height - padding.VerticalThickness));
+			contentView.Measure(inner.Width, inner.Height);
+			contentView.Arrange(inner);
 		}
 	}
 

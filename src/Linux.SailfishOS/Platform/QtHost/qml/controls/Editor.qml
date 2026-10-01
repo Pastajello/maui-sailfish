@@ -14,6 +14,9 @@ TextArea {
 
     // Managed property pushes set this flag; events fired meanwhile are suppressed (no echo).
     property bool mauiApplying: false
+    // BackgroundColor/Background set: no Silica underline (the fill comes from mauiBackgroundFill).
+    property bool mauiNoUnderline: false
+    backgroundStyle: mauiNoUnderline ? TextEditor.NoBackground : TextEditor.UnderlineBackground
 
     // Text style overrides (QtHostPageRenderer.TextStyleProps) apply only when set; otherwise the
     // Silica look stays. mauiLetterSpacing is applied natively by the shim (absolute px).

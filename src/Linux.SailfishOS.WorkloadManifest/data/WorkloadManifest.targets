@@ -11,12 +11,14 @@
   </PropertyGroup>
 
   <!-- The backend package comes with the TFM, like an in-box workload's packs: adding net11.0-sailfish to
-       TargetFrameworks is enough. An explicit PackageReference wins; SailfishImplicitPackageReference=false opts out. -->
+       TargetFrameworks is enough. An explicit PackageReference wins; SailfishImplicitPackageReference=false opts out.
+       IsImplicitlyDefined, as on the SDK's own implicit references, keeps central package management from
+       rejecting its Version (NU1008). -->
   <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
     <SailfishPackageVersion Condition="'$(SailfishPackageVersion)' == ''">0.1.0</SailfishPackageVersion>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And '$(SailfishImplicitPackageReference)' != 'false' And '@(PackageReference->WithMetadataValue(&quot;Identity&quot;, &quot;Microsoft.Maui.SailfishOS&quot;))' == ''">
-    <PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(SailfishPackageVersion)" />
+    <PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(SailfishPackageVersion)" IsImplicitlyDefined="true" />
   </ItemGroup>
 
   <!-- The SDK validates the platform version against this list (NETSDK1140 without it). -->

@@ -81,4 +81,59 @@ public class DispatcherProviderOverlayTests
 			DispatcherProvider.SetCurrent(null);
 		}
 	}
+
+	private sealed class ThemeService(IDispatcher dispatcher)
+	{
+		public IDispatcher? Dispatcher { get; } = dispatcher;
+	}
+
+	// GitTrends: singletons built by the app's own container (plain UseMauiApp) took IDispatcher in their constructor
+	// and got null, since MAUI's root registration reads DispatcherProvider.Current; ThemeService then threw on start.
+	[Fact]
+	public void A_plain_maui_app_container_injects_the_sailfish_dispatcher()
+	{
+		SailfishMauiApplication.InstallDispatcherProvider();
+		try
+		{
+			var builder = Microsoft.Maui.Hosting.MauiApp.CreateBuilder();
+			builder.UseMauiApp<TestApp>();
+			builder.Services.AddSingleton<ThemeService>();
+			using var app = builder.Build();
+
+			Assert.IsType<SailfishDispatcher>(app.Services.GetRequiredService<ThemeService>().Dispatcher);
+		}
+		finally
+		{
+			DispatcherProvider.SetCurrent(null);
+		}
+	}
+}
+
+/// <summary>EmployeeDirectory: MainThread.InvokeOnMainThreadAsync threw NotImplementedInReferenceAssemblyException from
+/// the plain-net Essentials, and the async startup left the loading page up for good.</summary>
+[Collection("renderer")]
+public class MainThreadTests
+{
+	[Fact]
+	public async Task MainThread_runs_on_the_installing_thread_through_its_dispatcher()
+	{
+		var queued = new List<Action>();
+		Assert.True(SailfishMainThread.Install(queued.Add));
+		try
+		{
+			Assert.True(Microsoft.Maui.ApplicationModel.MainThread.IsMainThread);
+			var otherThreadSaysMain = await Task.Run(() => Microsoft.Maui.ApplicationModel.MainThread.IsMainThread);
+			Assert.False(otherThreadSaysMain);
+
+			var ran = false;
+			await Task.Run(() => Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(() => ran = true));
+			Assert.Single(queued);
+			queued[0]();
+			Assert.True(ran);
+		}
+		finally
+		{
+			SailfishMainThread.Clear();
+		}
+	}
 }

@@ -78,6 +78,32 @@ internal static class QtHostImages
 		return props;
 	}
 
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)?> PngSizes = new();
+
+	/// <summary>A local PNG's pixel size (a button's icon, which Silica's Icon paints at its native pixels; font glyphs
+	/// render to PNG too), or null when the source is not a local PNG.</summary>
+	public static (int Width, int Height)? PixelSize(ImageSource? source)
+	{
+		if (Resolve(source) is not { } url || !url.StartsWith("file://", StringComparison.Ordinal))
+			return null;
+		return PngSizes.GetOrAdd(new Uri(url).LocalPath, static path =>
+		{
+			try
+			{
+				// PNG signature, then the IHDR chunk: width/height big-endian at bytes 16..23.
+				using var fs = File.OpenRead(path);
+				Span<byte> h = stackalloc byte[24];
+				if (fs.Read(h) < 24 || h[0] != 0x89 || h[1] != (byte)'P' || h[12] != (byte)'I' || h[15] != (byte)'R')
+					return null;
+				return ((h[16] << 24) | (h[17] << 16) | (h[18] << 8) | h[19], (h[20] << 24) | (h[21] << 16) | (h[22] << 8) | h[23]);
+			}
+			catch (IOException)
+			{
+				return null;
+			}
+		});
+	}
+
 	/// <summary>ImageSource → a URL Qt can load; null when unsupported, missing or still pending.</summary>
 	public static string? Resolve(ImageSource? source) => source switch
 	{

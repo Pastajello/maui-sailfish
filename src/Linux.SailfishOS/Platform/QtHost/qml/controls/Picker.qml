@@ -140,7 +140,32 @@ ComboBox {
         else if (!mauiOpen && _menuOpen && root.menu)
             root.menu.close();
     }
+
+    // The inline menu grows the ComboBox inside its MAUI ancestors: under one that clips (an outlined field's
+    // rounded Border) it is cut off while Silica dims the page. It opens as Silica's selection page then (what
+    // ComboBox does past five items), as Android's Picker opens a dialog. Checked once open() returns: it sets the
+    // menu's parent (opening it for _menuOpen) before activating it, so an immediate close() would be undone.
+    Timer { id: __cutCheck; interval: 0; onTriggered: root.__avoidCutMenu() }
+    function __avoidCutMenu() {
+        if (!_menuOpen || !root.menu || !root.menu._contentColumn)
+            return;
+        // The column has no height yet while the menu starts expanding: a MenuItem is Theme.itemSizeSmall tall.
+        var menuHeight = Math.max(root.menu._contentColumn.height, (mauiItems ? mauiItems.length : 0) * Theme.itemSizeSmall);
+        var bottom = root.mapToItem(null, 0, root.contentItem.height).y + menuHeight;
+        for (var p = root.parent; p && p.objectName !== "mauiCanvas"; p = p.parent) {
+            if ((p.clip || (p.layer && p.layer.enabled)) && bottom > p.mapToItem(null, 0, p.height).y + 1) {
+                root.menu.close();
+                // Closed before it grew: no height animation runs to call _reset, which would leave the menu
+                // parented (_menuOpen true) and the next click without effect.
+                root.menu._reset();
+                root._controller._openSeparateDialog();
+                return;
+            }
+        }
+    }
     on_MenuOpenChanged: {
+        if (_menuOpen)
+            __cutCheck.restart();
         if (mauiApplying || _menuOpen === mauiOpen)
             return;
         mauiEvent("picker-open", JSON.stringify({ id: mauiId, open: _menuOpen }));

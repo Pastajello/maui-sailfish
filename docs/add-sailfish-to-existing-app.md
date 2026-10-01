@@ -119,9 +119,12 @@ the `net11.0-sailfish` project by itself), or copy `.vscode/launch.json` and `ta
 ## Caveats
 
 - Third-party MAUI libraries without a Sailfish build restore their `net11.0` assets. They build (CA1416
-  warnings name the calls), but platform-specific parts may not work on the phone. A control whose plain-`net`
-  handler throws when it creates its platform view (Syncfusion's `SfView` controls) renders as an empty
-  container, with one `[QT_HOST][WARN] … failed for …` line per handler type in the app log.
+  warnings name the calls), but platform-specific parts may not work on the phone. A library handler built on a
+  stock one (UraniumUI's `Button`) falls back to the Sailfish handler of that control. Any other control whose
+  plain-`net` handler throws when it creates its platform view (Syncfusion's `SfView` controls) renders as an
+  empty container. Each case logs one `[QT_HOST][WARN] … failed for …` line per handler type.
+- [porting-existing-apps.md](porting-existing-apps.md) lists what broke in real apps (net8/net9 heads, version
+  caps, SkiaSharp, plugins, MAUI 10/11 changes) and how each was fixed.
 - Every machine that builds the project, CI included, needs the workload manifest from step 1 (on CI:
   `dnx Microsoft.Maui.SailfishOS.Workload install --yes` before the build).
   To keep the head opt-in, guard the TFM line: `Condition="'$(EnableSailfish)' == 'true'"`.

@@ -91,6 +91,19 @@ public static class SailfishEssentials
 	[DynamicDependency("SetDefault", typeof(Map))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Media.Screenshot))]
 	[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The hooks are rooted by the DynamicDependency attributes above.")]
+	/// <summary>The statics a MauiProgram reads while it builds the app (FileSystem paths for a log or database file,
+	/// Preferences, AppInfo, DeviceInfo), installed before CreateMauiApp: their plain-net defaults throw
+	/// (MoneyFox's Serilog setup died on FileSystem.AppDataDirectory). <see cref="Install"/> re-installs them from the
+	/// app's services afterwards, so an app's own registration still wins. Only services that need neither the
+	/// container nor the Qt loop belong here.</summary>
+	public static void InstallEarly()
+	{
+		Hook(typeof(FileSystem), "SetCurrent", new SailfishFileSystem());
+		Hook(typeof(Preferences), "SetDefault", new SailfishPreferences());
+		Hook(typeof(AppInfo), "SetCurrent", new SailfishAppInfo());
+		Hook(typeof(DeviceInfo), "SetCurrent", new SailfishDeviceInfo());
+	}
+
 	public static void Install(IServiceProvider services)
 	{
 		if (_installed)

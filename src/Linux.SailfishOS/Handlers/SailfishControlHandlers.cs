@@ -227,6 +227,7 @@ public class SailfishEntryHandler : SailfishSnapshotHandler<IEntry>
 		nameof(ITextAlignment.HorizontalTextAlignment), nameof(ITextAlignment.VerticalTextAlignment),
 		nameof(ITextStyle.CharacterSpacing),
 		nameof(IView.FlowDirection),
+		nameof(VisualElement.BackgroundColor), nameof(VisualElement.Background),
 	];
 
 	public static readonly PropertyMapper<IEntry, SailfishEntryHandler> Mapper = WithTransientInput(SnapshotMapper<SailfishEntryHandler>(Keys));
@@ -262,6 +263,7 @@ public class SailfishEditorHandler : SailfishSnapshotHandler<IEditor>
 		nameof(ITextAlignment.HorizontalTextAlignment), nameof(ITextAlignment.VerticalTextAlignment),
 		nameof(ITextStyle.CharacterSpacing),
 		nameof(IView.FlowDirection),
+		nameof(VisualElement.BackgroundColor), nameof(VisualElement.Background),
 	];
 
 	public static readonly PropertyMapper<IEditor, SailfishEditorHandler> Mapper = WithTransientInput(SnapshotMapper<SailfishEditorHandler>(Keys));
@@ -503,7 +505,7 @@ public class SailfishRadioButtonHandler : SailfishSnapshotHandler<IRadioButton>
 {
 	private static readonly string[] Keys =
 	[
-		nameof(RadioButton.IsChecked), nameof(RadioButton.Content),
+		nameof(RadioButton.IsChecked), nameof(RadioButton.Content), nameof(TemplatedView.ControlTemplate),
 		nameof(RadioButton.TextColor), nameof(ITextStyle.CharacterSpacing),
 		.. FontKeys,
 		nameof(IButtonStroke.StrokeColor), nameof(RadioButton.BorderColor),
@@ -519,10 +521,19 @@ public class SailfishRadioButtonHandler : SailfishSnapshotHandler<IRadioButton>
 	{
 	}
 
-	protected override string? AdapterUri => "radio-button";
+	// A ControlTemplate (an implicit Style, or View content and MAUI's default template) makes the RadioButton a
+	// templated control, as MAUI renders it everywhere: the template tree paints and MAUI's own tap gesture toggles
+	// IsChecked. The Silica radio would only show the content's ToString().
+	private bool Templated => VirtualView is IContentView { PresentedContent: not null };
+
+	protected override string? AdapterUri => Templated ? "content-view" : "radio-button";
+
+	protected override bool WalksChildren => Templated;
 
 	protected override Dictionary<string, object?>? Snapshot(IRadioButton view) =>
-		view is RadioButton radio ? QtHostPageRenderer.RadioButtonProps(radio) : null;
+		view is not RadioButton radio ? null
+		: Templated ? QtHostPageRenderer.ContainerProps(radio)
+		: QtHostPageRenderer.RadioButtonProps(radio);
 }
 
 /// <summary>WebView handler on the Gecko adapter; navigation and JS commands go out as transient props,
@@ -943,7 +954,7 @@ public class SailfishListViewHandler : SailfishSnapshotHandler<IView>
 
 	public static readonly CommandMapper<IView, SailfishListViewHandler> CommandMapper = new(ViewCommandMapper);
 
-	public SailfishListViewHandler() : base(Mapper, CommandMapper, Keys)
+	public SailfishListViewHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Collection)
 	{
 	}
 

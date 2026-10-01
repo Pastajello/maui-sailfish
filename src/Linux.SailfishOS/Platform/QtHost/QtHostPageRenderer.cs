@@ -79,6 +79,7 @@ public sealed partial class QtHostPageRenderer
 	private Page? _rendered;
 	private string _renderedTitle = string.Empty;
 	private string _renderedBusy = string.Empty;           // Page.IsBusy + pulley presence last pushed
+	private string _renderedBack = string.Empty;           // back navigation allowed, last pushed
 	private string _renderedBackground = string.Empty;
 
 	// --- Window geometry / layout state ---
@@ -861,6 +862,7 @@ public sealed partial class QtHostPageRenderer
 			// Title/background/tabs belong to the model page instance, which is fresh or cleared after navigation, so re-emit them.
 			_renderedTitle = string.Empty;
 			_renderedBusy = string.Empty;
+			_renderedBack = string.Empty;
 			_renderedBackground = string.Empty;
 			_renderedTabs = string.Empty;
 			_layoutDirty = true;
@@ -922,6 +924,12 @@ public sealed partial class QtHostPageRenderer
 		{
 			_renderedBusy = busy;
 			ops.Add(BridgeOps.Busy(page.IsBusy, _pullHost is not null));
+		}
+		var back = BackNavigationOf(page) ? "1" : "0";
+		if (back != _renderedBack)
+		{
+			_renderedBack = back;
+			ops.Add(BridgeOps.Back(back == "1"));
 		}
 
 		// The tab bar (Shell tabs / TabbedPage) belongs to the model page instance; pushed when it changes.
@@ -1198,6 +1206,13 @@ public sealed partial class QtHostPageRenderer
 	/// bare `new Window(new MainPage())` would show. The header stays: Canvas-painted shapes on a page without a
 	/// rendered PageHeader never reached the screen on the device (Jolla Phone, SFOS 5.2).</summary>
 	internal static string HeaderTitleOf(Page page) => ExplicitTitleOf(page) ?? AppTitle.Value;
+
+	/// <summary>Whether the Silica back gesture and indicator stay on: Shell's BackButtonBehavior IsVisible/IsEnabled
+	/// false and NavigationPage.HasBackButton false remove the toolbar back button elsewhere, and Silica's back
+	/// affordance is the gesture (a first-run modal must not be swiped away).</summary>
+	internal static bool BackNavigationOf(Page page) =>
+		Shell.GetBackButtonBehavior(page) is not { IsVisible: false } and not { IsEnabled: false } &&
+		NavigationPage.GetHasBackButton(page);
 
 	private static readonly Lazy<string> AppTitle = new(() => new SailfishAppInfo().Name);
 

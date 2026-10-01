@@ -35,6 +35,9 @@ TextField {
     onHeightChanged: { InputJs.applyCompact(root); if (mauiVAlign !== "") InputJs.applyVAlign(root, false) }
     onImplicitHeightChanged: { InputJs.applyCompact(root); if (mauiVAlign !== "") InputJs.applyVAlign(root, false) }
     property real mauiLetterSpacing: 0
+    // BackgroundColor/Background set: no Silica underline (the fill comes from mauiBackgroundFill).
+    property bool mauiNoUnderline: false
+    backgroundStyle: mauiNoUnderline ? TextEditor.NoBackground : TextEditor.UnderlineBackground
 
     Binding { target: root; property: "color"; value: root.mauiColor; when: root.mauiColor.a > 0 }
     Binding { target: root; property: "placeholderColor"; value: root.mauiPlaceholderColor; when: root.mauiPlaceholderColor.a > 0 }

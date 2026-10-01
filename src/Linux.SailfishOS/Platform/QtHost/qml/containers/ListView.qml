@@ -11,9 +11,10 @@ import "../lib/pullrefresh.js" as PullRefresh
 //
 // Events: list-item-attached/rebind/detached {id,row,dg}, list-item-released {id,dg,to},
 // list-item-tapped
-// {id,row}, list-scroll {id,y,first,last,count} (throttled, along the scroll
+// {id,row,cell,x,y} (x/y delegate-relative, Qt units), list-scroll {id,y,first,last,count} (throttled, along the scroll
 // axis), carousel-position {id,index}, refresh-requested {id}.
-// mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units).
+// mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units) and t is 0 (inert), 1 (selectable,
+// highlights on press) or 2 (tap recognizers in the template only, no highlight).
 // mauiSelectedRows is highlight only ("0,3,5", or "row:cell" in grids); MAUI stays the selection authority.
 // Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, across the scroll axis: x in a vertical list, y in a
 // horizontal one); taps report the touched cell.
@@ -207,7 +208,7 @@ SilicaListView {
         }
         for (i = 0; i < rows.length; ++i) {
             var n = rows[i];
-            var h = n.h || 0, t = n.t !== 0, c = n.n === undefined ? 1 : n.n;
+            var h = n.h || 0, t = n.t || 0, c = n.n === undefined ? 1 : n.n;
             if (keyed && i < rowModel.count && rowModel.get(i).k !== n.k) {
                 for (j = i + 1; j < rowModel.count; ++j)
                     if (rowModel.get(j).k === n.k) {
@@ -341,7 +342,7 @@ SilicaListView {
         Repeater {
             model: dg.__grid ? root.mauiSpan : 1
             Rectangle {
-                readonly property bool pressed: tapArea.pressed && dg.__pressCell === index
+                readonly property bool pressed: t === 1 && tapArea.pressed && dg.__pressCell === index
                 x: dg.__grid && !root.__horizontal ? index * root.mauiCellStride : 0
                 y: dg.__grid && root.__horizontal ? index * root.mauiCellStride : 0
                 width: dg.__grid && !root.__horizontal ? root.mauiCellWidth : dg.width
@@ -356,12 +357,12 @@ SilicaListView {
         MouseArea {
             id: tapArea
             anchors.fill: parent
-            enabled: t
+            enabled: t !== 0
             onPressed: dg.__pressCell = dg.__cellAt(mouse.x, mouse.y)
             onClicked: {
                 if (dg.__pressCell >= 0)
                     root.mauiEvent("list-item-tapped",
-                        JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell }))
+                        JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell, x: mouse.x, y: mouse.y }))
             }
         }
 

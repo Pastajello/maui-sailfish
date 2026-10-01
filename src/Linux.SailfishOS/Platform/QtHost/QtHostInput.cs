@@ -423,7 +423,7 @@ public sealed class QtHostInputRouter
 
 	/// <summary>Calls TapGestureRecognizer.SendTapped (public infrastructure in .NET 11 MAUI); handler
 	/// failures are logged, never rethrown into the Qt loop.</summary>
-	private static void SendTapped(TapGestureRecognizer tap, View view, Point position)
+	internal static void SendTapped(TapGestureRecognizer tap, View view, Point position)
 	{
 		try
 		{

@@ -145,3 +145,21 @@ public class ImageCachePolicyTests
 			Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostImages.Resolve(new Microsoft.Maui.Controls.UriImageSource { Uri = uri, CacheValidity = TimeSpan.FromHours(1) }));
 	}
 }
+
+/// <summary>MoneyFox: MauiProgram.CreateMauiApp read FileSystem.AppDataDirectory for its Serilog file before the
+/// Essentials were installed, and the plain-net FileSystem threw NotImplementedInReferenceAssemblyException.</summary>
+[Collection("renderer")]
+public class EarlyEssentialsTests
+{
+	[Fact]
+	public void The_statics_a_maui_program_reads_work_before_the_app_is_built()
+	{
+		SailfishEssentials.InstallEarly();
+
+		Assert.False(string.IsNullOrEmpty(Microsoft.Maui.Storage.FileSystem.AppDataDirectory));
+		Assert.False(string.IsNullOrEmpty(Microsoft.Maui.Storage.FileSystem.CacheDirectory));
+		Assert.Equal("fallback", Microsoft.Maui.Storage.Preferences.Get("sf-early-essentials-missing-key", "fallback"));
+		Assert.Equal(new SailfishDeviceInfo().Platform, Microsoft.Maui.Devices.DeviceInfo.Platform);
+		Assert.False(string.IsNullOrEmpty(AppInfo.Name));
+	}
+}
