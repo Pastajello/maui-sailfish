@@ -84,6 +84,10 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 			Microsoft.Maui.Dispatching.DispatcherProvider.SetCurrent(currentProvider);
 		// Essentials statics must be installed before the app object and its pages exist.
 		SailfishEssentials.Install(Services);
+		// Device.GetNamedSize (FontSize="Large") asks DependencyService, which has no Sailfish entry otherwise.
+#pragma warning disable CS0612 // IFontNamedSizeService is obsolete, NamedSize XAML still needs it
+		Microsoft.Maui.Controls.DependencyService.RegisterSingleton<Microsoft.Maui.Controls.Internals.IFontNamedSizeService>(new SailfishFontNamedSizeService());
+#pragma warning restore CS0612
 		var rootContext = new SailfishMauiContext(Services);
 		_applicationContext = rootContext;
 

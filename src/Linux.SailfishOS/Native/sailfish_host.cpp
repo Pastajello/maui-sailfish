@@ -1195,9 +1195,10 @@ void shutdown_teardown(void *)
 
 
 // Native crash trap: logs the signal and a raw backtrace (symbolize offline against the .so)
-// to stderr and /tmp/maui_trace.log, then chains to the previous handler. Chaining is required:
-// on ARM64 .NET's PAL turns SIGSEGV into NullReferenceException, so replacing it would make
-// every managed null-ref fatal.
+// to stderr and /tmp/maui_trace.log. The previous handler runs first: on ARM64 .NET's PAL turns a
+// managed SIGSEGV into NullReferenceException by rewriting the faulting context, so it must get the
+// fault's own siginfo/ucontext. (Re-raising handed it a fresh SI_TKILL signal it cannot map, and
+// every managed null-ref died as "ExecutionEngineException: Illegal instruction".)
 static struct sigaction g_prev_sa[3];
 
 static const struct sigaction *prev_sa(int sig)
@@ -1207,7 +1208,36 @@ static const struct sigaction *prev_sa(int sig)
                           : &g_prev_sa[2];
 }
 
-static void sailfish_crash_handler(int sig)
+static void sailfish_crash_log(int sig);
+
+static void sailfish_crash_handler(int sig, siginfo_t *info, void *uctx)
+{
+    const struct sigaction *prev = prev_sa(sig);
+    const bool prev_custom = (prev->sa_flags & SA_SIGINFO)
+        ? prev->sa_sigaction != nullptr
+        : prev->sa_handler != SIG_DFL && prev->sa_handler != SIG_IGN;
+    if (prev_custom) {
+        if (prev->sa_flags & SA_SIGINFO)
+            prev->sa_sigaction(sig, info, uctx);
+        else
+            prev->sa_handler(sig);
+        // Still installed: the previous handler dealt with it (a managed null-ref now unwinds as
+        // NullReferenceException). Otherwise it restored a default action for a fatal fault, which
+        // the faulting instruction re-triggers once this returns; log it on the way out.
+        struct sigaction cur;
+        if (sigaction(sig, nullptr, &cur) == 0 && (cur.sa_flags & SA_SIGINFO) &&
+            cur.sa_sigaction == sailfish_crash_handler)
+            return;
+        sailfish_crash_log(sig);
+        return;
+    }
+    sailfish_crash_log(sig);
+    // No handler before ours: restore the previous disposition and re-raise (default core dump).
+    sigaction(sig, prev, nullptr);
+    raise(sig);
+}
+
+static void sailfish_crash_log(int sig)
 {
     void *frames[64];
     const int n = backtrace(frames, 64);
@@ -1232,9 +1262,6 @@ static void sailfish_crash_handler(int sig)
     }
     if (fd >= 0)
         close(fd);
-    // Restore the previous disposition and re-raise so PAL (or the default core dump) sees it.
-    sigaction(sig, prev_sa(sig), nullptr);
-    raise(sig);
 }
 
 extern "C" {
@@ -1246,13 +1273,18 @@ int sailfish_host_init(const char *app_name, sfhost_log_fn log, void *log_user)
     g.log = log;
     g.log_user = log_user;
     {
-        struct sigaction sa;
-        memset(&sa, 0, sizeof sa);
-        sa.sa_handler = sailfish_crash_handler;
-        sigemptyset(&sa.sa_mask);
-        sigaction(SIGSEGV, &sa, &g_prev_sa[0]);
-        sigaction(SIGABRT, &sa, &g_prev_sa[1]);
-        sigaction(SIGBUS, &sa, &g_prev_sa[2]);
+        // Each signal keeps the previous handler's flags and mask: PAL's SA_ONSTACK runs a stack-overflow
+        // SIGSEGV on its alternate stack, which ours must not leave.
+        const int sigs[3] = { SIGSEGV, SIGABRT, SIGBUS };
+        for (int i = 0; i < 3; ++i) {
+            sigaction(sigs[i], nullptr, &g_prev_sa[i]);
+            struct sigaction sa;
+            memset(&sa, 0, sizeof sa);
+            sa.sa_sigaction = sailfish_crash_handler;
+            sa.sa_mask = g_prev_sa[i].sa_mask;
+            sa.sa_flags = SA_SIGINFO | (g_prev_sa[i].sa_flags & (SA_ONSTACK | SA_NODEFER | SA_RESTART));
+            sigaction(sigs[i], &sa, nullptr);
+        }
     }
     // MAUI_SAILFISH_QT_HOST_DIAG=1 enables level 0 (debug / QML console.log) output.
     const char *diag_env = std::getenv("MAUI_SAILFISH_QT_HOST_DIAG");

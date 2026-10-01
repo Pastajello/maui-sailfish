@@ -80,12 +80,7 @@ internal static class SailfishMeasure
 			}
 
 			case IContentView content when content.PresentedContent is IView inner:
-			{
-				// Size to the content, but fill the constraint when one is given.
-				var s = inner.Measure(IsFinite(wc) ? wc : double.PositiveInfinity,
-					IsFinite(hc) ? hc : double.PositiveInfinity);
-				return new Size(IsFinite(wc) ? wc : s.Width, IsFinite(hc) ? hc : s.Height);
-			}
+				return MeasurePadded(content, inner, wc, hc);
 
 			case IContentView contentView:
 			{
@@ -124,11 +119,16 @@ internal static class SailfishMeasure
 			var maxLines = paragraph.MaxLines is > 0 and < int.MaxValue ? paragraph.MaxLines : 0;
 			var pad = (view as Microsoft.Maui.Controls.Label)?.Padding ?? Thickness.Zero;
 			var textWc = IsFinite(wc) ? Math.Max(1, wc - pad.HorizontalThickness) : 0;
-			var (qw, qh) = QtHostTextMetrics.Measure(text, first.Family, first.Attributes, first.FontSize,
+			// An unset Label FontSize paints with Theme.fontSizeMedium (Label.qml), not MAUI's 14 dp default: measuring
+			// at 14 dp wrapped "Y = " in an Auto column and cut its height. FormattedText spans carry their own size.
+			var fontSize = view is Microsoft.Maui.Controls.Label { FormattedText: null } plain && !(plain.FontSize > 0)
+				? (int)Math.Round(SilicaMediumFontDp())
+				: first.FontSize;
+			var (qw, qh) = QtHostTextMetrics.Measure(text, first.Family, first.Attributes, fontSize,
 				textWc, wrapMode, paragraph.LineHeight, maxLines, first.CharacterSpacing);
 			if (qh == 0)
-				qh = first.FontSize;
-			return Constrain(qw + pad.HorizontalThickness, Math.Max(qh, first.FontSize) + pad.VerticalThickness, wc, hc);
+				qh = fontSize;
+			return Constrain(qw + pad.HorizontalThickness, Math.Max(qh, fontSize) + pad.VerticalThickness, wc, hc);
 		}
 
 		var est = EstimateTextSize(spans, paragraph, IsFinite(wc) ? wc : double.PositiveInfinity);
@@ -143,7 +143,7 @@ internal static class SailfishMeasure
 		// An unset size paints with the Silica theme font, so measure that.
 		var fs = view is Microsoft.Maui.Controls.Button mb
 		         && !QtHostPageRenderer.HasAppFontSize(mb, Microsoft.Maui.Controls.Button.FontSizeProperty, mb.FontSize)
-			? (int)Math.Round(SilicaButtonFontDp())
+			? (int)Math.Round(SilicaMediumFontDp())
 			: FontSizeOf(button);
 		var attributes = (view as Microsoft.Maui.Controls.Button)?.FontAttributes ?? FontAttributes.None;
 		var (tw, th) = MeasureText(text, (view as Microsoft.Maui.Controls.Button)?.FontFamily, attributes, fs,
@@ -181,7 +181,7 @@ internal static class SailfishMeasure
 		var text = radio?.Content?.ToString() ?? string.Empty;
 		var fs = radio is not null && QtHostPageRenderer.HasAppFontSize(radio, Microsoft.Maui.Controls.RadioButton.FontSizeProperty, radio.FontSize)
 			? (int)Math.Round(radio.FontSize)
-			: (int)Math.Round(SilicaButtonFontDp());
+			: (int)Math.Round(SilicaMediumFontDp());
 		var (tw, th) = MeasureText(text, radio?.FontFamily, radio?.FontAttributes ?? FontAttributes.None, fs, radio?.CharacterSpacing ?? 0);
 		if (th == 0)
 			th = fs + 6;
@@ -261,7 +261,7 @@ internal static class SailfishMeasure
 			Microsoft.Maui.Controls.Entry e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.Entry.FontSizeProperty, e.FontSize) => e.FontSize,
 			Microsoft.Maui.Controls.Editor e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.Editor.FontSizeProperty, e.FontSize) => e.FontSize,
 			Microsoft.Maui.Controls.SearchBar e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.SearchBar.FontSizeProperty, e.FontSize) => e.FontSize,
-			_ => SilicaButtonFontDp(),
+			_ => SilicaMediumFontDp(),
 		};
 		return (int)Math.Round(size);
 	}
@@ -307,13 +307,20 @@ internal static class SailfishMeasure
 	private static Size MeasureContent(IContentView content, double wc, double hc)
 	{
 		if (content.PresentedContent is IView inner)
-		{
-			var s = inner.Measure(IsFinite(wc) ? wc : double.PositiveInfinity,
-				IsFinite(hc) ? hc : double.PositiveInfinity);
-			return new Size(IsFinite(wc) ? wc : s.Width, IsFinite(hc) ? hc : s.Height);
-		}
+			return MeasurePadded(content, inner, wc, hc);
 		var own = content.CrossPlatformMeasure(wc, hc);
 		return Constrain(own.Width, own.Height, wc, hc);
+	}
+
+	/// <summary>Sizes to the content plus the view's Padding (as MAUI's MeasureContent), but fills a finite constraint.
+	/// Without the padding an Auto row was the bare content's height and the padding ate into the content.</summary>
+	private static Size MeasurePadded(IContentView content, IView inner, double wc, double hc)
+	{
+		var pad = content.Padding;
+		var s = inner.Measure(IsFinite(wc) ? Math.Max(0, wc - pad.HorizontalThickness) : double.PositiveInfinity,
+			IsFinite(hc) ? Math.Max(0, hc - pad.VerticalThickness) : double.PositiveInfinity);
+		return new Size(IsFinite(wc) ? wc : s.Width + pad.HorizontalThickness,
+			IsFinite(hc) ? hc : s.Height + pad.VerticalThickness);
 	}
 
 	public static Size Boxed(IView view, double wc, double hc) => view switch
@@ -364,8 +371,8 @@ internal static class SailfishMeasure
 
 	private static double _silicaButtonFontDp = double.NaN;
 
-	/// <summary>Theme.fontSizeMedium in dp, what an unset Button FontSize paints with; 25dp until available.</summary>
-	public static double SilicaButtonFontDp()
+	/// <summary>Theme.fontSizeMedium in dp, what an unset Button, Entry or Label FontSize paints with; 25dp until available.</summary>
+	public static double SilicaMediumFontDp()
 	{
 		if (!double.IsNaN(_silicaButtonFontDp))
 			return _silicaButtonFontDp;

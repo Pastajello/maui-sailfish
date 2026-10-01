@@ -1,3 +1,4 @@
+using Microsoft.Maui.Controls.Hosting;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.SailfishOS.Platform;
 using Xunit;
@@ -47,5 +48,37 @@ public class DispatcherTests
 		thread.Join();
 		Assert.NotNull(other);
 		Assert.NotSame(other, provider.GetForCurrentThread());
+	}
+}
+
+/// <summary>Under plain UseMauiApp the registered IDispatcherProvider is MAUI's own; resolving IDispatcher through
+/// MAUI's factory re-installs it as DispatcherProvider.Current, which left the Qt thread without a dispatcher (WeatherTwentyOne:
+/// every renderer kick dropped, a forecast list filling in item by item on the heartbeat poll).</summary>
+[Collection("renderer")]
+public class DispatcherProviderOverlayTests
+{
+	private sealed class TestApp : Microsoft.Maui.Controls.Application
+	{
+	}
+
+	[Fact]
+	public void Resolving_a_dispatcher_keeps_the_sailfish_provider_current()
+	{
+		var builder = Microsoft.Maui.Hosting.MauiApp.CreateBuilder();
+		builder.UseMauiApp<TestApp>();
+		using var app = builder.Build();
+		var overlay = new SailfishServiceOverlay(app.Services);
+		try
+		{
+			DispatcherProvider.SetCurrent((IDispatcherProvider)overlay.GetService(typeof(IDispatcherProvider))!);
+
+			Assert.IsType<SailfishDispatcher>(overlay.GetService(typeof(IDispatcher)));
+			Assert.IsType<SailfishDispatcherProvider>(DispatcherProvider.Current);
+			Assert.IsType<SailfishDispatcher>(Dispatcher.GetForCurrentThread());
+		}
+		finally
+		{
+			DispatcherProvider.SetCurrent(null);
+		}
 	}
 }

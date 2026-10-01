@@ -14,3 +14,16 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
 		fi
 	done
 fi
+
+# The session's locale, which an app-grid launch inherits from the user manager; an SSH login has none, and
+# .NET then runs in the invariant culture ("¤" for {0:C}, ISO dates). /etc/locale.conf is the system default.
+if [ -z "${LANG:-}" ]; then
+	for kv in $(systemctl --user show-environment 2>/dev/null | grep -E '^(LANG|LC_[A-Z_]+)='); do
+		export "$kv"
+	done
+	if [ -z "${LANG:-}" ] && [ -r /etc/locale.conf ]; then
+		set -a
+		. /etc/locale.conf
+		set +a
+	fi
+fi

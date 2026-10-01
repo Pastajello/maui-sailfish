@@ -54,6 +54,8 @@
     <DefineConstants>$(DefineConstants);SAILFISH</DefineConstants>
     <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
     <!-- Device payload by default; self-contained because Sailfish OS has no shared .NET runtime. -->
+    <!-- SailfishRuntimeIdentifier picks it for this leg only (tools/sf deploy): a global -r would reach every head. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(SailfishRuntimeIdentifier)</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <!-- The RPM is this leg's publish artifact; _SailfishRpmDefaulted keeps plain `dotnet build` from warning about it. -->

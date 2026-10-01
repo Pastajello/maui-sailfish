@@ -42,20 +42,21 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	/// this overlay's, whichever provider asks.</summary>
 	internal object? Resolve(Type serviceType, IServiceProvider registered)
 	{
+		// The dispatcher must be the Qt-loop-backed one: any other queue never drains. IDispatcher is not looked up in
+		// the registrations: MAUI's factory for it (AppHostBuilderExtensions.GetDispatcher) calls
+		// DispatcherProvider.SetCurrent with the registered provider, which under plain UseMauiApp is MAUI's own.
+		// That silently swapped the global provider back, Dispatcher.GetForCurrentThread() turned null on the Qt
+		// thread and every renderer kick (DispatchDelayed) was dropped: chunked creates crawled on the heartbeat poll.
+		if (serviceType == typeof(IDispatcher))
+			return ((IDispatcherProvider)GetService(typeof(IDispatcherProvider))!).GetForCurrentThread();
+
 		var existing = registered.GetService(serviceType);
 
-		// The dispatcher must be the Qt-loop-backed one: any other queue never drains.
 		if (serviceType == typeof(IDispatcherProvider))
 		{
 			if (existing is SailfishDispatcherProvider sailfishProvider)
 				return sailfishProvider;
 			return _dispatcherProvider ??= new SailfishDispatcherProvider();
-		}
-		if (serviceType == typeof(IDispatcher))
-		{
-			if (existing is SailfishDispatcher sailfishDispatcher)
-				return sailfishDispatcher;
-			return ((IDispatcherProvider)GetService(typeof(IDispatcherProvider))!).GetForCurrentThread();
 		}
 		if (serviceType == typeof(IMauiHandlersFactory))
 		{

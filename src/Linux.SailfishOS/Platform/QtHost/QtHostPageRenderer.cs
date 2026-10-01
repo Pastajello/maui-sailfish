@@ -192,9 +192,18 @@ public sealed partial class QtHostPageRenderer
 		var at = now + Math.Max(1, ms);
 		// An earlier kick still pending covers this one; one whose time passed has run (or was lost) and covers nothing.
 		if (_kickAtMs > now && _kickAtMs <= at)
+		{
+			if (QtHostDiag.TraceEnabled)
+				QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick in {ms} ms covered by the one due in {_kickAtMs - now} ms");
 			return;
+		}
 		if (Microsoft.Maui.Dispatching.Dispatcher.GetForCurrentThread() is not { } dispatcher)
+		{
+			if (QtHostDiag.TraceEnabled)
+				QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick in {ms} ms dropped: no dispatcher on this thread " +
+					$"(provider {Microsoft.Maui.Dispatching.DispatcherProvider.Current?.GetType().FullName ?? "null"}, thread {Environment.CurrentManagedThreadId})");
 			return;
+		}
 		_kickAtMs = at;
 		if (QtHostDiag.TraceEnabled)
 			QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick scheduled in {ms} ms");
@@ -900,7 +909,7 @@ public sealed partial class QtHostPageRenderer
 		}
 		_deferredSinceMs = 0;
 
-		var title = TitleOf(page);
+		var title = HeaderTitleOf(page);
 		var ops = new List<Dictionary<string, object?>>();
 		if (title != _renderedTitle)
 		{
@@ -1168,19 +1177,29 @@ public sealed partial class QtHostPageRenderer
 
 	/// <summary>The header of the page shown first, so the native page is created with it (no placeholder title
 	/// before the first reconcile).</summary>
-	internal string CurrentTitle => ResolveCurrentPage() is { } page ? TitleOf(page) : string.Empty;
+	internal string CurrentTitle => ResolveCurrentPage() is { } page ? HeaderTitleOf(page) : string.Empty;
 
-	/// <summary>The header text: the page Title, else the ShellContent/ShellSection title (like in-box Shell
-	/// toolbars), else the type name.</summary>
-	private static string TitleOf(Page page)
+	/// <summary>The page Title, else the ShellContent/ShellSection title (like in-box Shell toolbars); null when neither
+	/// is set.</summary>
+	private static string? ExplicitTitleOf(Page page)
 	{
 		if (!string.IsNullOrEmpty(page.Title))
 			return page.Title;
 		for (Element? e = page.Parent; e is not null and not Shell; e = e.Parent)
 			if (e is BaseShellItem { Title: { Length: > 0 } shellTitle })
 				return shellTitle;
-		return page.GetType().Name;
+		return null;
 	}
+
+	/// <summary>The page in traces and diagnostics: its title, else its type name.</summary>
+	private static string TitleOf(Page page) => ExplicitTitleOf(page) ?? page.GetType().Name;
+
+	/// <summary>The PageHeader text: the page's title, else the app's name (ApplicationTitle), not the type name a
+	/// bare `new Window(new MainPage())` would show. The header stays: Canvas-painted shapes on a page without a
+	/// rendered PageHeader never reached the screen on the device (Jolla Phone, SFOS 5.2).</summary>
+	internal static string HeaderTitleOf(Page page) => ExplicitTitleOf(page) ?? AppTitle.Value;
+
+	private static readonly Lazy<string> AppTitle = new(() => new SailfishAppInfo().Name);
 
 	/// <summary>Forces a reconcile pass now (Qt thread only).</summary>
 	public void Render()

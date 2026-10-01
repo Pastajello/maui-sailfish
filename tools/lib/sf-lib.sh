@@ -218,10 +218,14 @@ sf_use_rpm_shims() {
 # profile and SF_PUBLISH_PROPS; wipes the previous RPM staging first. Sets SF_BUILT_RPM.
 sf_publish_rpm() {
 	rm -rf "$SF_SAMPLE_DIR/obj/SailfishRpm" "$SF_RPM_DIR"
+	# The net11.0-sailfish leg takes its RID from SailfishRuntimeIdentifier: a global -r would also reach the project's
+	# other heads (net10.0-android has no linux-arm64 runtime pack, NU1102). The bare net11.0 sample needs -r.
+	local rid_args=(-r "$SF_RID")
+	[ "$SF_TFM" = net11.0-sailfish ] && rid_args=(-p:SailfishRuntimeIdentifier="$SF_RID")
 	# SC2086: SF_PROFILE_PROPS / SF_PUBLISH_PROPS are deliberate word-split lists of -p: arguments.
 	# shellcheck disable=SC2086
 	(cd "$SF_SAMPLE_DIR" && dotnet publish \
-		-c "$SF_CONFIGURATION" -f "$SF_TFM" -r "$SF_RID" \
+		-c "$SF_CONFIGURATION" -f "$SF_TFM" "${rid_args[@]}" \
 		-p:SelfContained=true -p:CreateSailfishRpm=true \
 		-p:SailfishRelease="$1" -p:SailfishPackageName="$SF_PKG" \
 		$SF_PROFILE_PROPS ${SF_PUBLISH_PROPS:-} \

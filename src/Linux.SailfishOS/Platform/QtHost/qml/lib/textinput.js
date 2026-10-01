@@ -42,6 +42,8 @@ function reportCursor(input) {
 // includes textTopMargin, so a binding would loop. SearchField centres itself and its implicitHeight does not
 // depend on the margin; its own binding comes back when the app clears the alignment.
 function applyVAlign(input, searchField) {
+    if (input.__mauiCompact)
+        return;   // applyCompact owns the margin
     var mode = input.mauiVAlign;
     var editorH = input._editor ? input._editor.implicitHeight : 0;
     if (mode === "") {
@@ -67,6 +69,32 @@ function applyVAlign(input, searchField) {
         margin = base + Math.max(0, input.height - natural0) * f;
     }
     input.__mauiVAlignApplied = true;
+    if (Math.abs(margin - input.textTopMargin) > 0.5)
+        input.textTopMargin = margin;
+}
+
+// A TextField arranged shorter than its natural height (a HeightRequest below Silica's) clips its editor to the
+// height minus the margins, hiding the text. Compact mode drops the label row and centres the editor line in the
+// given height instead. The natural height is taken outside compact mode (hiding the label shrinks implicitHeight);
+// imperative with a dead band for the same binding loop as applyVAlign.
+function applyCompact(input) {
+    if (!input.__mauiCompact)
+        input.__mauiNatural = input.implicitHeight - (input.textTopMargin - input.__mauiTopMargin0);
+    var compact = input.height > 0 && input.height < input.__mauiNatural - 0.5;
+    if (compact !== input.__mauiCompact) {
+        input.__mauiCompact = compact;
+        input.labelVisible = !compact;
+        if (!compact) {
+            input.textTopMargin = input.__mauiTopMargin0;
+            input.__mauiVAlignApplied = false;
+            applyVAlign(input, false);
+            return;
+        }
+    }
+    if (!compact)
+        return;
+    var editorH = input._editor ? input._editor.implicitHeight : 0;
+    var margin = Math.max(0, (input.height - editorH) / 2);
     if (Math.abs(margin - input.textTopMargin) > 0.5)
         input.textTopMargin = margin;
 }

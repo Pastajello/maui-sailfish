@@ -98,6 +98,7 @@ Size         : 86304638
 | `SailfishDescription` | `$(Description)` or app title | RPM description |
 | `SailfishVendor` | `$(Authors)` | RPM vendor |
 | `SailfishLicense` | `$(PackageLicenseExpression)` or `MIT` | RPM license |
+| `SailfishRuntimeIdentifier` | *(empty)* → `linux-arm64` | RID of the `net11.0-sailfish` head only; `tools/sf deploy` passes it instead of a global `-r`, which would also reach the project's other heads |
 | `SailfishRpmArch` | derived from RID | `x86_64` / `aarch64` / `armv7hl` |
 | `SailfishRpmOutputDir` | `bin/SailfishRpm` | Output directory |
 | `SailfishRpmFileName` | `<pkg>-<ver>-<rel>.<arch>.rpm` | Output file name |

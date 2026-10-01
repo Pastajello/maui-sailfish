@@ -37,6 +37,22 @@ That is all a build needs. The TFM brings the rest, the way an in-box workload b
 only so that head builds on machines without the MAUI workloads (then pin `MauiVersion`, or restore fails
 with NU1015).
 
+An app still on .NET 10 (`net10.0-android;net10.0-ios;…`) keeps its heads; the Sailfish head needs the .NET 11 SDK
+and MAUI 11:
+
+- `global.json` must select the .NET 11 SDK the workload manifest was installed into; an SDK 10 pin does not know
+  the `net11.0-sailfish` TFM,
+- pin MAUI 11 for that head only, since the Sailfish package depends on it (NU1605 otherwise):
+
+  ```xml
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+  	<MauiVersion>11.0.0-rc.1.26451.6</MauiVersion>
+  </PropertyGroup>
+  ```
+
+- a shared class library with its own `Microsoft.Maui.Controls` reference pinned to 10.x hits the same NU1605
+  through the project reference; give it the same pin (or a `net11.0` target).
+
 ## 3. Platforms/SailfishOS (optional, recommended)
 
 ```bash
@@ -103,7 +119,9 @@ the `net11.0-sailfish` project by itself), or copy `.vscode/launch.json` and `ta
 ## Caveats
 
 - Third-party MAUI libraries without a Sailfish build restore their `net11.0` assets. They build (CA1416
-  warnings name the calls), but platform-specific parts may not work on the phone.
+  warnings name the calls), but platform-specific parts may not work on the phone. A control whose plain-`net`
+  handler throws when it creates its platform view (Syncfusion's `SfView` controls) renders as an empty
+  container, with one `[QT_HOST][WARN] … failed for …` line per handler type in the app log.
 - Every machine that builds the project, CI included, needs the workload manifest from step 1 (on CI:
   `dnx Microsoft.Maui.SailfishOS.Workload install --yes` before the build).
   To keep the head opt-in, guard the TFM line: `Condition="'$(EnableSailfish)' == 'true'"`.

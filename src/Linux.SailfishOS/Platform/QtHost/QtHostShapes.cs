@@ -254,7 +254,9 @@ internal static class QtHostShapes
 			?? Solid(box.Color ?? box.BackgroundColor);
 		// A BackgroundColor painted UNDER a different fill needs the Canvas.
 		var background = box.BackgroundColor;
-		var backgroundIsFill = box.Fill is null && box.Background is null && box.Color is null;
+		// An unset Background is Brush.Default, not null; missing that put every BackgroundColor box on the Canvas,
+		// whose per-item GL context exhausts EGL with a few hundred boxes.
+		var backgroundIsFill = Brush.IsNullOrEmpty(box.Fill) && Brush.IsNullOrEmpty(box.Background) && box.Color is null;
 		var plain = topLeft == topRight && topLeft == bottomLeft && topLeft == bottomRight && box.Clip is null &&
 		            (background is null || background.Alpha <= 0 || backgroundIsFill);
 

@@ -11,6 +11,9 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 public static class QtHostLayout
 {
+	/// <summary>Handler types whose SetVirtualView threw, warned once each.</summary>
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, byte> FailedHandlerTypes = new();
+
 	/// <summary>
 	/// Attaches a handler to every element that has none; handlers must exist before Measure,
 	/// which consults Handler.GetDesiredSize.
@@ -40,8 +43,23 @@ public static class QtHostLayout
 				: element is IView
 					? new NullViewHandler()
 					: new NullElementHandler();
-			handler.SetMauiContext(context);
-			handler.SetVirtualView(element);
+			try
+			{
+				handler.SetMauiContext(context);
+				handler.SetVirtualView(element);
+			}
+			catch (Exception ex) when (handler is not (NullViewHandler or NullElementHandler))
+			{
+				// A library without a Sailfish asset resolves its plain-net handler, whose CreatePlatformView throws
+				// (NotImplementedException). The element stays handler-less then, so fall back to the empty one: it
+				// renders as an empty container with its children, instead of failing every layout pass.
+				if (FailedHandlerTypes.TryAdd(handler.GetType(), 0))
+					QtHostDiag.Warn(QtHostDiagChannel.QtHost,
+						$"{handler.GetType().FullName} failed for {element.GetType().FullName} ({ex.GetType().Name}: {ex.Message}) — rendered as an empty container");
+				handler = element is IView ? new NullViewHandler() : new NullElementHandler();
+				handler.SetMauiContext(context);
+				handler.SetVirtualView(element);
+			}
 		}
 
 		if (element is IVisualTreeElement visualTreeElement)

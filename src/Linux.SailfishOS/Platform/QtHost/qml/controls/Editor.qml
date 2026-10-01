@@ -29,8 +29,11 @@ TextArea {
     property bool __mauiVAlignApplied: false
     readonly property real __mauiTopMargin0: Theme.paddingSmall
     onMauiVAlignChanged: InputJs.applyVAlign(root, false)
-    onHeightChanged: if (mauiVAlign !== "") InputJs.applyVAlign(root, false)
-    onImplicitHeightChanged: if (mauiVAlign !== "") InputJs.applyVAlign(root, false)
+    // Compact mode (InputJs.applyCompact): a HeightRequest below the natural height keeps the text visible.
+    property bool __mauiCompact: false
+    property real __mauiNatural: 0
+    onHeightChanged: { InputJs.applyCompact(root); if (mauiVAlign !== "") InputJs.applyVAlign(root, false) }
+    onImplicitHeightChanged: { InputJs.applyCompact(root); if (mauiVAlign !== "") InputJs.applyVAlign(root, false) }
     property real mauiLetterSpacing: 0
 
     Binding { target: root; property: "color"; value: root.mauiColor; when: root.mauiColor.a > 0 }
