@@ -68,6 +68,9 @@ Item {
     property real mauiClipRadius: 0
     property int mauiClipCorners: 0
     property color mauiClipColor: "transparent"
+    // The Border's solid stroke, which runs over the caps' outer edge: they cover it, so they draw it again.
+    property color mauiClipStroke: "transparent"
+    property real mauiClipStrokeWidth: 0
 
     /* --- diagnostics (read back through the native handle) --- */
     property bool mauiLoaded: false
@@ -179,83 +182,45 @@ Item {
         }
     }
 
-    /* --- the four corner caps (after the Image: they stack above), only while a clip is pushed --- */
-    Loader {
+    /* --- the corner caps (after the Image: they stack above), only while a clip is pushed ---
+     * A rounded Rectangle frame in the surround colour, grown past the image so only its inner radius shows in
+     * the covered corners; sides with no covered corner are pushed out of view (the image clips). A second frame
+     * draws the Border's stroke ring over the caps. Scene-graph rectangles paint with the first frame; the
+     * Canvas caps painted asynchronously and showed square photos for a moment after a list rebuild. */
+    Item {
         id: caps
         anchors.fill: parent
-        active: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 && root.mauiClipCorners !== 0
-        sourceComponent: Component {
-            Item {
-                function repaint() { capTL.requestPaint(); capTR.requestPaint(); capBR.requestPaint(); capBL.requestPaint(); }
-                Canvas {
-                    id: capTL
-                    anchors.left: parent.left; anchors.top: parent.top
-                    width: root.mauiClipRadius; height: root.mauiClipRadius
-                    visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                             (root.mauiClipCorners & 1) !== 0
-                    onPaint: root.__drawCap(this, 1)
-                    onVisibleChanged: if (visible) requestPaint()
-                }
-                Canvas {
-                    id: capTR
-                    anchors.right: parent.right; anchors.top: parent.top
-                    width: root.mauiClipRadius; height: root.mauiClipRadius
-                    visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                             (root.mauiClipCorners & 2) !== 0
-                    onPaint: root.__drawCap(this, 2)
-                    onVisibleChanged: if (visible) requestPaint()
-                }
-                Canvas {
-                    id: capBR
-                    anchors.right: parent.right; anchors.bottom: parent.bottom
-                    width: root.mauiClipRadius; height: root.mauiClipRadius
-                    visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                             (root.mauiClipCorners & 4) !== 0
-                    onPaint: root.__drawCap(this, 4)
-                    onVisibleChanged: if (visible) requestPaint()
-                }
-                Canvas {
-                    id: capBL
-                    anchors.left: parent.left; anchors.bottom: parent.bottom
-                    width: root.mauiClipRadius; height: root.mauiClipRadius
-                    visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                             (root.mauiClipCorners & 8) !== 0
-                    onPaint: root.__drawCap(this, 8)
-                    onVisibleChanged: if (visible) requestPaint()
-                }
-            }
+        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 && root.mauiClipCorners !== 0
+        readonly property real r: root.mauiClipRadius
+        readonly property int c: root.mauiClipCorners
+        readonly property real eL: (c & 9) !== 0 ? 0 : 2 * r    // TL|BL
+        readonly property real eR: (c & 6) !== 0 ? 0 : 2 * r    // TR|BR
+        readonly property real eT: (c & 3) !== 0 ? 0 : 2 * r    // TL|TR
+        readonly property real eB: (c & 12) !== 0 ? 0 : 2 * r   // BR|BL
+        Rectangle {
+            x: -caps.r - caps.eL
+            y: -caps.r - caps.eT
+            width: caps.width + 2 * caps.r + caps.eL + caps.eR
+            height: caps.height + 2 * caps.r + caps.eT + caps.eB
+            radius: 2 * caps.r
+            color: "transparent"
+            border.width: caps.r
+            border.color: root.mauiClipColor
+            antialiasing: true
         }
-    }
-
-    // A surround-color change needs an explicit repaint; visibility/size repaint via bindings.
-    onMauiClipColorChanged: if (caps.item) caps.item.repaint()
-
-    // Concave corner: the R×R square minus the quarter disc, mirrored into the requested corner.
-    function __drawCap(cap, corner) {
-        var ctx = cap.getContext("2d");
-        ctx.reset();
-        var r = root.mauiClipRadius;
-        if (r <= 0)
-            return;
-        var c = root.mauiClipColor;
-        ctx.fillStyle = "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) +
-                        "," + Math.round(c.b * 255) + "," + c.a + ")";
-        ctx.save();
-        if (corner === 2 || corner === 4) {
-            ctx.translate(cap.width, 0);
-            ctx.scale(-1, 1);
+        Rectangle {
+            readonly property real w: root.mauiClipStrokeWidth
+            visible: w > 0 && root.mauiClipStroke.a > 0
+            x: -w - caps.eL
+            y: -w - caps.eT
+            width: caps.width + 2 * w + caps.eL + caps.eR
+            height: caps.height + 2 * w + caps.eT + caps.eB
+            radius: caps.r + w
+            color: "transparent"
+            border.width: w
+            border.color: root.mauiClipStroke
+            antialiasing: true
         }
-        if (corner === 4 || corner === 8) {
-            ctx.translate(0, cap.height);
-            ctx.scale(1, -1);
-        }
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(r, 0);
-        ctx.arc(r, r, r, -Math.PI / 2, Math.PI, true);   // (r,0) -> (0,r)
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
     }
 
     // Tap surface: last child so it wins the press over the bitmap and caps.

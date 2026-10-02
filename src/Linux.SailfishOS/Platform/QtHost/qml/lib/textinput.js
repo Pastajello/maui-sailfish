@@ -83,7 +83,7 @@ function applyCompact(input) {
     var compact = input.height > 0 && input.height < input.__mauiNatural - 0.5;
     if (compact !== input.__mauiCompact) {
         input.__mauiCompact = compact;
-        input.labelVisible = !compact;
+        input.labelVisible = !compact && !input.mauiBare;
         if (!compact) {
             input.textTopMargin = input.__mauiTopMargin0;
             input.__mauiVAlignApplied = false;

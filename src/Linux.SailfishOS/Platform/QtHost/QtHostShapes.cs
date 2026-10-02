@@ -257,8 +257,14 @@ internal static class QtHostShapes
 		// An unset Background is Brush.Default, not null; missing that put every BackgroundColor box on the Canvas,
 		// whose per-item GL context exhausts EGL with a few hundred boxes.
 		var backgroundIsFill = Brush.IsNullOrEmpty(box.Fill) && Brush.IsNullOrEmpty(box.Background) && box.Color is null;
+		// A clear Color over a BackgroundColor shows just the background rectangle (EmployeeDirectory's group footers:
+		// a style's BackgroundColor under Color="Transparent"); the Canvas painted it slowly, and only partly.
+		var backgroundOnly = !backgroundIsFill && Brush.IsNullOrEmpty(box.Fill) && Brush.IsNullOrEmpty(box.Background) &&
+		                     box.Color is { Alpha: <= 0 } && background is { Alpha: > 0 };
 		var plain = topLeft == topRight && topLeft == bottomLeft && topLeft == bottomRight && box.Clip is null &&
-		            (background is null || background.Alpha <= 0 || backgroundIsFill);
+		            (background is null || background.Alpha <= 0 || backgroundIsFill || backgroundOnly);
+		var rect = backgroundOnly ? PlainRect(Solid(background), 0, null, 0)
+			: plain ? PlainRect(fill, topLeft * density, null, 0, gradientOk: topLeft <= 0) : None;
 
 		return new Dictionary<string, object?>
 		{
@@ -267,7 +273,7 @@ internal static class QtHostShapes
 			["mauiNatural"] = Natural(bounds, density),
 			["mauiAspect"] = (int)Stretch.Fill,
 			["mauiFillSpec"] = fill ?? None,
-			["mauiRect"] = plain ? PlainRect(fill, topLeft * density, null, 0, gradientOk: topLeft <= 0) : None,
+			["mauiRect"] = rect,
 			// Square gradient boxes use a QtGraphicalEffects gradient instead of the Canvas.
 			["mauiRectGradient"] = plain && topLeft <= 0 && fill is not null && !Equals(fill[0], "solid") ? fill : None,
 			["mauiStrokeSpec"] = None,

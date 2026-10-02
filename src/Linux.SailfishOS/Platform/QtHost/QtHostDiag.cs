@@ -106,13 +106,57 @@ public static class QtHostDiag
 		Mirror(line);
 	}
 
-	// Mirrored to a file so manual repros can be read over ssh after the process exits.
-	private const string DiagFile = "/tmp/kitchen-diag.log";
+	// Mirrored to a file so manual repros can be read over ssh after the process exits. Each process starts the file
+	// afresh and stops at the cap: /tmp on the phone is RAM, and appending across every run grew it past 300 MB.
+	internal static string MirrorPath = "/tmp/kitchen-diag.log";
+	internal static long MirrorCapBytes = 32L * 1024 * 1024;
+
+	private static readonly object MirrorLock = new();
+	private static StreamWriter? _mirror;
+	private static bool _mirrorClosed;
 
 	private static void Mirror(string line)
 	{
-		try { File.AppendAllText(DiagFile, line + Environment.NewLine); }
-		catch { /* diagnostics must never break the app */ }
+		lock (MirrorLock)
+		{
+			if (_mirrorClosed)
+				return;
+			try
+			{
+				_mirror ??= new StreamWriter(new FileStream(MirrorPath, FileMode.Create, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
+				if (_mirror.BaseStream.Length + line.Length + 1 > MirrorCapBytes)
+				{
+					_mirror.WriteLine($"[Sailfish] diagnostics mirror stopped at its cap ({MirrorCapBytes} bytes); stderr has the rest");
+					CloseMirror();
+					return;
+				}
+				_mirror.WriteLine(line);
+			}
+			catch
+			{
+				CloseMirror();   // diagnostics must never break the app
+			}
+		}
+	}
+
+	private static void CloseMirror()
+	{
+		_mirrorClosed = true;
+		try { _mirror?.Dispose(); } catch { }
+		_mirror = null;
+	}
+
+	/// <summary>Tests: points the mirror at <paramref name="path"/>, as a new process would.</summary>
+	internal static void RestartMirror(string path, long capBytes)
+	{
+		lock (MirrorLock)
+		{
+			try { _mirror?.Dispose(); } catch { }
+			_mirror = null;
+			_mirrorClosed = false;
+			MirrorPath = path;
+			MirrorCapBytes = capBytes;
+		}
 	}
 
 

@@ -43,7 +43,20 @@ internal static class SailfishMeasure
 		if (IsFinite(view.Height))
 			size.Height = view.Height;
 
+		// Then the minimum/maximum, as MAUI's GetDesiredSizeFromHandler resolves them (WhatToEat's category tiles,
+		// MinimumWidthRequest=150, came out as narrow as their text).
+		size.Width = MinMax(size.Width, view.MinimumWidth, view.MaximumWidth);
+		size.Height = MinMax(size.Height, view.MinimumHeight, view.MaximumHeight);
 		return size;
+	}
+
+	private static double MinMax(double value, double min, double max)
+	{
+		if (!double.IsNaN(max) && value > max)
+			value = max;
+		if (IsFinite(min) && min > 0 && value < min)
+			value = min;
+		return value;
 	}
 
 	/// <summary>The catch-all leftovers for unmigrated view types.</summary>
@@ -252,23 +265,42 @@ internal static class SailfishMeasure
 	{
 		// Height must include the Silica field's own margins: TextField clips its editor to height minus
 		// margins, so a shorter measure hides the typed text.
+		// The line height comes from a fixed sample: measured on the text, an empty field was shorter than a filled
+		// one and the form below jumped at the first typed character (WhatToEat New Recipe).
 		var text = (view as ITextInput)?.Text ?? (view as IText)?.Text ?? string.Empty;
 		var fs = TextInputFontDp(view);
-		var (tw, th) = MeasureText(text, (view as ITextStyle)?.Font.Family, FontAttributes.None, fs);
+		var family = (view as ITextStyle)?.Font.Family;
+		var (tw, _) = MeasureText(text, family, FontAttributes.None, fs);
+		var (_, th) = MeasureText("Ag", family, FontAttributes.None, fs);
 		if (th == 0)
 			th = fs + 6;
-		var margins = TextInputMarginsDp(view is Microsoft.Maui.Controls.SearchBar ? "SearchField" : "TextField");
+		// A borderless field without a placeholder hides Silica's label line (Entry.qml mauiBare).
+		var bare = view is Microsoft.Maui.Controls.Entry entry && string.IsNullOrEmpty(entry.Placeholder) &&
+		           (entry.IsSet(VisualElement.BackgroundColorProperty) || entry.IsSet(VisualElement.BackgroundProperty));
+		var margins = TextInputMarginsDp(view is Microsoft.Maui.Controls.SearchBar ? "SearchField" : "TextField", bare);
 		return Constrain(tw + 28, Math.Max(44, th + margins), wc, hc);
 	}
 
 	public static Size Editor(IView view, double wc, double hc)
 	{
-		// Fills the width, three lines plus the TextArea margins.
+		// Fills the width, three lines plus the TextArea margins; AutoSize=TextChanges grows past three lines with the
+		// wrapped text (MAUI re-measures an auto-sized Editor on every text change).
 		var fs = TextInputFontDp(view);
-		var (_, th) = MeasureText("Ag", (view as ITextStyle)?.Font.Family, FontAttributes.None, fs);
+		var family = (view as ITextStyle)?.Font.Family;
+		var (_, th) = MeasureText("Ag", family, FontAttributes.None, fs);
 		if (th == 0)
 			th = fs + 6;
-		return Constrain(wc, Math.Max(90, 3 * th + TextInputMarginsDp("TextArea")), wc, hc);
+		var textHeight = 3.0 * th;
+		if (view is Microsoft.Maui.Controls.Editor { AutoSize: Microsoft.Maui.Controls.EditorAutoSizeOption.TextChanges, Text: { Length: > 0 } text }
+			&& IsFinite(wc) && QtHostTextMetrics.Enabled)
+		{
+			// Editor.qml's textMargin, on both sides.
+			var margin = Math.Min(ThemeDp("Theme.horizontalPageMargin", 16), Math.Max(ThemeDp("Theme.paddingSmall", 6), wc / 8));
+			var (_, wrapped) = QtHostTextMetrics.Measure(text, family, FontAttributes.None, fs, Math.Max(1, wc - 2 * margin),
+				QtHostTextMetrics.WordWrap);
+			textHeight = Math.Max(textHeight, wrapped);
+		}
+		return Constrain(wc, Math.Max(90, textHeight + TextInputMarginsDp("TextArea")), wc, hc);
 	}
 
 	/// <summary>The font size a text input paints with: the app's, or the Silica theme size when unset.</summary>
@@ -285,16 +317,16 @@ internal static class SailfishMeasure
 	}
 
 	/// <summary>Vertical margins (dp) of a Silica text input, probed once per type with a hidden instance.</summary>
-	private static double TextInputMarginsDp(string silicaType)
+	private static double TextInputMarginsDp(string silicaType, bool noLabel = false)
 	{
-		var key = "margins:" + silicaType;
+		var key = "margins:" + silicaType + (noLabel ? ":bare" : string.Empty);
 		if (_themeDp.TryGetValue(key, out var cached))
 			return cached;
 		if (!QtHostTextMetrics.Enabled || !QtHostRuntime.IsRunning)
 			return 18;
 		var raw = QtHostRuntime.Eval(
 			"(function(){var o=Qt.createQmlObject('import QtQuick 2.6; import Sailfish.Silica 1.0; " + silicaType +
-			" { visible: false }', pageStack, 'maui-measure-probe');var m=o.implicitHeight-(o._editor?o._editor.height:0);o.destroy();return m;})()");
+			(noLabel ? " { visible: false; labelVisible: false }" : " { visible: false }") + "', pageStack, 'maui-measure-probe');var m=o.implicitHeight-(o._editor?o._editor.height:0);o.destroy();return m;})()");
 		if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var qt) || qt <= 0)
 		{
 			QtHostDiag.Warn(QtHostDiagChannel.Geometry, $"{silicaType} margin probe failed ('{raw}') — 18dp estimate");
@@ -312,18 +344,21 @@ internal static class SailfishMeasure
 	public static Size Switch(IView view, double wc, double hc) => Constrain(64, 36, wc, hc);
 
 	/// <summary>A CollectionView fills what its layout gives it; unbounded along its scroll axis (a StackLayout or a
-	/// ScrollView) it sizes to its rows, as RecyclerView/UICollectionView do, instead of collapsing to 0.</summary>
+	/// ScrollView) it sizes to its rows, as RecyclerView/UICollectionView do, instead of collapsing to 0. A horizontal
+	/// list unbounded across it (an Auto grid row) takes its tallest item, as a wrap_content RecyclerView does.</summary>
 	public static Size Collection(IView view, double wc, double hc)
 	{
 		if (view.Handler is not SailfishListViewHandler { Adapter: { } adapter })
 			return Constrain(0, 0, wc, hc);
-		var horizontal = adapter.Horizontal;
-		if (horizontal ? IsFinite(wc) : IsFinite(hc))
+		if (adapter.Horizontal)
+		{
+			var width = IsFinite(wc) ? 0 : adapter.ContentExtentDp;
+			var height = IsFinite(hc) ? (IsFinite(wc) ? 0 : hc) : adapter.CrossExtentDp;
+			return Constrain(width, height, wc, hc);
+		}
+		if (IsFinite(hc))
 			return Constrain(0, 0, wc, hc);
-		var extent = adapter.ContentExtentDp;
-		return horizontal
-			? new Size(extent, IsFinite(hc) ? hc : 0)
-			: new Size(IsFinite(wc) ? wc : 0, extent);
+		return new Size(IsFinite(wc) ? wc : 0, adapter.ContentExtentDp);
 	}
 
 	public static Size Slider(IView view, double wc, double hc) => Constrain(200, 44, wc, hc);

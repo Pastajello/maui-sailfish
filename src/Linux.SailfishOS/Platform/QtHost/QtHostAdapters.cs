@@ -33,6 +33,7 @@ public static class QtHostAdapters
 		["shape"] = "shapes/Shape.qml",
 		["graphics-view"] = "shapes/GraphicsView.qml",
 		["content-view"] = "containers/ContentView.qml",
+		["drawn-view"] = "containers/DrawnView.qml",
 		["border"] = "containers/Border.qml",
 		["grid"] = "containers/Grid.qml",
 		["stack-layout"] = "containers/StackLayout.qml",

@@ -64,7 +64,16 @@ public sealed class QtHostInputRouter
 
 	/* Pointer capture (MAUI-consumed sequences only) */
 	private View? _captured;                   // recognizer owner
-	private TapGestureRecognizer? _tap;
+	private List<TapGestureRecognizer>? _taps;
+	// Multi-tap (NumberOfTapsRequired > 1): taps on the same owner within MultiTapMs and MultiTapSlopDp count up, as
+	// Android's GestureDetector and iOS's tap recognizers do.
+	private const long MultiTapMs = 300;
+	private const double MultiTapSlopDp = 40.0;
+	private View? _tapCountOwner;
+	private int _tapCount;
+	private long _lastTapMs;
+	private double _lastTapDpX, _lastTapDpY;
+	private int _tapSeq;                       // a later tap cancels a pending lower-count dispatch
 	private List<PanGestureRecognizer>? _pans;
 	private List<SwipeGestureRecognizer>? _swipes;
 	private List<LongPressGestureRecognizer>? _longPresses;
@@ -158,7 +167,7 @@ public sealed class QtHostInputRouter
 
 	/* ------------------------------------------------------------------ */
 
-	private void OnPointer(int kind, double x, double y, double delta, int extra)
+	internal void OnPointer(int kind, double x, double y, double delta, int extra)
 	{
 		EventsSeen++;
 
@@ -259,7 +268,7 @@ public sealed class QtHostInputRouter
 		}
 
 		// MAUI gestures bubble: the nearest element carrying recognizers owns the sequence.
-		if (!TryFindRecognizers(ve, out var owner, out _tap, out _pans, out _swipes, out _longPresses, out _pointers))
+		if (!TryFindRecognizers(ve, out var owner, out _taps, out _pans, out _swipes, out _longPresses, out _pointers))
 		{
 			Ignored++;
 			if (_trace)
@@ -279,7 +288,7 @@ public sealed class QtHostInputRouter
 		_longPressFired = false;
 		if (_trace)
 			Trace(kind, x, y, $"{host} → gesture target {owner.GetType().Name} CAPTURED " +
-				$"(tap={_tap is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
+				$"(tap={_taps is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
 				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0})");
 		DispatchPointer(PointerPhase.Entered);
 		DispatchPointer(PointerPhase.Pressed);
@@ -303,10 +312,39 @@ public sealed class QtHostInputRouter
 			if (host.Element is VisualElement target && TryFindRecognizers(target, out _, out _, out var pans, out var swipes, out _, out _)
 			    && (pans is not null || swipes is not null))
 				return;
+			// A press inside content that scrolls sideways: the drag is that content's (WeatherTwentyOne's hourly row, a
+			// horizontal ScrollView, switched the tab instead of scrolling).
+			if (host.Element is Element hit && ScrollsSideways(hit))
+				return;
 		}
 		_tabSwipeArmed = true;
 		_tabSwipeX = dpX;
 		_tabSwipeY = dpY;
+	}
+
+	/// <summary>Whether <paramref name="element"/> or an ancestor scrolls horizontally (a horizontal ScrollView, a horizontal
+	/// list or carousel, a swipe row): its horizontal drags are its own, not a tab swipe.</summary>
+	internal static bool ScrollsSideways(Element element)
+	{
+		for (var e = element; e is not null and not Page; e = e.Parent)
+		{
+			switch (e)
+			{
+				case ScrollView { Orientation: ScrollOrientation.Horizontal or ScrollOrientation.Both }:
+				case CarouselView:
+				case SwipeView:
+				case ItemsView { } items when IsHorizontal(items):
+					return true;
+			}
+		}
+		return false;
+
+		static bool IsHorizontal(ItemsView items) => items switch
+		{
+			StructuredItemsView { ItemsLayout: LinearItemsLayout { Orientation: ItemsLayoutOrientation.Horizontal } } => true,
+			StructuredItemsView { ItemsLayout: GridItemsLayout { Orientation: ItemsLayoutOrientation.Horizontal } } => true,
+			_ => false,
+		};
 	}
 
 	/// <summary>A dominant horizontal travel past the threshold switches tab (left swipe = next).</summary>
@@ -409,16 +447,45 @@ public sealed class QtHostInputRouter
 
 	private void DispatchTap()
 	{
-		var tap = _tap;
+		var taps = _taps;
 		var owner = _captured;
-		if (tap is null || owner is null)
+		if (taps is null || owner is null)
 			return;
-		if (tap.NumberOfTapsRequired > 1)
-			QtHostDiag.Warn(QtHostDiagChannel.Input, $"NumberOfTapsRequired={tap.NumberOfTapsRequired} — multi-tap not tracked yet (firing as single tap)");
-		TapsFired++;
+		var now = Environment.TickCount64;
+		var near = Math.Abs(_pressDpX - _lastTapDpX) <= MultiTapSlopDp && Math.Abs(_pressDpY - _lastTapDpY) <= MultiTapSlopDp;
+		_tapCount = ReferenceEquals(owner, _tapCountOwner) && now - _lastTapMs <= MultiTapMs && near ? _tapCount + 1 : 1;
+		_tapCountOwner = owner;
+		_lastTapMs = now;
+		_lastTapDpX = _pressDpX;
+		_lastTapDpY = _pressDpY;
+		var seq = ++_tapSeq;
+		var count = _tapCount;
+		var most = 1;
+		foreach (var t in taps)
+			most = Math.Max(most, t.NumberOfTapsRequired);
+		if (count >= most)
+			_tapCountOwner = null;   // the longest sequence is complete: the next tap starts a new one
 		// Root-space dp of the press; other platforms pass view-relative positions.
 		var position = new Point(_pressDpX, _pressDpY);
-		_dispatcher.Dispatch(() => SendTapped(tap, owner, position));
+		void Fire()
+		{
+			foreach (var t in taps)
+				if (t.NumberOfTapsRequired == count)
+				{
+					TapsFired++;
+					SendTapped(t, owner, position);
+				}
+		}
+		// A shorter count waits for the multi-tap window when a longer one is possible (a double-tap must not also
+		// flag the tile it reveals, BugSweeper), as Android's single-tap-confirmed and iOS's require-to-fail do.
+		if (count < most)
+			_dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(MultiTapMs), () =>
+			{
+				if (seq == _tapSeq)
+					Fire();
+			});
+		else
+			_dispatcher.Dispatch(Fire);
 	}
 
 	/// <summary>Calls TapGestureRecognizer.SendTapped (public infrastructure in .NET 11 MAUI); handler
@@ -485,7 +552,7 @@ public sealed class QtHostInputRouter
 	private void ClearCapture()
 	{
 		_captured = null;
-		_tap = null;
+		_taps = null;
 		_pans = null;
 		_swipes = null;
 		_longPresses = null;
@@ -498,7 +565,7 @@ public sealed class QtHostInputRouter
 
 	/// <summary>Finds the nearest View (element or ancestor) carrying Tap/Pan/Swipe/LongPress/Pointer recognizers.</summary>
 	private static bool TryFindRecognizers(VisualElement element, out View owner,
-	                                       out TapGestureRecognizer? tap,
+	                                       out List<TapGestureRecognizer>? taps,
 	                                       out List<PanGestureRecognizer>? pans,
 	                                       out List<SwipeGestureRecognizer>? swipes,
 	                                       out List<LongPressGestureRecognizer>? longPresses,
@@ -506,7 +573,7 @@ public sealed class QtHostInputRouter
 	{
 		for (var v = element as View; v is not null; v = v.Parent as View)
 		{
-			tap = null;
+			taps = null;
 			pans = null;
 			swipes = null;
 			longPresses = null;
@@ -515,21 +582,21 @@ public sealed class QtHostInputRouter
 			{
 				switch (recognizer)
 				{
-					case TapGestureRecognizer t: tap ??= t; break;
+					case TapGestureRecognizer t: (taps ??= new List<TapGestureRecognizer>()).Add(t); break;
 					case PanGestureRecognizer p: (pans ??= new List<PanGestureRecognizer>()).Add(p); break;
 					case SwipeGestureRecognizer s: (swipes ??= new List<SwipeGestureRecognizer>()).Add(s); break;
 					case LongPressGestureRecognizer l: (longPresses ??= new List<LongPressGestureRecognizer>()).Add(l); break;
 					case PointerGestureRecognizer p: (pointers ??= new List<PointerGestureRecognizer>()).Add(p); break;
 				}
 			}
-			if (tap is not null || pans is not null || swipes is not null || longPresses is not null || pointers is not null)
+			if (taps is not null || pans is not null || swipes is not null || longPresses is not null || pointers is not null)
 			{
 				owner = v;
 				return true;
 			}
 		}
 		owner = null!;
-		tap = null;
+		taps = null;
 		pans = null;
 		swipes = null;
 		longPresses = null;

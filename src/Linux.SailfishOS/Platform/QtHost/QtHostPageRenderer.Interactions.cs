@@ -124,6 +124,7 @@ public sealed partial class QtHostPageRenderer
 
 	private string _renderedTabs = string.Empty;
 	private Action<int>? _tabSelect;
+	private Action<int>? _subTabSelect;
 	private int _tabIndex;
 	private int _tabCount;
 
@@ -151,6 +152,14 @@ public sealed partial class QtHostPageRenderer
 		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
 			return null;
 		return Handlers.SailfishPageContainers.Of(RootPage(), _mauiContext)?.Tabs;
+	}
+
+	/// <summary>The second tab row (a Shell section's contents), on the same pages as <see cref="ResolveTabs"/>.</summary>
+	private (List<string> Titles, int Index, Action<int> Select)? ResolveSubTabs()
+	{
+		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
+			return null;
+		return Handlers.SailfishPageContainers.Of(RootPage(), _mauiContext)?.SubTabs;
 	}
 
 	/// <summary>The page shows the Shell flyout as its pulley.</summary>

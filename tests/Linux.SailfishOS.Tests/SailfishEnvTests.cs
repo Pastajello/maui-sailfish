@@ -59,5 +59,6 @@ public class DevTapsTests
 		// ';' separates entries, so typed text cannot contain one: the broken halves are skipped.
 		Assert.Equal(3, inputs.Count);
 		Assert.Equal("Bills", SailfishDevTaps.Parse("1:\"Bills\"").Single().Text);
+		Assert.Equal(1500, SailfishDevTaps.Parse("1:516,600>516,1400@1500").Single().DurationMs);
 	}
 }

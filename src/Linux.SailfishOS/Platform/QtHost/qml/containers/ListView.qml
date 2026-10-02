@@ -193,15 +193,20 @@ SilicaListView {
     function __syncRows(rows) {
         var i, j;
         var keyed = rows.length === 0 || rows[0].k !== undefined;
-        // animate edits of a filled list only (not the first fill, not a
-        // carousel page reset)
-        __animateEdits = keyed && rowModel.count > 0 && !mauiCarousel;
+        var wanted = {};
+        for (i = 0; keyed && i < rows.length; ++i)
+            wanted[rows[i].k] = true;
+        var kept = 0;
+        for (i = 0; keyed && i < rowModel.count; ++i)
+            if (wanted[rowModel.get(i).k])
+                ++kept;
+        // animate edits of a filled list only: not the first fill, not a carousel page reset, and not a new
+        // ItemsSource (no row kept), which Android and iOS redraw at once; animating every row out and in
+        // blinked the list, and an add transition that stalled left it blank until the next touch
+        __animateEdits = keyed && kept > 0 && !mauiCarousel;
         if (!keyed) {
             rowModel.clear();
         } else {
-            var wanted = {};
-            for (i = 0; i < rows.length; ++i)
-                wanted[rows[i].k] = true;
             for (i = rowModel.count - 1; i >= 0; --i)
                 if (!wanted[rowModel.get(i).k])
                     rowModel.remove(i);

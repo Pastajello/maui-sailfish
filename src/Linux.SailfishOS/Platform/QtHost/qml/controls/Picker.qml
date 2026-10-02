@@ -49,6 +49,10 @@ ComboBox {
     Binding { target: root.__valueLabel; property: "font.family"; value: root.mauiFamily; when: root.__valueLabel !== null && root.mauiFamily.length > 0 }
     Binding { target: root.__valueLabel; property: "font.bold"; value: true; when: root.__valueLabel !== null && root.mauiBold }
     Binding { target: root.__valueLabel; property: "font.italic"; value: true; when: root.__valueLabel !== null && root.mauiItalic }
+    // The Title label beside the value takes the app's size and family too: with only the value at the app's 14 dp,
+    // the two sat at different sizes and heights (MoneyFox: "Selected Account" over a raised "All Accounts").
+    Binding { target: root.__titleLabel; property: "font.pixelSize"; value: root.mauiPixelSize; when: root.__titleLabel !== null && root.mauiPixelSize > 0 }
+    Binding { target: root.__titleLabel; property: "font.family"; value: root.mauiFamily; when: root.__titleLabel !== null && root.mauiFamily.length > 0 }
 
     // Diagnostics readback.
     function mauiDiag() {

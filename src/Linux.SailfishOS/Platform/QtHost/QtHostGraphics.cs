@@ -13,14 +13,25 @@ internal static class QtHostGraphics
 	/// <summary>Adapter URI (qml/adapters.json).</summary>
 	public const string AdapterUri = "graphics-view";
 
-	private static readonly List<object?> Empty = new();
+	/// <summary>Self-drawing library containers (SailfishDrawnViewHandler): the same replay under their children.</summary>
+	public const string DrawnAdapterUri = "drawn-view";
 
-	public static Dictionary<string, object?> Props(GraphicsView view)
+	private static readonly List<object?> Empty = new();
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, byte> FailedDrawables = new();
+
+	public static Dictionary<string, object?> Props(GraphicsView view) =>
+		DrawableProps(view.Drawable, view, view.BackgroundColor ?? Colors.Transparent);
+
+	/// <summary>A self-drawing view: its own Draw, over its background.</summary>
+	public static Dictionary<string, object?> DrawableProps(IDrawable drawable, VisualElement view) =>
+		DrawableProps(drawable, view, QtHostPaint.Background(view) ?? Colors.Transparent);
+
+	private static Dictionary<string, object?> DrawableProps(IDrawable? drawable, VisualElement view, Color background)
 	{
 		var width = view.Width > 0 ? (float)view.Width : 0f;
 		var height = view.Height > 0 ? (float)view.Height : 0f;
 		IReadOnlyList<object?> commands = Empty;
-		if (view.Drawable is { } drawable && width > 0 && height > 0)
+		if (drawable is not null && width > 0 && height > 0)
 		{
 			var recorder = new QtHostCanvasRecorder();
 			try
@@ -29,7 +40,10 @@ internal static class QtHostGraphics
 			}
 			catch (Exception ex)
 			{
-				Console.Error.WriteLine($"[Sailfish] Qt canvas: IDrawable.Draw ({drawable.GetType().Name}) failed: {ex.Message}");
+				// Re-recorded every reconcile: one line per drawable type, not one per poll.
+				if (FailedDrawables.TryAdd(drawable.GetType(), 0))
+					QtHostDiag.Warn(QtHostDiagChannel.QmlObject,
+						$"IDrawable.Draw ({drawable.GetType().FullName}) failed: {ex.GetType().Name}: {ex.Message} — drawn as far as it got");
 			}
 			if (recorder.Truncated)
 				Console.Error.WriteLine($"[Sailfish] Qt canvas: IDrawable.Draw ({drawable.GetType().Name}) exceeded the command cap; the tail was dropped (the adapter reports the executed count)");
@@ -41,7 +55,7 @@ internal static class QtHostGraphics
 			["mauiCommands"] = commands,
 			// Commands stay in dp; the adapter scales the context once by this.
 			["mauiScale"] = SailfishDisplay.Density,
-			["mauiBackground"] = view.BackgroundColor ?? Colors.Transparent,
+			["mauiBackground"] = background,
 			// Empty uses the Silica theme family, so canvas text matches Labels.
 			["mauiFontFamily"] = string.Empty,
 		};

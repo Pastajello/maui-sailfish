@@ -205,9 +205,10 @@ public sealed partial class QtHostPageRenderer
 	private static Color EffectiveBackground(VisualElement view) => QtHostPaint.Background(view) ?? Colors.Transparent;
 
 	/// <summary>True when the app set a background, even a transparent one. Unset keeps the Silica default; an
-	/// explicit transparent plate must cross, or Silica's highlight plate paints over it.</summary>
+	/// explicit transparent plate must cross, or Silica's highlight plate paints over it. An unset Background is
+	/// Brush.Default (an empty brush, not null): counted as set, every plain button lost its Silica plate.</summary>
 	private static bool HasExplicitBackground(VisualElement view) =>
-		view.Background is not null || view.BackgroundColor is not null;
+		!Brush.IsNullOrEmpty(view.Background) || view.BackgroundColor is not null;
 
 
 	/// <summary>MAUI StackOrientation → the StackLayout adapter's positioner state string.</summary>
@@ -351,10 +352,11 @@ public sealed partial class QtHostPageRenderer
 			["mauiBold"] = font.Weight >= FontWeight.Bold,
 			["mauiItalic"] = font.Slant == FontSlant.Italic,
 			["mauiHAlign"] = align,
-			// VerticalTextAlignment inside a field taller than its natural height (the adapter moves the text); only
-			// when the app set it, so the Silica layout of a default field stays.
+			// VerticalTextAlignment inside a field taller than its natural height (the adapter moves the text; a field
+			// of its natural height stays the Silica layout). An Entry centres by default, as MAUI's default Center does
+			// on Android (DeveloperBalance's category rows, stretched by their buttons); an Editor only when set.
 			["mauiVAlign"] = input is ITextAlignment vertical &&
-			                 input.IsSet(input is Editor ? Editor.VerticalTextAlignmentProperty : Entry.VerticalTextAlignmentProperty)
+			                 (input is Entry || input.IsSet(Editor.VerticalTextAlignmentProperty))
 				? VAlignName(vertical.VerticalTextAlignment) : string.Empty,
 			["mauiLetterSpacing"] = input.CharacterSpacing * density,
 		};

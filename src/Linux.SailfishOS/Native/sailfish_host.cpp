@@ -16,6 +16,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QTextLayout>
 #include <QImage>
 #include <QPainter>
 #include <QtMath>
@@ -2402,6 +2403,27 @@ int sailfish_host_apply_geometry(const char *geo_json)
     return failed;
 }
 
+// One line's natural width as QQuickText lays it out: QTextLayout with design metrics (Text.QtRendering, the
+// default). QFontMetricsF sums hinted advances, a few px short on a long bold title, so a label sized to its own
+// text (a centered card, an Auto column) wrapped its last word onto a line the layout never reserved.
+static double text_line_width(const QFont &font, const QString &s)
+{
+    QTextLayout layout(s, font);
+    QTextOption option;
+    option.setUseDesignMetrics(true);
+    option.setWrapMode(QTextOption::NoWrap);
+    layout.setTextOption(option);
+    layout.beginLayout();
+    double width = 0;
+    QTextLine line = layout.createLine();
+    if (line.isValid()) {
+        line.setLineWidth(1e7);
+        width = line.naturalTextWidth();
+    }
+    layout.endLayout();
+    return width;
+}
+
 // Layout measurement and QML Text share Qt metrics. Greedy wrapping mimics Text.WordWrap /
 // Text.WrapAnywhere; lh multiplies the line height like Text.ProportionalHeight. Qt thread.
 int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
@@ -2437,11 +2459,10 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
     const int wrap = o.value(QStringLiteral("wrap")).toInt(1);
     const double maxW = o.value(QStringLiteral("maxW")).toDouble(0);
 
-    // Widths use QFontMetricsF over the whole line, rounded up: QQuickText wraps when the
+    // Widths are whole-line design-metric widths, rounded up: QQuickText wraps when the
     // fractional natural width exceeds the item, so summed integer word widths broke lines
     // one pixel early. Line height stays integral (fm.height()).
     const QFontMetrics fm(font);
-    const QFontMetricsF fmf(font);
     const double lineH = fm.height() * lh;
 
     double widest = 0;
@@ -2453,7 +2474,7 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
         if (para.isEmpty() || wrap == 0 || maxW <= 0) {
             // Empty paragraph, NoWrap or unbounded width: one line.
             if (!para.isEmpty())
-                widest = qMax(widest, static_cast<double>(fmf.width(para)));
+                widest = qMax(widest, text_line_width(font, para));
             ++totalLines;
             if (maxLines > 0 && totalLines >= maxLines)
                 capped = true;
@@ -2464,11 +2485,11 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
             // WrapAnywhere: break between characters.
             for (int i = 0; i < para.size(); ++i) {
                 const QString candidate = line + para.at(i);
-                const double cw = static_cast<double>(fmf.width(candidate));
+                const double cw = text_line_width(font, candidate);
                 if (!line.isEmpty() && cw > maxW) {
                     ++totalLines;
                     line = QString(para.at(i));
-                    widest = qMax(widest, static_cast<double>(fmf.width(line)));
+                    widest = qMax(widest, text_line_width(font, line));
                 } else {
                     line = candidate;
                     widest = qMax(widest, cw);
@@ -2483,11 +2504,11 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
             const QStringList words = para.split(QLatin1Char(' '), QString::SkipEmptyParts);
             for (int i = 0; i < words.size(); ++i) {
                 const QString candidate = line.isEmpty() ? words.at(i) : line + QLatin1Char(' ') + words.at(i);
-                const double cw = static_cast<double>(fmf.width(candidate));
+                const double cw = text_line_width(font, candidate);
                 if (!line.isEmpty() && cw > maxW) {
                     ++totalLines;
                     line = words.at(i);
-                    widest = qMax(widest, static_cast<double>(fmf.width(line)));
+                    widest = qMax(widest, text_line_width(font, line));
                     if (maxLines > 0 && totalLines >= maxLines) {
                         capped = true;
                         break;

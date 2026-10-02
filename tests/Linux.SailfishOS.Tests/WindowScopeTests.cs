@@ -52,6 +52,7 @@ public class WindowScopeTests
 	public void The_overlay_decides_over_the_stock_registrations_in_the_window_scope_too()
 	{
 		// UseMauiApp registers MAUI's own FontManager; the window must still measure with the Sailfish one, the font Qt draws.
+		SailfishDispatcherProvider.BindLoopThread();   // as Run does on the Qt thread
 		var builder = MauiApp.CreateBuilder();
 		builder.UseMauiApp<TestApp>();
 		using var app = builder.Build();

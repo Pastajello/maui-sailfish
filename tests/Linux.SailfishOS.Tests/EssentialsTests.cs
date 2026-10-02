@@ -127,6 +127,9 @@ public class EssentialsBridgeTests
 		Assert.IsType<SailfishCommunication>(Email.Default);
 		Assert.Same(Email.Default, Sms.Default);   // one instance behind several interfaces
 		Assert.IsType<AppVibration>(Microsoft.Maui.Devices.Vibration.Default);
+		// WhatToEat announces after a save; the plain-net default threw and the save never navigated back.
+		Assert.IsType<SailfishSemanticScreenReader>(Microsoft.Maui.Accessibility.SemanticScreenReader.Default);
+		Microsoft.Maui.Accessibility.SemanticScreenReader.Announce("recipe added");
 	}
 }
 

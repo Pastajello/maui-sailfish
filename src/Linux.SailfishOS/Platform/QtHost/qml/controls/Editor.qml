@@ -16,6 +16,9 @@ TextArea {
     property bool mauiApplying: false
     // BackgroundColor/Background set: no Silica underline (the fill comes from mauiBackgroundFill).
     property bool mauiNoUnderline: false
+    // Silica indents the text by the page margin on each side; a narrow field (MoneyFox's 50 dp stepper value) kept no
+    // room for the text at all. The margin shrinks with the field, down to Theme.paddingSmall.
+    textMargin: Math.min(Theme.horizontalPageMargin, Math.max(Theme.paddingSmall, width / 8))
     backgroundStyle: mauiNoUnderline ? TextEditor.NoBackground : TextEditor.UnderlineBackground
 
     // Text style overrides (QtHostPageRenderer.TextStyleProps) apply only when set; otherwise the

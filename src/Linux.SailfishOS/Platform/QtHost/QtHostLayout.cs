@@ -24,6 +24,13 @@ public static class QtHostLayout
 		AttachHandlersCore(root, context);
 	}
 
+	/// <summary>A view no handler can render: its children only, under its own drawing when it draws itself.</summary>
+	private static IElementHandler EmptyViewHandler(IElement element) =>
+		element is Microsoft.Maui.Graphics.IDrawable ? new SailfishDrawnViewHandler() : new NullViewHandler();
+
+	private static bool IsDrawnContainer(IElement element) =>
+		element is Microsoft.Maui.Graphics.IDrawable && element is IContentView or ILayout;
+
 	private static void AttachHandlersCore(IElement element, IMauiContext context)
 	{
 		if (element.Handler is null)
@@ -41,7 +48,7 @@ public static class QtHostLayout
 			handler ??= element is ScrollView
 				? new ScrollViewHandler()
 				: element is IView
-					? new NullViewHandler()
+					? EmptyViewHandler(element)
 					: new NullElementHandler();
 			try
 			{
@@ -55,18 +62,22 @@ public static class QtHostLayout
 				// renders as an empty container with its children, instead of failing every layout pass.
 				// A library handler built on a stock one (UraniumUI's Button) falls back to the Sailfish handler of that
 				// control, so it still renders and works; anything else renders empty.
-				var fallback = element is IView ? SailfishHandlersFactory.BuiltInFallback(element.GetType()) : null;
+				// A self-drawing container keeps its drawing rather than the stock container it derives from.
+				var fallback = element is IView && !IsDrawnContainer(element) ? SailfishHandlersFactory.BuiltInFallback(element.GetType()) : null;
 				if (FailedHandlerTypes.TryAdd(handler.GetType(), 0))
 					QtHostDiag.Warn(QtHostDiagChannel.QtHost,
 						$"{handler.GetType().FullName} failed for {element.GetType().FullName} ({ex.GetType().Name}: {ex.Message}) — " +
-						(fallback is null ? "rendered as an empty container" : $"falling back to {fallback.GetType().Name}"));
-				handler = fallback ?? (element is IView ? new NullViewHandler() : new NullElementHandler());
+						(fallback is not null ? $"falling back to {fallback.GetType().Name}"
+							: element is Microsoft.Maui.Graphics.IDrawable ? "rendered from its own drawing (IDrawable) with its children"
+							: "rendered as an empty container"));
+				handler = fallback ?? (element is IView ? EmptyViewHandler(element) : new NullElementHandler());
 				handler.SetMauiContext(context);
 				handler.SetVirtualView(element);
 			}
 		}
 
-		if (element is IVisualTreeElement visualTreeElement)
+		// A collection's item views (its logical children) get their handlers as their rows are measured.
+		if (element is IVisualTreeElement visualTreeElement && element is not Microsoft.Maui.Controls.ItemsView)
 		{
 			foreach (var child in visualTreeElement.GetVisualChildren())
 			{
@@ -86,8 +97,11 @@ public static class QtHostLayout
 	/// <param name="contentRectDp">Content area in dp (window minus Silica chrome insets) the content is arranged into.</param>
 	public static void MeasureAndArrange(Page page, Size windowDp, Rect contentRectDp)
 	{
-		page.Measure(windowDp.Width, windowDp.Height);
-		page.Arrange(new Rect(Point.Zero, windowDp));
+		// The page gets the content area, below the status area and PageHeader (and a tab row), as a page gets the
+		// area below the toolbar and above the tabs on Android and iOS: apps size views from OnSizeAllocated
+		// (WhatToEat: carousel HeightRequest = height - 150 ran off the screen with the window height).
+		page.Measure(contentRectDp.Width, contentRectDp.Height);
+		page.Arrange(contentRectDp);
 
 		if (page is ContentPage contentPage && contentPage.Content is IView contentView)
 		{

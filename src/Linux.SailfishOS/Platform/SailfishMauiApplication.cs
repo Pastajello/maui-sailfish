@@ -88,6 +88,10 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		Console.Error.WriteLine("[Sailfish] Creating MAUI app...");
 		SailfishEssentials.InstallEarly();
 		InstallDispatcherProvider();
+		// This thread becomes the Qt loop thread. Its context goes in before the app exists, as Android's UI thread has
+		// one from the start: async work the app starts in its constructor, CreateWindow or OnStart resumes here, not on
+		// a pool thread (Profitocracy built its AppShell and set Window.Page from such a continuation).
+		SynchronizationContext.SetSynchronizationContext(new SailfishSynchronizationContext(SailfishDispatcherProvider.BindLoopThread()));
 		var mauiApp = CreateMauiApp();
 		Console.Error.WriteLine("[Sailfish] MAUI app created");
 
@@ -153,8 +157,6 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 
 		var dispatcherProvider = Services.GetRequiredService<Microsoft.Maui.Dispatching.IDispatcherProvider>();
 		var dispatcher = (SailfishDispatcher)dispatcherProvider.GetForCurrentThread()!;
-		// This thread becomes the Qt loop thread; awaits started on it resume on it.
-		SynchronizationContext.SetSynchronizationContext(new SailfishSynchronizationContext(dispatcher));
 
 		// The native Qt loop is the MAUI main loop: its tick pumps the dispatcher and its timers.
 		{

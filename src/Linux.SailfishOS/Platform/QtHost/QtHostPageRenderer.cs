@@ -23,6 +23,7 @@ public sealed partial class QtHostPageRenderer
 	private const int LargePageHostWarning = 2000;
 	private readonly HashSet<Page> _largePageWarned = new();
 	private readonly HashSet<Type> _unsupportedWarned = new();
+	private readonly HashSet<string> _missingImageWarned = new();
 	private bool _mappingRows;   // MapElement runs for a collection row subtree
 
 	private static readonly Dictionary<string, object?> EmptyProps = new();
@@ -80,6 +81,7 @@ public sealed partial class QtHostPageRenderer
 	private string _renderedTitle = string.Empty;
 	private string _renderedBusy = string.Empty;           // Page.IsBusy + pulley presence last pushed
 	private string _renderedBack = string.Empty;           // back navigation allowed, last pushed
+	private string _renderedScheme = string.Empty;         // palette color scheme, last pushed
 	private string _renderedBackground = string.Empty;
 
 	// --- Window geometry / layout state ---
@@ -161,6 +163,7 @@ public sealed partial class QtHostPageRenderer
 	internal bool FaultNextPush;
 	internal bool FaultNextPop;
 	private string _topModelPageId = string.Empty;           // registry top — the page the hosts live on
+	private bool _nativeTopUnfollowed;   // the last nav read showed a top the mirror has not followed (a back gesture)
 	private int _deferredModelPageTicks;                     // reconciles spent waiting for a stable activation
 	private long _deferredSinceMs;                           // when that wait began (bounds it in time)
 	private long _activeSinceMs;                             // since when appState==Active (0 = not active)
@@ -367,6 +370,9 @@ public sealed partial class QtHostPageRenderer
 		_tlAppear = 0;
 		_tlStart = 0;
 	}
+
+	/// <summary>Reconciles put off because the native stack's top was not followed yet.</summary>
+	public long ReconcilesDeferredForNativeTop { get; private set; }
 
 	/// <summary>Measured navigations (push/pop with SendAppearing).</summary>
 	public long NavTimings { get; private set; }
@@ -612,10 +618,14 @@ public sealed partial class QtHostPageRenderer
 	private bool _layoutPosted;   // a RunRequestedLayout is queued
 	private bool _inLayoutPass;   // RunLayoutPass is running: its Bounds writes invalidate nothing
 
+	/// <summary>Row building: its item views (logical children of their list) re-measure as they are built; the list's
+	/// own size follows from the finished rows (QtHostListAdapter.PushRows), so those requests are not passes.</summary>
+	internal int LayoutRequestHold;
+
 	/// <summary>Asks for a layout + geometry pass on the next loop turn (any thread).</summary>
 	internal void RequestLayout()
 	{
-		if (_inLayoutPass)
+		if (_inLayoutPass || LayoutRequestHold > 0)
 			return;
 		_layoutDirty = true;
 		LayoutRequests++;
@@ -756,6 +766,17 @@ public sealed partial class QtHostPageRenderer
 	/// the minimal create/update/destroy set (Qt thread only), timed for diagnostics.</summary>
 	private void Reconcile()
 	{
+		// The pageStack shows another model page than the mirror's top (a back gesture's transition, not yet
+		// followed): MAUI still renders the page being left, onto the mirror top whose objects are dying. A window
+		// report in that gap (the revealed page's taller header) reconciled it, the dead handles reset the whole
+		// page and the revealed one flashed empty with the old title. The next poll follows the stack first.
+		if (_nativeTopUnfollowed)
+		{
+			ReconcilesDeferredForNativeTop++;
+			_layoutDirty = true;
+			RequestPoll();
+			return;
+		}
 		_skippedUnarranged = false;
 		var sw = System.Diagnostics.Stopwatch.StartNew();
 		try
@@ -833,7 +854,9 @@ public sealed partial class QtHostPageRenderer
 		if (_strayScanPending)
 		{
 			_strayScanPending = false;
-			var known = BridgeValue.Serialize(_byId.Keys.ToList());
+			// Parked hosts are known too: a Shell's other tab pages wait hidden on this same model page (Profitocracy's
+			// Home lost all 78 hosts here after a back gesture on Settings, and the next tab switch reset the page).
+			var known = BridgeValue.Serialize(_byId.Keys.Concat(_parkedHosts.Select(h => h.Id)).Distinct().ToList());
 			QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "__destroyHostsNotIn", BridgeValue.Quote(known)));
 		}
 		// Page-level pull-to-refresh, unless a hosted list or scroll view consumes it or a page pulley owns the overscroll.
@@ -849,7 +872,8 @@ public sealed partial class QtHostPageRenderer
 			foreach (var witnessHost in desired)
 				if (witnessHost.Element is Button witnessButton && props.TryGetValue(witnessHost, out var witnessProps))
 					QtHostDiag.Trace(QtHostDiagChannel.QtHost,
-						$"button witness '{witnessButton.Text}' enabled={witnessProps.GetValueOrDefault("enabled")} color={witnessProps.GetValueOrDefault("color")} plate={witnessProps.GetValueOrDefault("backgroundColor")} on '{TitleOf(page)}'");
+						$"button witness '{witnessButton.Text}' enabled={witnessProps.GetValueOrDefault("enabled")} color={witnessProps.GetValueOrDefault("color")} plate={witnessProps.GetValueOrDefault("backgroundColor")} " +
+						$"(Background {witnessButton.Background?.GetType().Name ?? "null"} {QtHostPaint.Solid(witnessButton.Background)}, BackgroundColor {witnessButton.BackgroundColor}) on '{TitleOf(page)}'");
 		var previousPage = _rendered;
 		_rendered = page;
 		if (pageChanged)
@@ -863,6 +887,7 @@ public sealed partial class QtHostPageRenderer
 			_renderedTitle = string.Empty;
 			_renderedBusy = string.Empty;
 			_renderedBack = string.Empty;
+			_renderedScheme = string.Empty;
 			_renderedBackground = string.Empty;
 			_renderedTabs = string.Empty;
 			_layoutDirty = true;
@@ -925,6 +950,14 @@ public sealed partial class QtHostPageRenderer
 			_renderedBusy = busy;
 			ops.Add(BridgeOps.Busy(page.IsBusy, _pullHost is not null));
 		}
+		// UserAppTheme = Light under a dark ambience (Profitocracy's theme setting) put the app's light pages under a
+		// header and tab row still drawn light-on-dark: unreadable. The page's palette follows the app's theme.
+		var scheme = Application.Current?.RequestedTheme == AppTheme.Light ? "light" : "dark";
+		if (scheme != _renderedScheme)
+		{
+			_renderedScheme = scheme;
+			ops.Add(BridgeOps.Scheme(scheme == "light"));
+		}
 		var back = BackNavigationOf(page) ? "1" : "0";
 		if (back != _renderedBack)
 		{
@@ -934,10 +967,15 @@ public sealed partial class QtHostPageRenderer
 
 		// The tab bar (Shell tabs / TabbedPage) belongs to the model page instance; pushed when it changes.
 		var tabs = ResolveTabs();
+		var subTabs = ResolveSubTabs();
+		var subJson = subTabs is { } st
+			? ",\"sub\":{\"titles\":" + BridgeValue.Serialize(st.Titles) + ",\"index\":" + st.Index.ToString(CultureInfo.InvariantCulture) + "}"
+			: string.Empty;
 		var tabsJson = tabs is { } t
-			? "{\"titles\":" + BridgeValue.Serialize(t.Titles) + ",\"index\":" + t.Index.ToString(CultureInfo.InvariantCulture) + "}"
-			: "{\"titles\":[],\"index\":0}";
+			? "{\"titles\":" + BridgeValue.Serialize(t.Titles) + ",\"index\":" + t.Index.ToString(CultureInfo.InvariantCulture) + subJson + "}"
+			: "{\"titles\":[],\"index\":0" + subJson + "}";
 		_tabSelect = tabs?.Select;
+		_subTabSelect = subTabs?.Select;
 		_tabIndex = tabs?.Index ?? 0;
 		_tabCount = tabs?.Titles.Count ?? 0;
 		if (tabsJson != _renderedTabs)
@@ -1242,7 +1280,14 @@ public sealed partial class QtHostPageRenderer
 		void Apply()
 		{
 			if (yieldToNative && _suppressPush > 0)
+			{
+				// A native event is being written back: the reconcile diff pushes this on the next loop turn. Left to
+				// the heartbeat, WhatToEat's Save stayed disabled up to 2 s after the name was typed (Entry.Text →
+				// the view model → CanExecute → IsEnabled, all inside the write-back).
+				if (!_inLayoutPass)
+					RequestPoll();
 				return;
+			}
 			if (!host.IsAttached && host.Element is VisualElement flat && IsFlattened(flat))
 			{
 				OnFlattenedPush(flat);   // F4a: a row layout without a host may need one now
@@ -1642,11 +1687,16 @@ public sealed partial class QtHostPageRenderer
 			}
 			case IImage image when HostingOf((View)child) is { State: null }:
 			{
-				// QtHostImages resolves no URL: an unresolvable file keeps a visible placeholder, a stream still being read
-				// hosts nothing yet, and a null source hosts nothing (a placeholder would lock the element to a label host
-				// in the first-URI-wins cache, so a later Source could never create the image host).
+				// QtHostImages resolves no URL: an unresolvable file keeps an empty placeholder (Android and iOS show
+				// nothing for a missing file; a visible "[Image]" read as app text) and a warning, a stream still being
+				// read hosts nothing yet, and a null source hosts nothing (a placeholder would lock the element to a label
+				// host in the first-URI-wins cache, so a later Source could never create the image host).
 				if (image.Source is not null && !QtHostImages.IsPending(image.Source as ImageSource))
-					AddPlaceholder(child, "[Image]", desired, props);
+				{
+					if (_missingImageWarned.Add(image.Source.ToString() ?? string.Empty))
+						QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"image source not found, nothing shown: {image.Source}");
+					AddPlaceholder(child, string.Empty, desired, props);
+				}
 				else if (child.Parent is IView container)
 					QtHostImages.WhenReady(image.Source as ImageSource, container, () => RequestSubtree(container));
 				return true;

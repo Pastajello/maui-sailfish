@@ -150,6 +150,9 @@ internal static class BridgeOps
 	/// <summary>Page.IsBusy: the pulley pulses when the page has a pull-down menu, else a PageBusyIndicator runs.</summary>
 	public static Dictionary<string, object?> Busy(bool on, bool onPulley) => new() { ["op"] = "busy", ["on"] = on, ["pulley"] = onPulley };
 
+	/// <summary>The page's Silica palette: the app's own theme (UserAppTheme) over the ambience's.</summary>
+	public static Dictionary<string, object?> Scheme(bool light) => new() { ["op"] = "scheme", ["light"] = light };
+
 	/// <summary>Silica Page.backNavigation: the back gesture and indicator.</summary>
 	public static Dictionary<string, object?> Back(bool enabled) => new() { ["op"] = "back", ["on"] = enabled };
 

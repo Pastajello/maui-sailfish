@@ -133,7 +133,13 @@ public sealed partial class QtHostPageRenderer
 					if (tabDoc.RootElement.TryGetProperty("index", out var tabIndex) && tabIndex.TryGetInt32(out var ti))
 					{
 						QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"tab-selected {ti}");
-						_tabSelect?.Invoke(ti);
+						// A fresh timeline: the last navigation's stays open when its page builds no list rows.
+						_tlStart = 0;
+						TimelineStart("tab");
+						if (tabDoc.RootElement.TryGetProperty("level", out var level) && level.TryGetInt32(out var lv) && lv == 1)
+							_subTabSelect?.Invoke(ti);
+						else
+							_tabSelect?.Invoke(ti);
 					}
 					break;
 				}

@@ -22,6 +22,7 @@ internal sealed class RendererHarness : IDisposable
 	public RendererHarness(Page page, IServiceProvider? appServices = null)
 	{
 		QtHostRuntime.TestShim = Shim;
+		_loop = SailfishDispatcherProvider.BindLoopThread();   // this thread plays the Qt loop
 		QtHostTextMetrics.Enable();
 		QtHostPageRenderer.ActivationSettleMs = 0;   // the polls below run back to back
 		var services = new SailfishServiceOverlay(appServices ?? new ServiceCollection().BuildServiceProvider());
@@ -46,8 +47,15 @@ internal sealed class RendererHarness : IDisposable
 		Renderer.Poll();
 	}
 
-	/// <summary>One 250 ms poll (native sync + reconcile + pending rows).</summary>
-	public void Poll() => Renderer.Poll();
+	/// <summary>One 250 ms poll (native sync + reconcile + pending rows), after the work dispatched to this thread,
+	/// as the Qt loop's tick drains the dispatcher.</summary>
+	public void Poll()
+	{
+		_loop.DrainQueue();
+		Renderer.Poll();
+	}
+
+	private readonly SailfishDispatcher _loop;
 
 	public void Dispose() => QtHostRuntime.TestShim = null;
 }

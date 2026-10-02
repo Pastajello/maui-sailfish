@@ -10,13 +10,17 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// Developer aid for driving an app on the phone without touching it, through the same QPA path as real input. Off
 /// unless MAUI_SAILFISH_TAPS is set to ';'-separated entries, each at ms after launch, in window pixels (the
 /// coordinates of a tools/sf screenshot):
-/// <c>ms:x,y</c> taps, <c>ms:x,y&gt;x2,y2</c> drags (a swipe), <c>ms:"text"</c> types into the focused input.
+/// <c>ms:x,y</c> taps, <c>ms:x,y&gt;x2,y2</c> drags (a swipe; <c>…&gt;x2,y2@1500</c> takes 1500 ms, held at the end, as a
+/// pulley needs), <c>ms:"text"</c> types into the focused input.
 /// </summary>
 internal static class SailfishDevTaps
 {
 	internal enum Kind { Tap, Drag, Text }
 
-	internal readonly record struct DevInput(int AtMs, Kind Kind, double X = 0, double Y = 0, double X2 = 0, double Y2 = 0, string Text = "");
+	internal readonly record struct DevInput(int AtMs, Kind Kind, double X = 0, double Y = 0, double X2 = 0, double Y2 = 0, string Text = "",
+		int DurationMs = DefaultDragMs);
+
+	private const int DefaultDragMs = 300;
 
 	private const int DragSteps = 12;
 	private const int DragStepMs = 25;
@@ -44,8 +48,14 @@ internal static class SailfishDevTaps
 				continue;
 			if (ends.Length == 1)
 				inputs.Add(new DevInput(at, Kind.Tap, x, y));
-			else if (TryPoint(ends[1], out var x2, out var y2))
-				inputs.Add(new DevInput(at, Kind.Drag, x, y, x2, y2));
+			else
+			{
+				var target = ends[1].Split('@', 2);
+				var duration = DefaultDragMs;
+				if (TryPoint(target[0], out var x2, out var y2) &&
+				    (target.Length == 1 || int.TryParse(target[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out duration)))
+					inputs.Add(new DevInput(at, Kind.Drag, x, y, x2, y2, DurationMs: Math.Max(DragStepMs, duration)));
+			}
 		}
 		return inputs;
 	}
@@ -73,7 +83,9 @@ internal static class SailfishDevTaps
 
 	private static void Run(IDispatcher loop, DevInput input, int n)
 	{
-		var at = $"{input.X.ToString(CultureInfo.InvariantCulture)},{input.Y.ToString(CultureInfo.InvariantCulture)}";
+		// @mono: the NAV-TIMELINE clock (Stopwatch ms), so a tap lines up with the navigation it starts.
+		var at = $"{input.X.ToString(CultureInfo.InvariantCulture)},{input.Y.ToString(CultureInfo.InvariantCulture)} " +
+			$"@mono={System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency}";
 		switch (input.Kind)
 		{
 			case Kind.Tap:
@@ -85,14 +97,15 @@ internal static class SailfishDevTaps
 				Console.Error.WriteLine($"[Sailfish] dev tap #{n} drag {at} > " +
 					$"{input.X2.ToString(CultureInfo.InvariantCulture)},{input.Y2.ToString(CultureInfo.InvariantCulture)}");
 				QtHostRuntime.InjectPointer(0, input.X, input.Y);
-				for (var step = 1; step <= DragSteps; step++)
+				var steps = Math.Max(DragSteps, input.DurationMs / DragStepMs);
+				for (var step = 1; step <= steps; step++)
 				{
-					var t = step / (double)DragSteps;
+					var t = Math.Min(1.0, step / (double)DragSteps);   // the move ends after DragSteps; the rest holds there
 					var x = input.X + (input.X2 - input.X) * t;
 					var y = input.Y + (input.Y2 - input.Y) * t;
 					loop.DispatchDelayed(TimeSpan.FromMilliseconds(step * DragStepMs), () => QtHostRuntime.InjectPointer(2, x, y));
 				}
-				loop.DispatchDelayed(TimeSpan.FromMilliseconds((DragSteps + 1) * DragStepMs),
+				loop.DispatchDelayed(TimeSpan.FromMilliseconds((steps + 1) * DragStepMs),
 					() => QtHostRuntime.InjectPointer(1, input.X2, input.Y2));
 				break;
 			case Kind.Text:

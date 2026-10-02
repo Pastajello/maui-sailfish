@@ -192,6 +192,7 @@ internal sealed class QtHostCollectionBridge
 		public string? DgObj;                          // delegate currently hosting the row
 		public long Key;                               // stable across rebuilds (QML diffs by it)
 		public double CellWidthDp;                     // the width its cells were measured at
+		public double NaturalCrossDp;                  // a horizontal list's item height when nothing bounds it
 	}
 
 	internal sealed class DgState
@@ -790,6 +791,8 @@ internal sealed class QtHostCollectionBridge
 		// dead to ChildrenAlive (a flattened row root is Children[0]) and every resync would rebuild the row.
 		if (_renderer.Cache.TryGet(element, out var host) && host is not null && !_renderer.IsFlattened(element))
 			children.Add(host);
+		if (element is ItemsView)
+			return;   // a nested list's item views belong to its own delegates
 		foreach (var child in ((IVisualTreeElement)element).GetVisualChildren())
 		{
 			if (child is VisualElement visual)

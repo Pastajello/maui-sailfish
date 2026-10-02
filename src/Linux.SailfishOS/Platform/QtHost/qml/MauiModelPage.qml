@@ -40,7 +40,7 @@ Page {
     property double __lastReportedY: 0
 
     // Top safe-area inset (status area + PageHeader + tab bar) in Qt scene units, as reported to managed.
-    property double topInset: ((page.statusHeight !== undefined) ? page.statusHeight : 0) + pageHeader.height + tabBar.height
+    property double topInset: ((page.statusHeight !== undefined) ? page.statusHeight : 0) + pageHeader.height + tabBar.height + subTabBar.height
 
     // Page.IsBusy: the pull-down menu pulses (PullDownMenu.busy) when the page has one, else a PageBusyIndicator runs.
     property bool mauiBusy: false
@@ -50,10 +50,15 @@ Page {
     // as header, so the MAUI content area shrinks with it.
     property var mauiTabs: []
     property int mauiTabIndex: 0
+    // A Shell section's contents (Android's top tabs), under the section tabs.
+    property var mauiSubTabs: []
+    property int mauiSubTabIndex: 0
     function setMauiTabs(json) {
         var o = JSON.parse(json);
         mauiTabs = o.titles || [];
         mauiTabIndex = o.index !== undefined ? o.index : 0;
+        mauiSubTabs = (o.sub && o.sub.titles) || [];
+        mauiSubTabIndex = o.sub && o.sub.index !== undefined ? o.sub.index : 0;
     }
 
     function setMauiScroll(json) {
@@ -195,6 +200,7 @@ Page {
             if (o.op === "title") { pageTitle = o.text; continue; }
             if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
             if (o.op === "back") { backNavigation = !!o.on; continue; }
+            if (o.op === "scheme") { palette.colorScheme = o.light ? Theme.DarkOnLight : Theme.LightOnDark; continue; }
             if (o.op === "background") {
                 mauiBackground = o.color || "transparent";
                 mauiBackgroundImage = o.image || "";
@@ -435,7 +441,7 @@ Page {
         mauiNotify("window-geometry", JSON.stringify({
             pageWidth: page.width,
             pageHeight: page.height,
-            headerHeight: pageHeader.height + tabBar.height,
+            headerHeight: pageHeader.height + tabBar.height + subTabBar.height,
             statusHeight: status
         }));
     }
@@ -851,7 +857,7 @@ Page {
                                 horizontalAlignment: Text.AlignHCenter
                                 truncationMode: TruncationMode.Fade
                                 text: modelData
-                                color: index === page.mauiTabIndex ? Theme.highlightColor : Theme.secondaryColor
+                                color: index === page.mauiTabIndex ? palette.highlightColor : palette.secondaryColor
                                 font.pixelSize: Theme.fontSizeMedium
                                 // Four tabs share the width: a long title ("Transactions") shrinks before it fades.
                                 fontSizeMode: Text.HorizontalFit
@@ -861,10 +867,53 @@ Page {
                                 anchors.bottom: parent.bottom
                                 width: parent.width
                                 height: Theme.paddingSmall / 2
-                                color: Theme.highlightColor
+                                color: palette.highlightColor
                                 visible: index === page.mauiTabIndex
                             }
                             onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index }))
+                        }
+                    }
+                }
+            }
+
+            // The current section's contents, smaller, as Android's top tabs under the bottom navigation.
+            Item {
+                id: subTabBar
+                anchors.top: tabBar.bottom
+                width: parent.width
+                visible: page.mauiSubTabs.length > 1
+                height: visible ? Theme.itemSizeExtraSmall : 0
+                onHeightChanged: page.reportWindowGeometry()
+
+                Row {
+                    id: subTabRow
+                    anchors.fill: parent
+                    Repeater {
+                        model: page.mauiSubTabs
+                        BackgroundItem {
+                            width: subTabRow.width / Math.max(1, page.mauiSubTabs.length)
+                            height: subTabRow.height
+                            objectName: "mauiSubTab_" + index
+                            Label {
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.paddingSmall
+                                horizontalAlignment: Text.AlignHCenter
+                                truncationMode: TruncationMode.Fade
+                                text: modelData
+                                color: index === page.mauiSubTabIndex ? palette.highlightColor : palette.secondaryColor
+                                font.pixelSize: Theme.fontSizeSmall
+                                fontSizeMode: Text.HorizontalFit
+                                minimumPixelSize: Theme.fontSizeExtraSmall
+                            }
+                            Rectangle {
+                                anchors.bottom: parent.bottom
+                                width: parent.width
+                                height: Theme.paddingSmall / 2
+                                color: palette.highlightColor
+                                opacity: 0.6
+                                visible: index === page.mauiSubTabIndex
+                            }
+                            onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index, level: 1 }))
                         }
                     }
                 }

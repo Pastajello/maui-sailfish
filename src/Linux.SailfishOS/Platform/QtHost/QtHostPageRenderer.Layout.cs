@@ -359,6 +359,10 @@ public sealed partial class QtHostPageRenderer
 			childHitClip = hitClip is { } outer ? outer.Intersect(viewport) : viewport;
 		}
 
+		// A collection's item views are its logical children (for their bindings); the collection bridge places them.
+		if (element is ItemsView)
+			return;
+
 		foreach (var child in ((IVisualTreeElement)element).GetVisualChildren())
 		{
 			if (child is not VisualElement visual)

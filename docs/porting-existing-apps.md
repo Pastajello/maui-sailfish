@@ -88,6 +88,12 @@ SkiaSharp, even only through `SKTypeface` in a view-model constructor (MoneyFox,
 <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.6" />  <!-- = the app's SkiaSharp -->
 ```
 
+## Platform `#if` blocks
+
+Shared code often enables a feature per platform (`#if ANDROID || IOS || MACCATALYST`). The Sailfish head defines
+`SAILFISH`; add it where the feature works here too. BugSweeper's double-tap recognizer was compiled for the mobile
+platforms only, so tiles never revealed until `|| SAILFISH` joined the condition.
+
 ## Startup
 
 **"Bait and switch" plugins.** The portable assembly of Plugin.StoreReview (and plugins built the same way)
@@ -141,8 +147,15 @@ failure once per handler type, logs `[QT_HOST][WARN] <handler> failed for <view>
   `StatefulButtonHandler : ButtonHandler` for every `Button`, and Plainer (under UraniumUI Material) does the same
   for its Entry and Picker views. They render and work as plain Silica controls, without the library's
   platform tweaks: `… — falling back to SailfishButtonHandler`.
+- **A view that draws itself (`IDrawable`) renders its drawing** under its MAUI children: Syncfusion Toolkit's
+  `SfView` controls (`… — rendered from its own drawing (IDrawable) with its children`). The drawing is recorded
+  again on every render pass, not on the library's own invalidate, so animations show their end state. A drawing
+  that throws (Syncfusion's text measurer on plain .NET) logs `IDrawable.Draw (…) failed` once and draws what it
+  got to.
 - **Anything else renders as an empty container** whose MAUI children still paint: SkiaSharp's
-  `SKCanvasViewHandler` (LiveCharts, Microcharts), Syncfusion's `SfView` controls, AiForms.SettingsView.
+  `SKCanvasViewHandler` (LiveCharts, Microcharts), AiForms.SettingsView.
+- Collection item views are the `CollectionView`'s logical children, so `{RelativeSource AncestorType=…}`
+  bindings in item templates (a page model's command) resolve as on Android.
 
 ## Platform behaviour that differs from Android/iOS
 
@@ -161,6 +174,27 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - A `TapGestureRecognizer` in a `CollectionView` item template fires on tap, and the tap then does not select the
   row. A `SwipeItemView` shows as a Silica swipe action: the first background colour, image and label in its
   content, with `Invoked`/`Command` as usual.
+- A page's size (`Width`/`Height`, `OnSizeAllocated`) is the area below the page header and tab row, as on Android
+  and iOS, so apps that size views from it fit the screen.
+- `Loaded` fires when the page joins the window. Pages a Shell route push builds (`GoToAsync("detail")`) have their
+  handlers by then, so `Loaded` handlers can call `SetSemanticFocus()` and similar. Any other page (a ShellContent
+  template, a page the app constructs and pushes) gets its handlers on the next render; touch `Handler` there from
+  `Appearing` or later.
+- `SemanticScreenReader.Announce` does nothing (Sailfish OS has no screen reader), as on Android with TalkBack off.
+- An exception from an `async void` handler (a command, an event) is logged as
+  `[Sailfish][QT_HOST][ERROR] unhandled exception in dispatched work` with its stack, and the app keeps running.
+  Android would crash; look for that line when an action silently does nothing.
+- Pulling the pull-down menu all the way and releasing past its items leaves it open; tap an item then (Silica).
+- The page header is always there. A page whose own `BackgroundColor` is unset shows the theme behind the header
+  even when its root layout has a colour; set the page's `BackgroundColor` to colour the whole screen.
+- A missing image file shows nothing, as on Android, and logs
+  `[Sailfish][QML_OBJECT][WARN] image source not found, nothing shown: File: …` once per file.
+- An `Image` filling a `Border` with a `RoundRectangle` or `Ellipse` `StrokeShape` (round avatars) is masked to the
+  shape in the colour behind the Border, with the Border's solid stroke on top. The mask is exact on a solid
+  background only.
+- Flicking a list against its end dims the list content for a moment: Silica's end-of-list feedback.
+- A borderless `Entry` (`BackgroundColor` set) without a `Placeholder` has no Silica label line, and an Entry taller
+  than its natural height centres its text (MAUI's default `VerticalTextAlignment`), as on Android.
 
 ## Not supported yet
 
@@ -170,6 +204,8 @@ These follow Silica conventions. Port authors should expect them; none needs app
   nothing. (CommunityToolkit 12+ shows popups as modal pages; that path is not verified yet.)
 - **Native-only controls** with no cross-platform part, such as AiForms.SettingsView.
 - **Plugins** with Android/iOS implementations only: local notifications, biometrics, in-app rating.
+- **Essentials** without a Sailfish implementation yet: `TextToSpeech`, `Flashlight`, `Geocoding`, `Contacts`,
+  `AppActions` and `WebAuthenticator` throw `NotImplementedInReferenceAssemblyException`.
 
 ## MAUI 10/11 changes that break older libraries everywhere
 
@@ -193,9 +229,12 @@ Android/iOS with the same MAUI version too.
 
 ## Driving a port on the phone
 
-- `MAUI_SAILFISH_TAPS` scripts input from launch, in screenshot pixels: `ms:x,y` taps, `ms:x,y>x2,y2` drags
-  (swipes), `ms:"text"` types into the focused field. Example:
-  `tools/sf run --env MAUI_SAILFISH_TAPS='6000:903,227;8500:516,441;11000:900,240>300,240'`.
+- `MAUI_SAILFISH_TAPS` scripts input from launch, in screenshot pixels. Each entry starts with its time in ms
+  after launch: `6000:x,y` taps, `6000:x,y>x2,y2` drags (swipes; `…>x2,y2@2500` takes 2.5 s and holds at the end,
+  as a pulley needs), `6000:"text"` types into the focused field. Example:
+  `tools/sf run --env MAUI_SAILFISH_TAPS='6000:903,227;8500:516,441;11000:900,240>300,240'`. The `dev tap #N` log
+  lines need `MAUI_SAILFISH_QT_HOST_DIAG=1`. A tap in the top-left corner of a pushed page hits Silica's back
+  indicator and goes back; a harmless filler tap is one on the page title.
 - `SF_PKG`/`SF_BIN` point `tools/sf run`, `kill` and `screenshot` at the ported app
   (`SF_PKG=harbour-moneyfox SF_BIN=MoneyFox.Ui`). The defaults come from the current directory.
 - `MAUI_SAILFISH_QT_HOST_DIAG=1` logs handler pushes, navigation and QML events. Add

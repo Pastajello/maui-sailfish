@@ -277,8 +277,8 @@ public sealed partial class QtHostPageRenderer
 		if (includeSelf && (element is ItemsView or ScrollView or RefreshView ||
 		                    element is View view && FlyoutBase.GetContextFlyout(view) is not null))
 			return true;
-		if (element is not IVisualTreeElement tree)
-			return false;
+		if (element is not IVisualTreeElement tree || element is ItemsView)
+			return false;   // item views are the collection bridge's
 		foreach (var child in tree.GetVisualChildren())
 			if (child is Element childElement && NeedsPageContext(childElement, includeSelf: true))
 				return true;

@@ -25,6 +25,10 @@ internal static class QtHostClip
 		props["mauiClipRadius"] = radius;
 		props["mauiClipCorners"] = corners;
 		props["mauiClipColor"] = corners == 0 ? Colors.Transparent : SurroundColor(element!, surroundFallback);
+		var border = corners == 0 ? null : ClippingBorder(element!);
+		var stroke = border is null || border.StrokeThickness <= 0 ? null : QtHostPaint.Solid(border.Stroke);
+		props["mauiClipStroke"] = stroke ?? Colors.Transparent;
+		props["mauiClipStrokeWidth"] = stroke is null ? 0.0 : border!.StrokeThickness * SailfishDisplay.Density;
 		if (QtHostDiag.TraceEnabled && corners != 0)
 			QtHostDiag.Trace(QtHostDiagChannel.Geometry,
 				$"clip spec: {element?.GetType().Name} radius={radius:F1} corners={corners} " +
@@ -36,10 +40,16 @@ internal static class QtHostClip
 	/// disables the caps). Collection-row content is detached from the page, so the page is the fallback.</summary>
 	private static Color SurroundColor(VisualElement element, VisualElement? fallback)
 	{
+		var clipping = true;
 		for (var p = element.Parent as VisualElement; p is not null; p = p.Parent as VisualElement)
 		{
-			if (p is Border)
-				continue;   // the clipped box paints inside the radius, not around it
+			// The clipping Border paints inside the radius, not around it; a Border further out (a card around an
+			// avatar) is what shows through the corner.
+			if (p is Border && clipping)
+			{
+				clipping = false;
+				continue;
+			}
 			var color = Effective(p);
 			if (color is not null && color.Alpha > 0)
 				return color;
@@ -61,19 +71,13 @@ internal static class QtHostClip
 		if (element is null || element.Width <= 0 || element.Height <= 0)
 			return false;
 
-		Border? border = null;
-		for (var p = element.Parent as VisualElement; p is not null; p = p.Parent as VisualElement)
-		{
-			if (p is Border b)
-			{
-				border = b;
-				break;
-			}
-		}
+		var border = ClippingBorder(element);
 		if (border is null || border.Width <= 0 || border.Height <= 0)
 			return false;
 
-		var radius = UniformRadius(border);
+		// MAUI arranges the content inside the stroke and clips it to the shape's inner edge.
+		var inset = Math.Max(0, border.StrokeThickness);
+		var radius = UniformRadius(border) - inset;
 		if (radius <= 0)
 			return false;
 
@@ -84,7 +88,7 @@ internal static class QtHostClip
 		var right = x + element.Width;
 		var bottom = y + element.Height;
 
-		const double eps = 0.5;
+		var eps = inset + 0.5;
 		if (left <= eps && top <= eps)
 			corners |= TopLeft;
 		if (right >= border.Width - eps && top <= eps)
@@ -98,14 +102,29 @@ internal static class QtHostClip
 		return true;
 	}
 
-	/// <summary>The StrokeShape's round radius (0 for non-round shapes); non-uniform radii use the largest
-	/// corner because the mask draws a single radius.</summary>
+	private static Border? ClippingBorder(VisualElement element)
+	{
+		for (var p = element.Parent as VisualElement; p is not null; p = p.Parent as VisualElement)
+			if (p is Border border)
+				return border;
+		return null;
+	}
+
+	/// <summary>The StrokeShape's round radius (0 for other shapes); non-uniform radii use the largest corner
+	/// because the mask draws a single radius. An Ellipse is a circle on a square Border (round avatars) and a
+	/// stadium otherwise.</summary>
 	private static double UniformRadius(Border border)
 	{
-		if (border.StrokeShape is not RoundRectangle round)
-			return 0;
-		var c = round.CornerRadius;
-		return Math.Max(Math.Max(c.TopLeft, c.TopRight), Math.Max(c.BottomLeft, c.BottomRight));
+		switch (border.StrokeShape)
+		{
+			case RoundRectangle round:
+				var c = round.CornerRadius;
+				return Math.Max(Math.Max(c.TopLeft, c.TopRight), Math.Max(c.BottomLeft, c.BottomRight));
+			case Ellipse:
+				return Math.Min(border.Width, border.Height) / 2;
+			default:
+				return 0;
+		}
 	}
 
 	private static (double X, double Y) OffsetIn(VisualElement element, VisualElement ancestor)

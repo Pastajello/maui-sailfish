@@ -12,10 +12,27 @@ public class SailfishDispatcherProvider : IDispatcherProvider
 	// in every callback from the native Qt loop (a fresh execution context on the same thread), which then got a new
 	// dispatcher no loop drains: work it was given (DispatchDelayed, timers) never ran.
 	[ThreadStatic] private static SailfishDispatcher? t_dispatcher;
+	[ThreadStatic] private static bool t_loopThread;
 
-	public IDispatcher? GetForCurrentThread() => t_dispatcher ??= new SailfishDispatcher();
+	// Only a thread bound to a loop (the Qt thread) has a dispatcher; any other gets null, as an Android thread without a
+	// Looper does. A dispatcher made for a pool thread is a queue nothing drains, and an element built there kept it:
+	// Profitocracy's AppShell, created after an await off the Qt thread, never completed a Shell pop (each back gesture
+	// re-pushed the page). With null, MAUI finds the element's or the application's dispatcher instead.
+	public IDispatcher? GetForCurrentThread() =>
+		t_dispatcher ?? (t_loopThread ? t_dispatcher = new SailfishDispatcher() : null);
 
-	internal static void SetCurrent(SailfishDispatcher dispatcher) => t_dispatcher = dispatcher;
+	/// <summary>Makes the calling thread a loop thread (the Qt thread; a test harness) and returns its dispatcher.</summary>
+	internal static SailfishDispatcher BindLoopThread()
+	{
+		t_loopThread = true;
+		return t_dispatcher ??= new SailfishDispatcher();
+	}
+
+	internal static void SetCurrent(SailfishDispatcher dispatcher)
+	{
+		t_loopThread = true;
+		t_dispatcher = dispatcher;
+	}
 }
 
 /// <summary>
@@ -74,7 +91,10 @@ public class SailfishDispatcher : IDispatcher
 			}
 			catch (Exception ex)
 			{
-				System.Diagnostics.Debug.WriteLine($"[SailfishDispatcher] Unhandled dispatch exception: {ex}");
+				// Where an async void handler's exception lands (its continuation is posted here). Android would crash;
+				// the loop keeps running, but the failure must show in the device log (WhatToEat's aborted push was
+				// silent while it only went to Debug output).
+				QtHost.QtHostDiag.Error(QtHost.QtHostDiagChannel.QtHost, $"unhandled exception in dispatched work: {ex}");
 			}
 		}
 	}

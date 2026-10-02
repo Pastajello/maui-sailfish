@@ -1,7 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 
-// REFERENCE ONLY (adapterbench): the Image adapter before P4, with the GIF player, four corner caps and tap
+// REFERENCE ONLY (adapterbench): the Image adapter before P4, with the GIF player, the corner caps and tap
 // surface created per instance. controls/Image.qml must keep painting pixel-identical to it; diagnostics sample only.
 // Adapter: MAUI Image -> QtQuick Image. The root is an Item because Qt 5.6 fillMode cannot
 // express Aspect.Center (no Image.Pad), and the element bounds belong to the geometry pass.
@@ -67,6 +67,8 @@ Item {
     property real mauiClipRadius: 0
     property int mauiClipCorners: 0
     property color mauiClipColor: "transparent"
+    property color mauiClipStroke: "transparent"
+    property real mauiClipStrokeWidth: 0
 
     /* --- diagnostics (read back through the native handle) --- */
     property bool mauiLoaded: false
@@ -173,76 +175,42 @@ Item {
         }
     }
 
-    /* --- the four corner caps (declared after the Image: they stack above) --- */
-    Canvas {
-        id: capTL
-        anchors.left: parent.left; anchors.top: parent.top
-        width: root.mauiClipRadius; height: root.mauiClipRadius
-        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                 (root.mauiClipCorners & 1) !== 0
-        onPaint: root.__drawCap(this, 1)
-        onVisibleChanged: if (visible) requestPaint()
-    }
-    Canvas {
-        id: capTR
-        anchors.right: parent.right; anchors.top: parent.top
-        width: root.mauiClipRadius; height: root.mauiClipRadius
-        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                 (root.mauiClipCorners & 2) !== 0
-        onPaint: root.__drawCap(this, 2)
-        onVisibleChanged: if (visible) requestPaint()
-    }
-    Canvas {
-        id: capBR
-        anchors.right: parent.right; anchors.bottom: parent.bottom
-        width: root.mauiClipRadius; height: root.mauiClipRadius
-        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                 (root.mauiClipCorners & 4) !== 0
-        onPaint: root.__drawCap(this, 4)
-        onVisibleChanged: if (visible) requestPaint()
-    }
-    Canvas {
-        id: capBL
-        anchors.left: parent.left; anchors.bottom: parent.bottom
-        width: root.mauiClipRadius; height: root.mauiClipRadius
-        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 &&
-                 (root.mauiClipCorners & 8) !== 0
-        onPaint: root.__drawCap(this, 8)
-        onVisibleChanged: if (visible) requestPaint()
-    }
-
-    // A surround-color change needs an explicit repaint; visibility/size repaint via bindings.
-    onMauiClipColorChanged: {
-        capTL.requestPaint(); capTR.requestPaint();
-        capBR.requestPaint(); capBL.requestPaint();
-    }
-
-    // Concave corner: the R×R square minus the quarter disc, mirrored into the requested corner.
-    function __drawCap(cap, corner) {
-        var ctx = cap.getContext("2d");
-        ctx.reset();
-        var r = root.mauiClipRadius;
-        if (r <= 0)
-            return;
-        var c = root.mauiClipColor;
-        ctx.fillStyle = "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) +
-                        "," + Math.round(c.b * 255) + "," + c.a + ")";
-        ctx.save();
-        if (corner === 2 || corner === 4) {
-            ctx.translate(cap.width, 0);
-            ctx.scale(-1, 1);
+    /* --- the corner caps (declared after the Image: they stack above): a rounded frame in the surround colour
+     * grown past the image, sides with no covered corner pushed out of view; a second frame draws the stroke --- */
+    Item {
+        id: caps
+        anchors.fill: parent
+        visible: root.mauiClipRadius > 0 && root.mauiClipColor.a > 0 && root.mauiClipCorners !== 0
+        readonly property real r: root.mauiClipRadius
+        readonly property int c: root.mauiClipCorners
+        readonly property real eL: (c & 9) !== 0 ? 0 : 2 * r
+        readonly property real eR: (c & 6) !== 0 ? 0 : 2 * r
+        readonly property real eT: (c & 3) !== 0 ? 0 : 2 * r
+        readonly property real eB: (c & 12) !== 0 ? 0 : 2 * r
+        Rectangle {
+            x: -caps.r - caps.eL
+            y: -caps.r - caps.eT
+            width: caps.width + 2 * caps.r + caps.eL + caps.eR
+            height: caps.height + 2 * caps.r + caps.eT + caps.eB
+            radius: 2 * caps.r
+            color: "transparent"
+            border.width: caps.r
+            border.color: root.mauiClipColor
+            antialiasing: true
         }
-        if (corner === 4 || corner === 8) {
-            ctx.translate(0, cap.height);
-            ctx.scale(1, -1);
+        Rectangle {
+            readonly property real w: root.mauiClipStrokeWidth
+            visible: w > 0 && root.mauiClipStroke.a > 0
+            x: -w - caps.eL
+            y: -w - caps.eT
+            width: caps.width + 2 * w + caps.eL + caps.eR
+            height: caps.height + 2 * w + caps.eT + caps.eB
+            radius: caps.r + w
+            color: "transparent"
+            border.width: w
+            border.color: root.mauiClipStroke
+            antialiasing: true
         }
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(r, 0);
-        ctx.arc(r, r, r, -Math.PI / 2, Math.PI, true);   // (r,0) -> (0,r)
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
     }
 
     // Tap surface: last child so it wins the press over the bitmap and caps.

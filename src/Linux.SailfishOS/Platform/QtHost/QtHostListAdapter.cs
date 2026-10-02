@@ -126,6 +126,21 @@ internal sealed class QtHostListAdapter
 			return Rows.Count > 1 ? extent + (Rows.Count - 1) * SpacingDp : extent;
 		}
 	}
+
+	/// <summary>A horizontal list's tallest item measured without a height bound (dp): its height when nothing bounds
+	/// it across the scroll axis (an Auto grid row), as a wrap_content RecyclerView takes its tallest child.</summary>
+	internal double CrossExtentDp
+	{
+		get
+		{
+			double extent = 0;
+			foreach (var row in Rows)
+				extent = Math.Max(extent, row.NaturalCrossDp);
+			return extent;
+		}
+	}
+
+	private double _measuredCrossDp;
 	public readonly Dictionary<object, Queue<Row>> Reusable = new(ReferenceEqualityComparer.Instance);   // RebuildRows scratch
 	public readonly Dictionary<string, DgState> Delegates = new(StringComparer.Ordinal);
 	public readonly Dictionary<long, DgState> ByHandle = new();   // ListView recycles+renames delegates
@@ -349,11 +364,16 @@ internal sealed class QtHostListAdapter
 					Reusable[oldItem] = queue = new Queue<Row>();
 				queue.Enqueue(old);
 			}
+		var previous = Rows.ToList();
 		Rows.Clear();
 		LastWidthDp = widthDp;
 		RowsDirty = false;
 
 		ReadLayout();   // layout props may have changed without a reconcile
+		// Horizontal items are arranged across the list's height: a list that grew (an Auto row taking its tallest
+		// item) lays every item out again rather than keeping rows arranged for the old height.
+		if ((Horizontal || Carousel) && Math.Abs(Host.MauiLogicalBounds.Height - LastCrossDp) > 0.5)
+			Reusable.Clear();
 		LastCrossDp = Host.MauiLogicalBounds.Height;
 		var span = Math.Max(1, Span);
 		// The cells share the cross axis: the width of a vertical grid, the height of a horizontal one.
@@ -365,32 +385,16 @@ internal sealed class QtHostListAdapter
 		var view = View;
 		var grouped = view is GroupableItemsView { IsGrouped: true } gv ? gv : null;
 		var items = view.ItemsSource;
-		if (items is not null)
+		_renderer.LayoutRequestHold++;
+		try
 		{
-			if (grouped is not null)
-			{
-				var groupIndex = -1;
-				foreach (var group in items)
-				{
-					groupIndex++;
-					if (group is not IEnumerable groupItems)
-						continue;
-					AddTemplateRow(grouped.GroupHeaderTemplate, group, KindGroupHeader, groupIndex, widthDp);
-					AddItemRows(groupItems, groupIndex);
-					AddTemplateRow(grouped.GroupFooterTemplate, group, KindGroupFooter, groupIndex, widthDp);
-					if (group is INotifyCollectionChanged groupIncc)
-					{
-						NotifyCollectionChangedEventHandler handler = (_, _) => QueueInvalidate();
-						groupIncc.CollectionChanged += handler;
-						GroupSubs.Add((groupIncc, handler));
-					}
-				}
-			}
-			else
-			{
-				AddItemRows(items, -1);
-			}
+			BuildRows(items, grouped, widthDp);
 		}
+		finally
+		{
+			_renderer.LayoutRequestHold--;
+		}
+		ReleaseRowViews(previous, keep: Rows);
 
 		// RemainingItemsThreshold counts flat items, not rows.
 		TotalItems = 0;
@@ -425,9 +429,10 @@ internal sealed class QtHostListAdapter
 		SlotsDirty = true;
 		// A list measured without a bound along its scroll axis (in a StackLayout or ScrollView) sizes to its rows,
 		// as RecyclerView/UICollectionView do; its first measure ran before the rows existed.
-		if (Math.Abs(ContentExtentDp - _measuredExtentDp) > 0.5)
+		if (Math.Abs(ContentExtentDp - _measuredExtentDp) > 0.5 || Math.Abs(CrossExtentDp - _measuredCrossDp) > 0.5)
 		{
 			_measuredExtentDp = ContentExtentDp;
+			_measuredCrossDp = CrossExtentDp;
 			((Microsoft.Maui.IView)View).InvalidateMeasure();
 		}
 		_bridge.SchedulePending();
@@ -491,6 +496,8 @@ internal sealed class QtHostListAdapter
 				cell = 0;
 			}
 			var itemView = CreateItemView(item);
+			if (itemView is not null && Horizontal && !Carousel && span == 1)
+				row.NaturalCrossDp = Math.Max(row.NaturalCrossDp, NaturalHeight(itemView));
 			var height = itemView is null ? 0 : MeasureItemExtent(itemView, cellWidth);
 			row.CellViews.Add(itemView);
 			row.CellItems.Add(item);
@@ -521,7 +528,7 @@ internal sealed class QtHostListAdapter
 		if (template is null)
 			return;
 		var row = NewRow(kind, groupIndex, -1);
-		var view = CreateFromTemplate(template, context);
+		var view = AdoptRowView(CreateFromTemplate(template, context));
 		var height = view is null ? 0 : _bridge.MeasureItemView(view, widthDp);
 		row.CellViews.Add(view);
 		row.CellItems.Add(context);
@@ -540,9 +547,78 @@ internal sealed class QtHostListAdapter
 	{
 		var template = View.ItemTemplate;
 		if (template is not null)
-			return CreateFromTemplate(template, item);
+			return AdoptRowView(CreateFromTemplate(template, item));
 		// No template: MAUI shows ToString() — mirror that with a plain label.
-		return item is null ? null : new Label { Text = item.ToString() ?? string.Empty };
+		return item is null ? null : AdoptRowView(new Label { Text = item.ToString() ?? string.Empty });
+	}
+
+	private void BuildRows(IEnumerable? items, GroupableItemsView? grouped, double widthDp)
+	{
+		if (items is not null)
+		{
+			if (grouped is not null)
+			{
+				var groupIndex = -1;
+				foreach (var group in items)
+				{
+					groupIndex++;
+					if (group is not IEnumerable groupItems)
+						continue;
+					AddTemplateRow(grouped.GroupHeaderTemplate, group, KindGroupHeader, groupIndex, widthDp);
+					AddItemRows(groupItems, groupIndex);
+					AddTemplateRow(grouped.GroupFooterTemplate, group, KindGroupFooter, groupIndex, widthDp);
+					if (group is INotifyCollectionChanged groupIncc)
+					{
+						NotifyCollectionChangedEventHandler handler = (_, _) => QueueInvalidate();
+						groupIncc.CollectionChanged += handler;
+						GroupSubs.Add((groupIncc, handler));
+					}
+				}
+			}
+			else
+			{
+				AddItemRows(items, -1);
+			}
+		}
+	}
+
+	private double NaturalHeight(View view)
+	{
+		try
+		{
+			QtHostLayout.AttachHandlers(view, _renderer.MauiContext);
+			return Math.Max(0, ((Microsoft.Maui.IView)view).Measure(double.PositiveInfinity, double.PositiveInfinity).Height);
+		}
+		catch (Exception ex)
+		{
+			QtHostDiag.Error(QtHostDiagChannel.Geometry, $"collection item measure failed: {ex.Message}");
+			return 0;
+		}
+	}
+
+	/// <summary>
+	/// A row's view is a logical child of the ItemsView while its row lives, as the Android and iOS handlers add it:
+	/// {RelativeSource AncestorType=…} bindings in item templates (a page model's command, its IsBusy) resolve
+	/// through the parent chain. Unparented, DeveloperBalance's project cards kept their shimmer on over the content.
+	/// </summary>
+	private View? AdoptRowView(View? view)
+	{
+		if (view is not null && view.Parent is null)
+			View.AddLogicalChild(view);
+		return view;
+	}
+
+	private void ReleaseRowViews(IEnumerable<Row> rows, IReadOnlyCollection<Row>? keep = null)
+	{
+		var kept = keep is null ? null : new HashSet<Row>(keep, ReferenceEqualityComparer.Instance);
+		foreach (var row in rows)
+		{
+			if (kept is not null && kept.Contains(row))
+				continue;
+			foreach (var view in row.CellViews)
+				if (view is not null && ReferenceEquals(view.Parent, View))
+					View.RemoveLogicalChild(view);
+		}
 	}
 
 	/// a carousel page is the viewport minus the peek insets.</summary>
@@ -1237,6 +1313,8 @@ internal sealed class QtHostListAdapter
 			foreach (var recognizer in view.GestureRecognizers)
 				if (recognizer is TapGestureRecognizer)
 					return true;
+			if (view is ItemsView)
+				return false;
 			foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
 				if (child is View v && HasTap(v))
 					return true;
@@ -1260,6 +1338,8 @@ internal sealed class QtHostListAdapter
 		for (var descended = true; descended;)
 		{
 			descended = false;
+			if (hit is ItemsView)
+				break;   // a nested list hit-tests its own rows
 			var children = ((IVisualTreeElement)hit).GetVisualChildren();
 			for (var i = children.Count - 1; i >= 0; i--)
 			{
@@ -1497,6 +1577,7 @@ internal sealed class QtHostListAdapter
 		}
 		Slots.Clear();
 		UnsubscribeList();
+		ReleaseRowViews(Rows);
 		Rows.Clear();
 		SelectedCells.Clear();
 		LastRowsJson = string.Empty;

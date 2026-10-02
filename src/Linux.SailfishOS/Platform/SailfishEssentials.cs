@@ -58,7 +58,23 @@ public static class SailfishEssentials
 		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.IEmail>(sp => sp.GetRequiredService<SailfishCommunication>());
 		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.ISms>(sp => sp.GetRequiredService<SailfishCommunication>());
 		services.TryAddSingleton<IMap>(sp => sp.GetRequiredService<SailfishCommunication>());
+		// MAUI registers its reference-assembly reader (it throws on Announce) before this runs; an app's own wins.
+		var reader = services.FirstOrDefault(d => d.ServiceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader));
+		if (reader is null || IsMauiDefault(reader))
+		{
+			if (reader is not null)
+				services.Remove(reader);
+			services.AddSingleton<Microsoft.Maui.Accessibility.ISemanticScreenReader, SailfishSemanticScreenReader>();
+		}
 		return services;
+	}
+
+	/// <summary>A registration of MAUI's own Essentials default (its reference assembly), not the app's.</summary>
+	private static bool IsMauiDefault(ServiceDescriptor descriptor)
+	{
+		var type = descriptor.IsKeyedService ? null
+			: descriptor.ImplementationInstance?.GetType() ?? descriptor.ImplementationType;
+		return type is not null && type.Assembly == descriptor.ServiceType.Assembly;
 	}
 
 	[DynamicDependency("SetDefault", typeof(Clipboard))]
@@ -74,6 +90,7 @@ public static class SailfishEssentials
 	[DynamicDependency("SetCurrent", typeof(Microsoft.Maui.Networking.Connectivity))]
 	[DynamicDependency("SetDefault", typeof(Vibration))]
 	[DynamicDependency("SetDefault", typeof(HapticFeedback))]
+	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Accessibility.SemanticScreenReader))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Devices.Sensors.Accelerometer))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Devices.Sensors.Gyroscope))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Devices.Sensors.Magnetometer))]
@@ -122,6 +139,7 @@ public static class SailfishEssentials
 		Hook(typeof(Microsoft.Maui.Networking.Connectivity), "SetCurrent", services.GetService(typeof(Microsoft.Maui.Networking.IConnectivity)));
 		Hook(typeof(Vibration), "SetDefault", services.GetService(typeof(IVibration)));
 		Hook(typeof(HapticFeedback), "SetDefault", services.GetService(typeof(IHapticFeedback)));
+		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault", services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
 		Hook(typeof(Microsoft.Maui.Devices.Sensors.Accelerometer), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IAccelerometer)));
 		Hook(typeof(Microsoft.Maui.Devices.Sensors.Gyroscope), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IGyroscope)));
 		Hook(typeof(Microsoft.Maui.Devices.Sensors.Magnetometer), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IMagnetometer)));

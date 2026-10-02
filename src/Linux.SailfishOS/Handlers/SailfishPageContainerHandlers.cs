@@ -17,6 +17,10 @@ internal interface ISailfishPageContainer
 	/// <summary>The tab bar shown with the stack's root page; null = none.</summary>
 	(List<string> Titles, int Index, Action<int> Select)? Tabs { get; }
 
+	/// <summary>A second row under <see cref="Tabs"/> (a Shell section's contents when the item has several sections);
+	/// null = none.</summary>
+	(List<string> Titles, int Index, Action<int> Select)? SubTabs => null;
+
 	/// <summary>Pulley entries that open the container's flyout from <paramref name="shown"/> (its stack root).</summary>
 	IEnumerable<(string Text, bool Enabled, Action Activate)> FlyoutMenu(Page shown);
 
@@ -173,7 +177,15 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 /// contents as tabs, the flyout items as the pulley menu.</summary>
 public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 {
-	private readonly EventHandler<ShellNavigatedEventArgs> _onNavigated = (_, _) => QtHostPageRenderer.RequestPoll();
+	private readonly EventHandler<ShellNavigatedEventArgs> _onNavigated = (_, _) =>
+	{
+		Platform.SailfishServiceOverlay.RoutePageNavigation = false;
+		QtHostPageRenderer.RequestPoll();
+	};
+
+	// Shell raises Navigating before it builds a pushed route page: only those pages come from the service overlay.
+	private readonly EventHandler<ShellNavigatingEventArgs> _onNavigating = (_, e) =>
+		Platform.SailfishServiceOverlay.RoutePageNavigation = e.Source is ShellNavigationSource.Push or ShellNavigationSource.Insert;
 
 	private Shell? ShellView => ((IElementHandler)this).VirtualView as Shell;
 
@@ -181,13 +193,19 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 	{
 		base.ConnectHandler(platformView);
 		if (ShellView is { } shell)
+		{
+			shell.Navigating += _onNavigating;
 			shell.Navigated += _onNavigated;
+		}
 	}
 
 	protected override void DisconnectHandler(object platformView)
 	{
 		if (ShellView is { } shell)
+		{
+			shell.Navigating -= _onNavigating;
 			shell.Navigated -= _onNavigated;
+		}
 		base.DisconnectHandler(platformView);
 	}
 
@@ -224,16 +242,35 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 			if (sections.Count > 1)
 				return (sections.Select(sec => sec.Title ?? string.Empty).ToList(),
 					Math.Max(0, IndexOf(sections, item.CurrentItem)),
-					i => { if (i >= 0 && i < sections.Count) item.CurrentItem = sections[i]; });
+					// As the platform tab bars switch: ProposeSection runs Shell's navigation (Navigating/Navigated, the page's
+					// NavigatedTo) before setting CurrentItem; a bare assignment skipped the page events.
+					i => { if (i >= 0 && i < sections.Count) ((IShellItemController)item).ProposeSection(sections[i], true); });
 			if (item.CurrentItem is { } section)
 			{
 				var contents = ((IShellSectionController)section).GetItems();
 				if (contents.Count > 1)
 					return (contents.Select(c => c.Title ?? string.Empty).ToList(),
 						Math.Max(0, IndexOf(contents, section.CurrentItem)),
-						i => { if (i >= 0 && i < contents.Count) section.CurrentItem = contents[i]; });
+						i => SelectContent(section, contents, i));
 			}
 			return null;
+		}
+	}
+
+	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.SubTabs
+	{
+		get
+		{
+			// Bottom tabs are the sections; a section's own contents are its top tabs (Profitocracy: All / Recurring).
+			if (ShellView?.CurrentItem is not { } item || ((IShellItemController)item).GetItems().Count < 2 ||
+			    item.CurrentItem is not { } section)
+				return null;
+			var contents = ((IShellSectionController)section).GetItems();
+			if (contents.Count < 2)
+				return null;
+			return (contents.Select(c => c.Title ?? string.Empty).ToList(),
+				Math.Max(0, IndexOf(contents, section.CurrentItem)),
+				i => SelectContent(section, contents, i));
 		}
 	}
 
@@ -272,11 +309,24 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 			{
 				if (section.Navigation.NavigationStack.Any(p => p is not null && SailfishPageContainers.Holds(p, page, MauiContext)))
 					return true;
+				// A ContentTemplate page lives in the controller's Page; Content stays the template's null.
 				foreach (var content in section.Items)
-					if (content.Content is Page realized && SailfishPageContainers.Holds(realized, page, MauiContext))
+					if ((((IShellContentController)content).Page ?? content.Content as Page) is { } realized &&
+					    SailfishPageContainers.Holds(realized, page, MauiContext))
 						return true;
 			}
 		return false;
+	}
+
+	/// <summary>A section's content as Android's ShellSectionRenderer selects it: proposed to Shell first, so the
+	/// switch is a navigation (Navigating/Navigated, the page's NavigatedTo).</summary>
+	private void SelectContent(ShellSection section, IReadOnlyList<ShellContent> contents, int i)
+	{
+		if (i < 0 || i >= contents.Count || ShellView is not IShellController shell)
+			return;
+		if (shell.ProposeNavigation(ShellNavigationSource.ShellContentChanged, section.Parent as ShellItem, section, contents[i],
+		        section.Stack, true))
+			section.SetValueFromRenderer(ShellSection.CurrentItemProperty, contents[i]);
 	}
 
 	private static int IndexOf<T>(IReadOnlyList<T> list, T? value) where T : class

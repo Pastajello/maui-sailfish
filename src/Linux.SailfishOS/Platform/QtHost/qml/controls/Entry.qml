@@ -37,6 +37,14 @@ TextField {
     property real mauiLetterSpacing: 0
     // BackgroundColor/Background set: no Silica underline (the fill comes from mauiBackgroundFill).
     property bool mauiNoUnderline: false
+    // A borderless field without a placeholder has nothing to show in Silica's label line under the text; without it
+    // the text sits in the middle of the field, as an Android EditText's does (DeveloperBalance's category rows).
+    readonly property bool mauiBare: mauiNoUnderline && placeholderText.length === 0
+    labelVisible: !mauiBare
+    onMauiBareChanged: { labelVisible = !mauiBare && !__mauiCompact; InputJs.applyCompact(root) }
+    // Silica indents the text by the page margin on each side; a narrow field (MoneyFox's 50 dp stepper value) kept no
+    // room for the text at all. The margin shrinks with the field, down to Theme.paddingSmall.
+    textMargin: Math.min(Theme.horizontalPageMargin, Math.max(Theme.paddingSmall, width / 8))
     backgroundStyle: mauiNoUnderline ? TextEditor.NoBackground : TextEditor.UnderlineBackground
 
     Binding { target: root; property: "color"; value: root.mauiColor; when: root.mauiColor.a > 0 }

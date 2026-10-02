@@ -25,7 +25,9 @@ public class DispatcherTests
 		{
 			try
 			{
+				SailfishDispatcherProvider.BindLoopThread();
 				var inCallback = ResolveInOwnContext(provider).GetAwaiter().GetResult();
+				Assert.NotNull(inCallback);
 				Assert.Same(inCallback, provider.GetForCurrentThread());
 			}
 			catch (Exception ex)
@@ -38,16 +40,45 @@ public class DispatcherTests
 		Assert.Null(failure);
 	}
 
+	// Profitocracy: its AppShell was built on a pool thread (after an await) and kept that thread's dispatcher, a queue
+	// nothing drained, so Shell's own DispatchAsync never ran and every back gesture's pop hung.
 	[Fact]
-	public void Other_threads_get_their_own_dispatcher()
+	public void Only_a_loop_thread_has_a_dispatcher()
 	{
 		var provider = new SailfishDispatcherProvider();
-		IDispatcher? other = null;
-		var thread = new Thread(() => other = provider.GetForCurrentThread());
+		IDispatcher? pool = new SailfishDispatcher(), loop = null;
+		var thread = new Thread(() =>
+		{
+			pool = provider.GetForCurrentThread();
+			loop = SailfishDispatcherProvider.BindLoopThread();
+		});
 		thread.Start();
 		thread.Join();
-		Assert.NotNull(other);
-		Assert.NotSame(other, provider.GetForCurrentThread());
+		Assert.Null(pool);
+		Assert.NotNull(loop);
+	}
+
+	[Fact]
+	public void An_element_built_off_the_loop_thread_dispatches_to_the_loop()
+	{
+		var loop = SailfishDispatcherProvider.BindLoopThread();
+		DispatcherProvider.SetCurrent(new SailfishDispatcherProvider());
+		try
+		{
+			var app = new Microsoft.Maui.Controls.Application();
+			Microsoft.Maui.Controls.Application.Current = app;
+			Microsoft.Maui.Controls.ContentPage? page = null;
+			var thread = new Thread(() => page = new Microsoft.Maui.Controls.ContentPage());
+			thread.Start();
+			thread.Join();
+
+			Assert.Same(loop, page!.Dispatcher);
+		}
+		finally
+		{
+			Microsoft.Maui.Controls.Application.Current = null;
+			DispatcherProvider.SetCurrent(null);
+		}
 	}
 }
 
@@ -68,6 +99,7 @@ public class DispatcherProviderOverlayTests
 		builder.UseMauiApp<TestApp>();
 		using var app = builder.Build();
 		var overlay = new SailfishServiceOverlay(app.Services);
+		SailfishDispatcherProvider.BindLoopThread();
 		try
 		{
 			DispatcherProvider.SetCurrent((IDispatcherProvider)overlay.GetService(typeof(IDispatcherProvider))!);
@@ -93,6 +125,7 @@ public class DispatcherProviderOverlayTests
 	public void A_plain_maui_app_container_injects_the_sailfish_dispatcher()
 	{
 		SailfishMauiApplication.InstallDispatcherProvider();
+		SailfishDispatcherProvider.BindLoopThread();   // as Run does on the Qt thread
 		try
 		{
 			var builder = Microsoft.Maui.Hosting.MauiApp.CreateBuilder();

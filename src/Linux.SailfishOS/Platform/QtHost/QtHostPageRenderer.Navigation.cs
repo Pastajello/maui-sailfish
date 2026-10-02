@@ -346,9 +346,11 @@ public sealed partial class QtHostPageRenderer
 			if (_navOp is not null && QtHostDiag.TraceEnabled)
 				QtHostDiag.Trace(QtHostDiagChannel.Navigation,
 					$"navigation {_navOp} waits: busy={busy} dialog={_dialogTcs is not null} flyout={_openFlyout is not null}");
+			_nativeTopUnfollowed = topId.Length > 0 && NativeTopPageId is { } waitingTop && topId != waitingTop;
 			return;
 		}
 		StepNavigation(ids, topModel, version);
+		_nativeTopUnfollowed = false;
 	}
 
 	/// <summary>
@@ -375,6 +377,7 @@ public sealed partial class QtHostPageRenderer
 		_renderedTitle = string.Empty;
 		_renderedBusy = string.Empty;
 		_renderedBack = string.Empty;
+		_renderedScheme = string.Empty;
 		_renderedBackground = string.Empty;
 		_lastScrollPush = string.Empty;
 		_layoutDirty = true;

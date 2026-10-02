@@ -28,9 +28,14 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private SailfishConnectivity? _connectivity;
 	private SailfishVibration? _vibration;
 	private SailfishHapticFeedback? _haptics;
+	private SailfishSemanticScreenReader? _screenReader;
 	private readonly Dictionary<Type, object> _f4 = new();
 	private QtHostAlertSubscription? _alertSubscription;
 	private SailfishModalNavigationPlatformFactory? _modalFactory;
+
+	/// <summary>A Shell push or insert is under way (SailfishShellHandler, between Navigating and Navigated): the
+	/// route pages it builds get their handlers as they join the stack.</summary>
+	internal static bool RoutePageNavigation;
 
 	public SailfishServiceOverlay(IServiceProvider inner) =>
 		_inner = inner ?? throw new ArgumentNullException(nameof(inner));
@@ -51,6 +56,16 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 			return ((IDispatcherProvider)GetService(typeof(IDispatcherProvider))!).GetForCurrentThread();
 
 		var existing = registered.GetService(serviceType);
+
+		// MAUI builds Shell route pages through these services (ActivatorUtilities.GetServiceOrCreateInstance). The
+		// plain-net Controls report Loaded as soon as the page joins the window, which here is before the renderer
+		// attached any handler, so a Loaded handler touching one (WhatToEat: searchBar.SetSemanticFocus()) threw inside
+		// MAUI's push and aborted it half way. Only during a pushed route navigation: a ShellContent whose page comes
+		// from the services marks it service-created and rebuilds it every time its section is shown again
+		// (DeveloperBalance's dashboard re-ran its selection command and crashed it).
+		if (existing is null && RoutePageNavigation && !serviceType.IsAbstract &&
+			typeof(Microsoft.Maui.Controls.Page).IsAssignableFrom(serviceType) && QtHostPageRenderer.Current is { } renderer)
+			return CreatePage(serviceType, registered, renderer.MauiContext);
 
 		if (serviceType == typeof(IDispatcherProvider))
 		{
@@ -94,6 +109,11 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 			return existing ?? (_vibration ??= new SailfishVibration());
 		if (serviceType == typeof(Microsoft.Maui.Devices.IHapticFeedback))
 			return existing ?? (_haptics ??= new SailfishHapticFeedback());
+		// MAUI registers its own reference-assembly reader (it throws); only an app's registration wins.
+		if (serviceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader))
+			return existing is not null && existing.GetType().Assembly != serviceType.Assembly
+				? existing
+				: _screenReader ??= new SailfishSemanticScreenReader();
 		if (existing is null && CreateF4(serviceType) is { } created)
 			return created;
 		if (existing is not null)
@@ -133,6 +153,39 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 		if (created is not null)
 			_f4[serviceType] = created;
 		return created;
+	}
+
+	/// <summary>The page ActivatorUtilities would create, with its handlers attached as it gets a parent: before the
+	/// window reaches it and Loaded fires, as on the platforms whose Loaded waits for the native view.</summary>
+	private Microsoft.Maui.Controls.Page? CreatePage(Type pageType, IServiceProvider registered, IMauiContext context)
+	{
+		Microsoft.Maui.Controls.Page page;
+		try
+		{
+			page = (Microsoft.Maui.Controls.Page)Microsoft.Extensions.DependencyInjection.ActivatorUtilities.CreateInstance(
+				new ResolvingProvider(this, registered), pageType);
+		}
+		catch (InvalidOperationException)
+		{
+			return null;   // a constructor the services cannot satisfy: the caller's own fallback reports it
+		}
+		EventHandler<Microsoft.Maui.Controls.ParentChangingEventArgs>? onParenting = null;
+		onParenting = (_, e) =>
+		{
+			if (e.NewParent is null)
+				return;
+			page.ParentChanging -= onParenting;
+			if (page.Handler is null)
+				QtHostLayout.AttachHandlers(page, context);
+		};
+		page.ParentChanging += onParenting;
+		return page;
+	}
+
+	/// <summary>Constructor arguments resolve through the overlay over the same registrations.</summary>
+	private sealed class ResolvingProvider(SailfishServiceOverlay overlay, IServiceProvider registered) : IServiceProvider
+	{
+		public object? GetService(Type serviceType) => overlay.Resolve(serviceType, registered);
 	}
 
 	/// <summary>One instance serving several interfaces.</summary>

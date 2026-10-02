@@ -61,6 +61,18 @@ internal sealed class FakeShim : IQtHostShim
 		{
 			return JsonSerializer.Serialize(new NavState(Pages, StackBusy, true, true, 4), NavStateContext.Default.NavState);
 		}
+		// The stray sweep (MauiModelPage.__destroyHostsNotIn): hosts on the top page that managed no longer knows.
+		var sweep = expression.IndexOf("__destroyHostsNotIn(", StringComparison.Ordinal);
+		if (sweep >= 0)
+		{
+			var known = JsonSerializer.Deserialize<string[]>(ReadJsString(expression, sweep + "__destroyHostsNotIn(".Length)) ?? [];
+			foreach (var obj in Objects.Where(o => o.Page == Pages[^1] && !known.Contains(o.Id)).ToList())
+			{
+				obj.Destroyed = true;
+				Destroys++;
+			}
+			return string.Empty;
+		}
 		var push = expression.IndexOf("pageStack.push(window.mauiPageUrl,{mauiPageId:'", StringComparison.Ordinal);
 		if (push >= 0)
 		{

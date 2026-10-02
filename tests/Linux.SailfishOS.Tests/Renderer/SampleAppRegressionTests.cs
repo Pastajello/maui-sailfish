@@ -76,6 +76,55 @@ public class SampleAppRegressionTests
 		Assert.Equal("After", h.Shim.ByUri("label").Single().Text("text"));
 	}
 
+	// DeveloperBalance: SfTextInputLayout draws its outline and hint (IDrawable) around the Entry it lays out; with the
+	// empty fallback the forms lost their labels.
+	private sealed class DrawnLibraryView : ContentView, Microsoft.Maui.Graphics.IDrawable
+	{
+		public void Draw(Microsoft.Maui.Graphics.ICanvas canvas, Microsoft.Maui.Graphics.RectF dirtyRect)
+		{
+			canvas.StrokeColor = Colors.Gray;
+			canvas.DrawRoundedRectangle(dirtyRect, 4);
+			canvas.DrawString("Task", 8, 4, Microsoft.Maui.Graphics.HorizontalAlignment.Left);
+		}
+	}
+
+	private sealed class PlainNetDrawnHandler : ViewHandler<DrawnLibraryView, object>
+	{
+		public PlainNetDrawnHandler() : base(new PropertyMapper<DrawnLibraryView, PlainNetDrawnHandler>())
+		{
+		}
+
+		protected override object CreatePlatformView() => throw new NotImplementedException();
+	}
+
+	[Fact]
+	public void A_self_drawing_library_view_renders_its_drawing_under_its_children()
+	{
+		var builder = MauiApp.CreateBuilder(useDefaults: false);
+		builder.UseMauiAppSailfish<TestApp>();
+		builder.ConfigureMauiHandlers(handlers => handlers.AddHandler<DrawnLibraryView, PlainNetDrawnHandler>());
+		using var app = builder.Build();
+		var library = new DrawnLibraryView { HeightRequest = 60, Content = new Entry { Text = "Survey" } };
+		using var h = new RendererHarness(Page(library), app.Services);
+		for (var i = 0; i < 3; i++)
+			h.Poll();
+
+		Assert.IsType<SailfishDrawnViewHandler>(library.Handler);
+		var drawn = h.Shim.ByUri("drawn-view").Single();
+		Assert.True(drawn.Props["mauiCommands"].GetArrayLength() > 0);
+		Assert.Equal("Survey", h.Shim.ByUri("entry").Single().Text("text"));
+	}
+
+	// DeveloperBalance Manage Meta: Entries in a grid row stretched by a button showed their text at the top; MAUI's
+	// Entry centres by default (an Editor starts at the top).
+	[Fact]
+	public void An_entry_centres_its_text_by_default_and_an_editor_does_not()
+	{
+		Assert.Equal("center", QtHostPageRenderer.TextStyleProps(new Entry())["mauiVAlign"]);
+		Assert.Equal(string.Empty, QtHostPageRenderer.TextStyleProps(new Editor())["mauiVAlign"]);
+		Assert.Equal("bottom", QtHostPageRenderer.TextStyleProps(new Editor { VerticalTextAlignment = TextAlignment.End })["mauiVAlign"]);
+	}
+
 	// WeightTracker: UraniumUI registers StatefulButtonHandler : ButtonHandler for every Button (and Plainer an
 	// EntryHandler subclass for its EntryView); their plain-net bases throw, and every button vanished.
 	private sealed class LibraryButtonHandler : ButtonHandler
@@ -247,6 +296,71 @@ public class SampleAppRegressionTests
 		Assert.Equal(adapter.ContentExtentDp, list.Height, 1);
 	}
 
+	// DeveloperBalance: project cards bind their SfShimmer's IsActive to the page model through
+	// {RelativeSource AncestorType}; the row views had no parent, the binding never resolved and the shimmer hid
+	// the content. Android and iOS add item views as the ItemsView's logical children.
+	[Fact]
+	public void Item_views_resolve_ancestor_bindings_and_leave_with_their_rows()
+	{
+		var list = new CollectionView
+		{
+			ItemsSource = new[] { "a", "b" },
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var label = new Label();
+				label.SetBinding(Label.TextProperty, new Binding("BindingContext.Name",
+					source: new RelativeBindingSource(RelativeBindingSourceMode.FindAncestor, typeof(ContentPage))));
+				return label;
+			}),
+		};
+		var page = new ContentPage { Title = "T", BindingContext = new { Name = "page model" }, Content = list };
+		using var h = new RendererHarness(page);
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+
+		var adapter = ((SailfishListViewHandler)list.Handler!).Adapter!;
+		var first = Assert.IsType<Label>(adapter.Rows[0].CellViews[0]);
+		Assert.Same(list, first.Parent);
+		Assert.Equal("page model", first.Text);
+		Assert.Equal("a", first.BindingContext);
+
+		list.ItemsSource = new[] { "c" };   // a new source: the old rows' views leave the list
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+
+		Assert.Null(first.Parent);
+		Assert.Single(((IVisualTreeElement)list).GetVisualChildren());
+	}
+
+	// DeveloperBalance: the horizontal project list (MinimumHeightRequest 250) sits in an Auto grid row; it took its
+	// minimum and cut the cards' tags off. A wrap_content RecyclerView takes its tallest item.
+	[Fact]
+	public void A_horizontal_list_in_an_auto_row_takes_its_tallest_item()
+	{
+		var list = new CollectionView
+		{
+			ItemsSource = new[] { "a", "b" },
+			ItemsLayout = LinearItemsLayout.Horizontal,
+			MinimumHeightRequest = 250,
+			ItemTemplate = new DataTemplate(() => new Border
+			{
+				WidthRequest = 200,
+				MinimumHeightRequest = 250,
+				StrokeThickness = 0,
+				Content = new BoxView { HeightRequest = 300 },
+			}),
+		};
+		var grid = new Grid { RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Star) } };
+		grid.Add(list);
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = grid });
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+
+		Assert.Equal(300, list.Height, 1);
+		var card = ((SailfishListViewHandler)list.Handler!).Adapter!.Rows[0].CellViews[0]!;
+		Assert.Equal(300, card.Height, 1);   // the items are laid out again for the list's new height
+	}
+
 	// MoneyFox Menu/Statistics: Cards with a TapGestureRecognizer in an unselectable CollectionView never navigated;
 	// the ListView consumed the press and its delegate only reported taps for selection.
 	[Fact]
@@ -377,6 +491,346 @@ public class SampleAppRegressionTests
 		{
 			File.Delete(icon);
 		}
+	}
+
+	// Profitocracy, Settings → Theme → Light under a dark ambience: the light pages kept a light-on-dark header and tab
+	// row, nearly invisible on the light background.
+	[Fact]
+	public void The_page_palette_follows_the_apps_own_theme()
+	{
+		var app = new TestApp();
+		Application.Current = app;
+		try
+		{
+			app.UserAppTheme = AppTheme.Light;
+			using (var h = new RendererHarness(Page(new Label { Text = "x" })))
+				Assert.True(h.Shim.Ops.Last(op => op.GetProperty("op").GetString() == "scheme").GetProperty("light").GetBoolean());
+			app.UserAppTheme = AppTheme.Dark;
+			using (var h = new RendererHarness(Page(new Label { Text = "x" })))
+				Assert.False(h.Shim.Ops.Last(op => op.GetProperty("op").GetString() == "scheme").GetProperty("light").GetBoolean());
+		}
+		finally
+		{
+			Application.Current = null;
+		}
+	}
+
+	// WeatherTwentyOne: a drag along the hourly forecast (a horizontal ScrollView) switched to the next tab.
+	[Fact]
+	public void A_drag_in_sideways_scrolling_content_is_no_tab_swipe()
+	{
+		var hour = new Label { Text = "11 pm" };
+		_ = new ContentPage { Content = new VerticalStackLayout { Children = { new ScrollView { Orientation = ScrollOrientation.Horizontal, Content = new HorizontalStackLayout { Children = { hour } } } } } };
+		var row = new Label { Text = "Daily" };
+		_ = new ContentPage { Content = new ScrollView { Content = new VerticalStackLayout { Children = { row } } } };
+		var action = new Label { Text = "Delete" };
+		_ = new SwipeView { Content = new Grid { Children = { action } } };
+
+		Assert.True(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostInputRouter.ScrollsSideways(hour));
+		Assert.False(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostInputRouter.ScrollsSideways(row));
+		Assert.True(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostInputRouter.ScrollsSideways(action));
+	}
+
+	// WeatherTwentyOne Settings: the Metric row (a Grid with a TapGestureRecognizer) never got its tap; the page's
+	// stack, whose host was created after the row's, won the hit test.
+	[Fact]
+	public void A_layout_never_takes_the_hit_from_its_own_child()
+	{
+		var metric = new Grid { HeightRequest = 60, Children = { new Label { Text = "Metric" } } };
+		metric.GestureRecognizers.Add(new TapGestureRecognizer());
+		var stack = new VerticalStackLayout { Children = { new Label { Text = "Units" }, metric } };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = stack });
+		stack.BackgroundColor = Colors.DarkBlue;   // now it needs a host of its own, created after the row's
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+
+		Assert.True(h.Renderer.TryFindTapTarget(out _, out var rowBounds));
+		Assert.True(h.Renderer.TryHitTest(rowBounds.Center.X, rowBounds.Center.Y, out var host));
+		var hit = host!.Element as Element;
+		while (hit is not null && !ReferenceEquals(hit, metric))
+			hit = hit.Parent;
+		Assert.True(hit is not null, $"hit {host.Element?.GetType().Name} outside the Metric row");
+	}
+
+	// BugSweeper: a tile flags on a tap and reveals on a double tap (NumberOfTapsRequired 1 and 2); every tap fired the
+	// single recognizer, so a double tap flagged and unflagged the tile and nothing was ever revealed.
+	[Fact]
+	public void A_double_tap_fires_the_double_tap_recognizer_only()
+	{
+		var singles = 0;
+		var doubles = 0;
+		var tile = new BoxView { HeightRequest = 80, WidthRequest = 80, Color = Colors.Blue };
+		var single = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+		single.Tapped += (_, _) => singles++;
+		var @double = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+		@double.Tapped += (_, _) => doubles++;
+		tile.GestureRecognizers.Add(single);
+		tile.GestureRecognizers.Add(@double);
+		using var h = new RendererHarness(Page(tile));
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var loop = SailfishDispatcherProvider.BindLoopThread();
+		var router = new QtHostInputRouter(h.Renderer, loop);
+		Assert.True(h.Renderer.TryFindTapTarget(out _, out var bounds));
+		var x = QtHostUnits.ToQtUnits(bounds.Center.X);
+		var y = QtHostUnits.ToQtUnits(bounds.Center.Y);
+		void Tap()
+		{
+			router.OnPointer(0, x, y, 0, 0);   // mouse press
+			router.OnPointer(1, x, y, 0, 0);   // mouse release
+		}
+
+		Tap();
+		Tap();
+		Thread.Sleep(400);
+		loop.DrainQueue();
+		Assert.Equal((0, 1), (singles, doubles));
+
+		Tap();
+		Thread.Sleep(400);
+		SailfishRuntime.TickDueTimers(DateTime.UtcNow);   // the app loop's timer pump
+		loop.DrainQueue();
+		Assert.Equal((1, 1), (singles, doubles));   // a lone tap fires once the double-tap window has passed
+	}
+
+	// WhatToEat: category tiles (MinimumWidthRequest=150) were as narrow as their text ("Lunch" ~120 dp).
+	[Fact]
+	public void Minimum_and_maximum_requests_bound_the_measured_size()
+	{
+		var lunch = new Button { Text = "Lunch", MinimumWidthRequest = 150 };
+		var capped = new Label { Text = new string('x', 200), MaximumWidthRequest = 100 };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new HorizontalStackLayout { Children = { lunch, capped } } });
+
+		Assert.Equal(150, lunch.DesiredSize.Width, 3);
+		Assert.True(capped.DesiredSize.Width <= 100.001, $"capped {capped.DesiredSize.Width}");
+	}
+
+	// WhatToEat New Recipe: Save's VisualStateManager sets Background per state through AppThemeBinding (Normal white,
+	// Disabled dark gray); with Save disabled the button showed no plate at all.
+	[Fact]
+	public void A_visual_state_background_reaches_a_disabled_button()
+	{
+		var save = new Button();
+		Microsoft.Maui.Controls.Xaml.Extensions.LoadFromXaml(save, """
+			<Button xmlns="http://schemas.microsoft.com/dotnet/2021/maui" Text="Save">
+			    <VisualStateManager.VisualStateGroups>
+			        <VisualStateGroup x:Name="CommonStates" xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+			            <VisualState x:Name="Normal">
+			                <VisualState.Setters>
+			                    <Setter Property="Background" Value="{AppThemeBinding Dark=White, Light=White}" />
+			                </VisualState.Setters>
+			            </VisualState>
+			            <VisualState x:Name="Disabled">
+			                <VisualState.Setters>
+			                    <Setter Property="Background" Value="{AppThemeBinding Dark=DarkGray, Light=DarkGray}" />
+			                    <Setter Property="TextColor" Value="{AppThemeBinding Dark=LightGray, Light=LightGray}" />
+			                </VisualState.Setters>
+			            </VisualState>
+			        </VisualStateGroup>
+			    </VisualStateManager.VisualStateGroups>
+			</Button>
+			""");
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { save } } });
+		var host = h.Shim.ByUri("button").Single();
+		Assert.Equal(Colors.White.ToArgbHex(true).ToLowerInvariant(), host.Text("backgroundColor")?.ToLowerInvariant());
+
+		save.Command = new Command(() => { }, () => false);   // the view model's SaveCommand arrives with the binding
+		h.Poll();
+
+		Assert.False(save.IsEnabled);
+		Assert.Equal(Colors.DarkGray.ToArgbHex(true).ToLowerInvariant(), host.Text("backgroundColor")?.ToLowerInvariant());
+	}
+
+	// WhatToEat New Recipe: the empty name field measured shorter than a filled one (an empty measure fell back to an
+	// estimate), so the first typed character pushed the whole form down.
+	[Fact]
+	public void An_entry_measures_the_same_height_empty_and_filled()
+	{
+		var entry = new Entry { Placeholder = "Recipe Name, Required field" };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { entry } } });
+
+		var empty = SailfishMeasure.TextInput(entry, 400, double.PositiveInfinity).Height;
+		entry.Text = "Test pancakes";
+		var filled = SailfishMeasure.TextInput(entry, 400, double.PositiveInfinity).Height;
+
+		Assert.Equal(empty, filled, 1);
+	}
+
+	// WhatToEat New Recipe: Ingredients and Recipe are Editors with AutoSize="TextChanges"; they stayed three lines
+	// whatever was typed.
+	[Fact]
+	public void An_auto_sized_editor_grows_with_its_text()
+	{
+		var fixedSize = new Editor { Text = string.Join("\n", Enumerable.Range(1, 8).Select(i => $"Step {i}")) };
+		var auto = new Editor { AutoSize = EditorAutoSizeOption.TextChanges };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { fixedSize, auto } } });
+
+		var empty = SailfishMeasure.Editor(auto, 400, double.PositiveInfinity).Height;
+		auto.Text = string.Join(" ", Enumerable.Repeat("Mix the flour, eggs and milk.", 12));
+		var long_ = SailfishMeasure.Editor(auto, 400, double.PositiveInfinity).Height;
+
+		Assert.True(long_ > empty, $"auto-sized {long_} vs empty {empty}");
+		Assert.Equal(empty, SailfishMeasure.Editor(fixedSize, 400, double.PositiveInfinity).Height, 1);   // AutoSize off: three lines
+	}
+
+	// WhatToEat New Recipe: typing the name enables Save (Entry.Text → view model → CanExecute → IsEnabled), all inside
+	// the native write-back; the push was dropped there and Save stayed disabled until the 2 s heartbeat.
+	[Fact]
+	public void A_button_enabled_by_typing_updates_without_waiting_for_the_heartbeat()
+	{
+		var entry = new Entry();
+		string? name = null;
+		var save = new Button { Text = "Save" };
+		var command = new Command(() => { }, () => !string.IsNullOrEmpty(name));
+		save.Command = command;
+		entry.TextChanged += (_, e) => { name = e.NewTextValue; command.ChangeCanExecute(); };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { entry, save } } });
+		var button = h.Shim.ByUri("button").Single();
+		Assert.False(button.Props["enabled"].GetBoolean());
+		var kicks = 0;
+		var previous = QtHostPageRenderer.NavigationKick;
+		var loop = SailfishDispatcherProvider.BindLoopThread();
+		QtHostPageRenderer.NavigationKick = () => { kicks++; loop.Dispatch(h.Renderer.KickedPoll); };
+		try
+		{
+			h.Renderer.HandleNativeEvent("text-changed", $"{{\"id\":\"{h.Shim.ByUri("entry").Single().Id}\",\"text\":\"T\"}}");
+			loop.DrainQueue();   // the next loop turn, no heartbeat
+
+			Assert.True(save.IsEnabled);
+			Assert.True(kicks > 0, "the dropped push asked for no sync");
+			Assert.True(button.Props["enabled"].GetBoolean());
+		}
+		finally
+		{
+			QtHostPageRenderer.NavigationKick = previous;
+		}
+	}
+
+	// WhatToEat: an unset Background is Brush.Default (empty, not null); it counted as an explicit transparent plate,
+	// so every plain button showed its label without Silica's plate.
+	[Fact]
+	public void A_plain_button_keeps_the_Silica_plate()
+	{
+		Assert.False(QtHostPageRenderer.ButtonProps(new Button { Text = "Plain" }).ContainsKey("backgroundColor"));
+		Assert.Equal(Colors.Transparent, QtHostPageRenderer.ButtonProps(new Button { Text = "Flat", Background = Colors.Transparent })["backgroundColor"]);
+		Assert.Equal(Colors.Red, QtHostPageRenderer.ButtonProps(new Button { Text = "Red", BackgroundColor = Colors.Red })["backgroundColor"]);
+	}
+
+	// EmployeeDirectory: round avatars are an Image in a 60x60 Border with an Ellipse StrokeShape, inside a card
+	// Border; the photos showed square, the corners painted nothing, and the ring stroke was hidden under the photo.
+	[Fact]
+	public void An_image_in_an_ellipse_border_is_masked_round_in_the_card_color()
+	{
+		var photo = new Image();
+		var avatar = new Border
+		{
+			WidthRequest = 60,
+			HeightRequest = 60,
+			StrokeThickness = 1,
+			Stroke = Colors.Gray,
+			StrokeShape = new Microsoft.Maui.Controls.Shapes.Ellipse(),
+			Content = photo,
+		};
+		var card = new Border
+		{
+			BackgroundColor = Colors.DarkGray,
+			Padding = 16,
+			StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 },
+			Content = new Grid { Children = { avatar } },
+		};
+		var page = Page(card);
+		page.BackgroundColor = Colors.Black;
+		using var h = new RendererHarness(page);
+
+		var props = new Dictionary<string, object?>();
+		QtHostClip.Merge(props, photo, page);
+
+		Assert.Equal(58, photo.Width, 1);
+		Assert.Equal(QtHostClip.TopLeft | QtHostClip.TopRight | QtHostClip.BottomRight | QtHostClip.BottomLeft, props["mauiClipCorners"]);
+		Assert.Equal(29 * SailfishDisplay.Density, (double)props["mauiClipRadius"]!, 1);
+		Assert.Equal(Colors.DarkGray, props["mauiClipColor"]);
+		Assert.Equal(Colors.Gray, props["mauiClipStroke"]);   // the caps cover the stroke's inner half, so they draw it
+		Assert.Equal(SailfishDisplay.Density, (double)props["mauiClipStrokeWidth"]!, 2);
+	}
+
+	// GameOfLife: hundreds of BackgroundColor-only cells; EmployeeDirectory: group footers whose style BackgroundColor
+	// sits under Color="Transparent". Both are plain rectangles: on the Canvas they were slow (and the footer only
+	// partly painted).
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public void A_box_showing_only_its_background_is_a_plain_rectangle(bool clearColor)
+	{
+		var box = new BoxView { HeightRequest = 8, BackgroundColor = Colors.LightGray };
+		if (clearColor)
+			box.Color = Colors.Transparent;
+		using var h = new RendererHarness(Page(box));
+
+		var rect = Assert.IsType<List<object?>>(QtHostShapes.BoxViewProps(box)!["mauiRect"]);
+
+		Assert.Equal(4, rect.Count);
+		Assert.Equal(QtHostShapes.SolidSpec(Colors.LightGray)![1], rect[0]);
+	}
+
+	// WhatToEat My Recipes sizes its carousel from OnSizeAllocated (HeightRequest = height - 150); the page reported the
+	// whole window, header included, so the carousel ran past the bottom of the screen.
+	[Fact]
+	public void A_page_is_sized_to_the_content_area_below_the_header()
+	{
+		var page = new SizeRecordingPage { Title = "T", Content = new Label { Text = "x" } };
+		using var h = new RendererHarness(page);
+
+		Assert.True(page.Allocated.Height > 0);
+		Assert.True(page.Allocated.Height < h.Window.Height, $"page {page.Allocated} in window {h.Window.Width}x{h.Window.Height}");
+		Assert.Equal(page.Allocated.Height, ((View)page.Content).Height, 1);
+		Assert.Equal(h.Window.Height, page.Bounds.Bottom, 1);   // it ends at the bottom of the window
+	}
+
+	private sealed class SizeRecordingPage : ContentPage
+	{
+		public Size Allocated { get; private set; }
+
+		protected override void OnSizeAllocated(double width, double height)
+		{
+			base.OnSizeAllocated(width, height);
+			Allocated = new Size(width, height);
+		}
+	}
+
+	// WhatToEat My Recipes: a CarouselView (WidthRequest 350, HeightRequest 570) in a StackLayout; its pages ran past
+	// the bottom of the screen.
+	[Fact]
+	public void A_carousel_page_spans_the_carousel_height()
+	{
+		var cells = new List<Grid>();
+		var carousel = new CarouselView
+		{
+			WidthRequest = 350,
+			HeightRequest = 570,
+			HorizontalOptions = LayoutOptions.Fill,
+			VerticalOptions = LayoutOptions.Fill,
+			Loop = false,
+			ItemsSource = new[] { "Egg roll", "Stew", "Salmon" },
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var label = new Label { HorizontalOptions = LayoutOptions.Center, VerticalOptions = LayoutOptions.Center };
+				label.SetBinding(Label.TextProperty, ".");
+				var cell = new Grid { WidthRequest = 340, Padding = new Thickness(0, 0, 10, 0), Children = { new BoxView { Color = Colors.Orange }, label } };
+				cells.Add(cell);
+				return cell;
+			}),
+		};
+		using var h = new RendererHarness(new ContentPage
+		{
+			Title = "T",
+			Content = new StackLayout { Margin = 20, Children = { new Label { Text = "Your recipes", FontSize = 30 }, carousel } },
+		});
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+
+		Assert.Equal(570, carousel.Height, 1);
+		Assert.NotEmpty(cells);
+		Assert.All(cells, c => Assert.True(c.Height <= 570.01, $"cell {c.Height} x {c.Width}"));
 	}
 
 	// GameOfLife: ~400 BackgroundColor BoxViews, each on its own Canvas GL context, exhausted EGL.
