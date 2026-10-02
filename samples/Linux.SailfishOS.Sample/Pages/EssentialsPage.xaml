@@ -16,8 +16,9 @@
             <Label x:Name="FilesLabel" FontSize="18" TextColor="White" Text="files: …" />
             <Label x:Name="StateLabel" FontSize="18" TextColor="White" Text="state: …" />
             <Label x:Name="SecureLabel" FontSize="18" TextColor="White" Text="secure: …" LineBreakMode="WordWrap" />
+            <Label x:Name="MoreLabel" FontSize="18" TextColor="White" Text="more: …" LineBreakMode="WordWrap" />
 
-            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
                 <Button Grid.Column="0" Text="Write prefs" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnWritePrefsClicked" />
                 <Button Grid.Column="1" Text="Read prefs" BackgroundColor="#37474F" TextColor="White" Clicked="OnReadPrefsClicked" />
                 <Button Grid.Row="1" Grid.Column="0" Text="Copy to clipboard" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnCopyClicked" />
@@ -29,6 +30,12 @@
                 <Button Grid.Row="4" Grid.Column="0" Text="Secure: save" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnSecureSaveClicked" />
                 <Button Grid.Row="4" Grid.Column="1" Text="Secure: read" BackgroundColor="#37474F" TextColor="White" Clicked="OnSecureReadClicked" />
                 <Button Grid.Row="5" Grid.Column="0" Text="Secure: remove" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnSecureRemoveClicked" />
+                <Button Grid.Row="5" Grid.Column="1" Text="Speak" BackgroundColor="#37474F" TextColor="White" Clicked="OnSpeakClicked" />
+                <Button Grid.Row="6" Grid.Column="0" Text="Torch on" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnTorchOnClicked" />
+                <Button Grid.Row="6" Grid.Column="1" Text="Torch off" BackgroundColor="#37474F" TextColor="White" Clicked="OnTorchOffClicked" />
+                <Button Grid.Row="7" Grid.Column="0" Text="Pick contact" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnPickContactClicked" />
+                <Button Grid.Row="7" Grid.Column="1" Text="Count contacts" BackgroundColor="#37474F" TextColor="White" Clicked="OnCountContactsClicked" />
+                <Button Grid.Row="8" Grid.Column="0" Text="Cover actions" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnCoverActionsClicked" />
             </Grid>
 
         </VerticalStackLayout>

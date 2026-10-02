@@ -85,6 +85,43 @@ internal sealed partial class QtHostDiagnosticsRunner
 				: storage.Backend == "file" && !string.IsNullOrEmpty(storage.FallbackReason) &&
 				  (!daemonInstalled || storage.FallbackReason.Contains("locked", StringComparison.Ordinal))));
 
+		// The Essentials added 2026-10-02 (no torch flash and no picker here: those are checked by hand).
+		// The user's address book is privileged (system apps only): a third-party app reads the non-privileged store, so
+		// the check is that the model loads and answers, not a count.
+		string contactsAnswer;
+		bool contactsLoaded;
+		try
+		{
+			contactsAnswer = $"{(await Contacts.Default.GetAllAsync().WaitAsync(TimeSpan.FromSeconds(10))).Count()} contacts (non-privileged store)";
+			contactsLoaded = true;
+		}
+		catch (Exception ex)
+		{
+			contactsAnswer = $"{ex.GetType().Name}: {ex.Message}";
+			contactsLoaded = false;
+		}
+		_qtF4Checks.Check($"A Contacts.GetAllAsync → {contactsAnswer}", contactsLoaded);
+		var torch = await Flashlight.Default.IsSupportedAsync();
+		_qtF4Checks.Check($"A Flashlight.IsSupportedAsync={torch} (the sample is not sandboxed)", torch);
+		var coverBefore = SailfishCover.Actions;
+		await AppActions.Current.SetAsync(new[] { new AppAction("f4a", "A", icon: "icon-cover-refresh"), new AppAction("f4b", "B") });
+		var cover = SailfishCover.Actions;
+		_qtF4Checks.Check($"A AppActions → {cover.Length} cover actions ({string.Join(", ", cover.Select(a => a.Icon))})",
+			cover.Length == 2 && cover[0].Icon == "image://theme/icon-cover-refresh");
+		SailfishCover.SetActions(coverBefore);
+		var unsupported = 0;
+		foreach (var call in new Func<Task>[]
+		{
+			() => TextToSpeech.Default.SpeakAsync("f4"),
+			() => Geocoding.Default.GetLocationsAsync("Tampere"),
+			() => Microsoft.Maui.Authentication.Passkeys.Default.AssertAsync(new Microsoft.Maui.Authentication.PasskeyRequestOptions("{}")),
+		})
+		{
+			try { await call(); }
+			catch (FeatureNotSupportedException) { unsupported++; }
+		}
+		_qtF4Checks.Check($"A TextToSpeech/Geocoding/Passkeys report FeatureNotSupported ({unsupported}/3)", unsupported == 3);
+
 		await Clipboard.Default.SetTextAsync("f4-clip-" + stamp);
 		var clip = await Clipboard.Default.GetTextAsync();
 		_qtF4Checks.Check($"A Clipboard.Default round trip ('{clip}'), HasText={Clipboard.Default.HasText}", clip == "f4-clip-" + stamp && Clipboard.Default.HasText);

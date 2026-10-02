@@ -41,11 +41,18 @@
     <SailfishHarbour Condition="'$(SailfishHarbour)' == ''">false</SailfishHarbour>
     <!-- Harbour recommends all four launcher icon sizes. -->
     <SailfishIconSizes Condition="'$(SailfishIconSizes)' == ''">86;108;128;172</SailfishIconSizes>
-    <!-- SailfishSecureStorage=Secrets adds the Secrets permission. A separate property because a global -p:SailfishPermissions cannot be overridden. -->
-    <_SailfishPermissions>$(SailfishPermissions)</_SailfishPermissions>
-    <_SailfishPermissions Condition="'$(SailfishSecureStorage)' == 'Secrets' And '$(SailfishPermissions)' != '' And !$([System.String]::Copy(';$(SailfishPermissions);').Contains(';Secrets;'))">$(SailfishPermissions);Secrets</_SailfishPermissions>
+    <!-- Sailjail sandbox in every configuration, so Debug sees the permissions and data dirs Release (and Harbour) get;
+         SailfishSandboxing=false opts out with Sandboxing=Disabled. Internet is always granted, since the sandbox has no
+         network otherwise and every other MAUI head has it without asking. -->
+    <SailfishSandboxing Condition="'$(SailfishSandboxing)' == ''">true</SailfishSandboxing>
     <_SailfishSandboxed>false</_SailfishSandboxed>
-    <_SailfishSandboxed Condition="'$(_SailfishPermissions)' != ''">true</_SailfishSandboxed>
+    <_SailfishSandboxed Condition="'$(SailfishSandboxing)' == 'true'">true</_SailfishSandboxed>
+    <!-- A separate property because a global -p:SailfishPermissions cannot be overridden. SailfishSecureStorage=Secrets adds Secrets. -->
+    <_SailfishPermissions>Internet</_SailfishPermissions>
+    <_SailfishPermissions Condition="'$(SailfishPermissions)' != '' And $([System.String]::Copy(';$(SailfishPermissions);').Contains(';Internet;'))">$(SailfishPermissions)</_SailfishPermissions>
+    <_SailfishPermissions Condition="'$(SailfishPermissions)' != '' And !$([System.String]::Copy(';$(SailfishPermissions);').Contains(';Internet;'))">Internet;$(SailfishPermissions)</_SailfishPermissions>
+    <_SailfishPermissions Condition="'$(SailfishSecureStorage)' == 'Secrets' And !$([System.String]::Copy(';$(_SailfishPermissions);').Contains(';Secrets;'))">$(_SailfishPermissions);Secrets</_SailfishPermissions>
+    <_SailfishPermissions Condition="'$(_SailfishSandboxed)' != 'true'"></_SailfishPermissions>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
@@ -358,8 +365,8 @@
       <_SailfishPayloadDir>$(_SailfishBuildRoot)$(_SailfishInstallPrefix)</_SailfishPayloadDir>
       <_SailfishPayloadDir Condition="'$(SailfishHarbour)' == 'true'">$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib</_SailfishPayloadDir>
     </PropertyGroup>
-    <Error Condition="'$(SailfishHarbour)' == 'true' And '$(_SailfishPermissions)' == ''"
-           Text="SailfishHarbour=true needs a sandboxed app: set SailfishPermissions (semicolon-separated Sailjail permissions, e.g. Internet;Pictures) — Harbour rejects Sandboxing=Disabled." />
+    <Error Condition="'$(SailfishHarbour)' == 'true' And '$(_SailfishSandboxed)' != 'true'"
+           Text="SailfishHarbour=true needs a sandboxed app: drop SailfishSandboxing=false — Harbour rejects Sandboxing=Disabled." />
     <Error Condition="'$(SailfishHarbour)' == 'true' And !Exists('$(PublishDir)sailfish-launcher')"
            Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with tools/sf native-build or reference a Microsoft.Maui.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
 
@@ -434,16 +441,16 @@
           BeforeTargets="CreateSailfishRpm">
 
     <PropertyGroup>
-      <!-- Absolute icon path, since lipstick's theme lookup can miss hicolor icons. Without permissions the app opts out via [X-Sailjail] Sandboxing=Disabled;
-           with them, ';' is escaped as %3B because WriteLinesToFile splits Lines on ';'. A sandboxed app must name its organization and application. -->
+      <!-- Absolute icon path, since lipstick's theme lookup can miss hicolor icons. SailfishSandboxing=false opts out via [X-Sailjail] Sandboxing=Disabled;
+           otherwise ';' in Permissions is escaped as %3B because WriteLinesToFile splits Lines on ';'. A sandboxed app must name its organization and application. -->
       <_SailfishIconKey>/usr/share/icons/hicolor/108x108/apps/$(SailfishPackageName).png</_SailfishIconKey>
       <_SailfishIconKey Condition="'$(_SailfishDesktopIconPath)' != ''">$(_SailfishDesktopIconPath)</_SailfishIconKey>
       <!-- Harbour: icon by theme name and the booster type -->
       <_SailfishIconKey Condition="'$(SailfishHarbour)' == 'true'">$(SailfishPackageName)</_SailfishIconKey>
       <_SailfishAppTypeLine Condition="'$(SailfishHarbour)' == 'true'">X-Nemo-Application-Type=silica-qt5</_SailfishAppTypeLine>
-      <_SailfishSailjailSection Condition="'$(_SailfishPermissions)' == ''">[X-Sailjail]
+      <_SailfishSailjailSection Condition="'$(_SailfishSandboxed)' != 'true'">[X-Sailjail]
 Sandboxing=Disabled</_SailfishSailjailSection>
-      <_SailfishSailjailSection Condition="'$(_SailfishPermissions)' != ''">[X-Sailjail]
+      <_SailfishSailjailSection Condition="'$(_SailfishSandboxed)' == 'true'">[X-Sailjail]
 Permissions=$(_SailfishPermissions.Replace(';', '%3B'))
 OrganizationName=$(SailfishOrganizationName)
 ApplicationName=$(SailfishPackageName)</_SailfishSailjailSection>

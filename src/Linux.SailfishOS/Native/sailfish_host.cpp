@@ -54,6 +54,9 @@
 #include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickItem>
+#include <QSGNode>
+#include <QSGSimpleTextureNode>
+#include <QSGTexture>
 #include <QQuickView>
 #include <QQuickWindow>
 #include <QScreen>
@@ -161,6 +164,17 @@ struct HostState {
     std::atomic<long long> injects{0};
     std::atomic<long long> destroys{0};
     std::atomic<long long> geometry_reads{0};   // item_geometry reads
+    // Drawing surfaces: the frame callback runs once per requested frame, in afterAnimating (GUI thread, before sync).
+    sfhost_frame_fn frame_fn = nullptr;
+    void *frame_user = nullptr;
+    bool frame_requested = false;
+    bool frame_hooked = false;
+    long long surface_commits = 0;          // Qt thread
+    long long surface_commit_us = 0;
+    std::atomic<long long> surface_uploads{0};      // render thread
+    std::atomic<long long> surface_upload_us{0};
+    std::atomic<long long> surface_upload_max_us{0};
+    std::atomic<long long> surface_tiles{0};        // textures of the last multi-tile upload
     int argc = 1;
     char *argv0 = nullptr;
     char *argv[2] = {nullptr, nullptr};
@@ -342,6 +356,27 @@ void hook_perf_signals(QWindow *w)
     });
     log_line(0, QStringLiteral("perf: frame/sync instrumentation hooked (renderLoop=%1)")
                     .arg(QString::fromLatin1(render_loop_name())));
+}
+
+// Drawing surfaces paint in afterAnimating: on the GUI thread, once per frame, before the scene graph syncs, so a
+// surface committed there shows in the same frame (Android draws a View in its frame's onDraw the same way).
+void hook_frame_signal(QWindow *w)
+{
+    QQuickWindow *qw = qobject_cast<QQuickWindow *>(w);
+    if (g.frame_hooked || !qw)
+        return;
+    g.frame_hooked = true;
+    QObject::connect(qw, &QQuickWindow::afterAnimating, []() {
+        if (!g.frame_requested)
+            return;
+        g.frame_requested = false;
+        if (g.frame_fn)
+            g.frame_fn(g.frame_user);
+        else if (g.shutdown)
+            note_late_callback("frame");
+    });
+    if (g.frame_requested)
+        qw->update();   // requested before the window existed
 }
 
 // --- input ---
@@ -894,6 +929,7 @@ void attach_window(const char *why)
         g.input_filter = new InputFilter();
     w->installEventFilter(g.input_filter);
     hook_perf_signals(w);   // idempotent
+    hook_frame_signal(w);   // idempotent
     log_line(0, QStringLiteral("attached main window (%1): %2 name='%3' title='%4' geom=%5,%6 %7x%8")
                     .arg(QString::fromUtf8(why))
                     .arg(QString::fromUtf8(w->metaObject()->className()))
@@ -1176,6 +1212,7 @@ void shutdown_teardown(void *)
     g.tick = nullptr; g.tick_user = nullptr;
     g.pointer = nullptr; g.key = nullptr; g.input_user = nullptr;
     g.event_fn = nullptr; g.event_user = nullptr;
+    g.frame_fn = nullptr; g.frame_user = nullptr;
     // Input filter.
     if (g.input_filter) { g.app->removeEventFilter(g.input_filter); g.input_filter->deleteLater(); g.input_filter = nullptr; }
     // The view owns the engine, which owns root and its window, so deleteLater cascades.
@@ -2626,7 +2663,9 @@ int sailfish_host_perf_stats(char *buf, int cap)
         "\"drains\":%20,\"propertySets\":%21,\"propsBatches\":%22,\"propsApplied\":%23,"
         "\"geometryBatches\":%24,\"geometryEntries\":%25,\"textMeasures\":%26,"
         "\"findObjects\":%27,\"pushes\":%28,\"pops\":%29,\"grabs\":%30,"
-        "\"injects\":%31,\"destroys\":%32,\"shutdown\":%33,\"geometryReads\":%34}")
+        "\"injects\":%31,\"destroys\":%32,\"shutdown\":%33,\"geometryReads\":%34,"
+        "\"surfaceCommits\":%35,\"surfaceCommitUs\":%36,\"surfaceUploads\":%37,\"surfaceUploadUs\":%38,"
+        "\"surfaceUploadMaxUs\":%39,\"surfaceTiles\":%40}")
         .arg(uptime_ms)
         .arg(g.first_frame_ms.load())
         .arg(fr)
@@ -2660,7 +2699,13 @@ int sailfish_host_perf_stats(char *buf, int cap)
         .arg(g.injects.load())
         .arg(g.destroys.load())
         .arg(g.shutdown ? 1 : 0)
-        .arg(g.geometry_reads.load());
+        .arg(g.geometry_reads.load())
+        .arg(g.surface_commits)
+        .arg(g.surface_commit_us)
+        .arg(g.surface_uploads.load())
+        .arg(g.surface_upload_us.load())
+        .arg(g.surface_upload_max_us.load())
+        .arg(g.surface_tiles.load());
     const QByteArray utf = json.toUtf8();
     return copy_out(utf, buf, cap);
 }
@@ -2707,6 +2752,229 @@ int sailfish_host_open_url(const char *url)
     if (!g.app || !url || !url[0])
         return fail_args("sailfish_host_open_url");
     return QDesktopServices::openUrl(QUrl(QString::fromUtf8(url))) ? 0 : SFHOST_E_ARGS;
+}
+
+// --- Drawing surfaces ---
+// A surface is a child item of a host that fills it and shows RGBA8888-premultiplied pixels drawn by managed code
+// (SkiaSharp's raster canvas). The pixels are copied once into a staging image on commit, so the caller can reuse its
+// buffer at once, and uploaded on the render thread into persistent textures with glTexSubImage2D; nothing is read
+// back. A canvas larger than GL_MAX_TEXTURE_SIZE is split into tiles. Sampling is nearest, as Android draws the
+// canvas bitmap without a filtering paint, so a surface at 1:1 stays pixel-exact at fractional positions.
+namespace {
+
+class SurfaceTexture : public QSGTexture
+{
+public:
+    ~SurfaceTexture() override
+    {
+        if (m_id)
+            if (QOpenGLContext *ctx = QOpenGLContext::currentContext())
+                ctx->functions()->glDeleteTextures(1, &m_id);
+    }
+
+    int textureId() const override { return static_cast<int>(m_id); }
+    QSize textureSize() const override { return m_size; }
+    bool hasAlphaChannel() const override { return true; }
+    bool hasMipmaps() const override { return false; }
+
+    // Render thread (updatePaintNode); the image shares the staging data until bind() uploads it.
+    void setPixels(const QImage &image) { m_pending = image; }
+
+    void bind() override
+    {
+        QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
+        const bool fresh = m_id == 0;
+        if (fresh)
+            f->glGenTextures(1, &m_id);
+        f->glBindTexture(GL_TEXTURE_2D, m_id);
+        if (!m_pending.isNull()) {
+            QElapsedTimer t;
+            t.start();
+            const int w = m_pending.width();
+            const int h = m_pending.height();
+            // QImage rows of 32-bit pixels are tightly packed, which GLES2 needs (no GL_UNPACK_ROW_LENGTH).
+            if (fresh || m_size != m_pending.size()) {
+                f->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_pending.constBits());
+                m_size = m_pending.size();
+            } else {
+                f->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, m_pending.constBits());
+            }
+            m_pending = QImage();
+            const long long us = t.nsecsElapsed() / 1000LL;
+            ++g.surface_uploads;
+            g.surface_upload_us += us;
+            long long mx = g.surface_upload_max_us.load();
+            while (us > mx && !g.surface_upload_max_us.compare_exchange_weak(mx, us)) { }
+        }
+        updateBindOptions(fresh);
+    }
+
+private:
+    GLuint m_id = 0;
+    QSize m_size;
+    QImage m_pending;
+};
+
+class SurfaceItem : public QQuickItem
+{
+public:
+    explicit SurfaceItem(QQuickItem *host) : QQuickItem(host)
+    {
+        setObjectName(QStringLiteral("mauiSurface"));
+        setFlag(ItemHasContents, true);
+        setSize(QSizeF(host->width(), host->height()));
+        QObject::connect(host, &QQuickItem::widthChanged, this, [this, host]() { setWidth(host->width()); });
+        QObject::connect(host, &QQuickItem::heightChanged, this, [this, host]() { setHeight(host->height()); });
+    }
+
+    // Qt thread. width/height 0 frees the pixels (a hidden or empty canvas holds no memory, as on Android).
+    void commit(const uchar *pixels, int width, int height, int stride)
+    {
+        if (width <= 0 || height <= 0 || !pixels) {
+            m_staging = QImage();
+        } else {
+            const QSize size(width, height);
+            // Still shared with the render thread (the previous frame is not uploaded yet): a fresh image instead of
+            // the copy bits() would make, since every pixel is overwritten anyway.
+            if (m_staging.size() != size || !m_staging.isDetached())
+                m_staging = QImage(size, QImage::Format_RGBA8888_Premultiplied);
+            const int row = width * 4;
+            uchar *dst = m_staging.bits();
+            const int dstStride = m_staging.bytesPerLine();
+            if (stride == row && dstStride == row) {
+                std::memcpy(dst, pixels, static_cast<size_t>(row) * height);
+            } else {
+                for (int y = 0; y < height; ++y)
+                    std::memcpy(dst + y * dstStride, pixels + y * stride, static_cast<size_t>(row));
+            }
+        }
+        m_dirty = true;
+        update();
+    }
+
+protected:
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override
+    {
+        QQuickItem::geometryChanged(newGeometry, oldGeometry);
+        if (newGeometry.size() != oldGeometry.size())
+            update();   // tile rects follow the item size
+    }
+
+    QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override
+    {
+        if (m_staging.isNull() || width() <= 0 || height() <= 0) {
+            delete old;
+            m_tileCols = m_tileRows = 0;
+            return nullptr;
+        }
+        if (s_maxTexture == 0) {
+            GLint max = 0;
+            QOpenGLContext::currentContext()->functions()->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
+            s_maxTexture = max > 0 ? max : 2048;
+        }
+        const int w = m_staging.width();
+        const int h = m_staging.height();
+        const int cols = (w + s_maxTexture - 1) / s_maxTexture;
+        const int rows = (h + s_maxTexture - 1) / s_maxTexture;
+        QSGNode *root = old;
+        if (!root || cols != m_tileCols || rows != m_tileRows) {
+            delete old;
+            root = new QSGNode();
+            for (int i = 0; i < cols * rows; ++i) {
+                auto *tile = new QSGSimpleTextureNode();
+                tile->setTexture(new SurfaceTexture());
+                tile->setOwnsTexture(true);
+                tile->setFiltering(QSGTexture::Nearest);
+                root->appendChildNode(tile);
+            }
+            m_tileCols = cols;
+            m_tileRows = rows;
+            m_dirty = true;
+        }
+        // Pixels map onto the item's size; they match it 1:1 when managed code sized the canvas from the same rect.
+        const qreal sx = width() / w;
+        const qreal sy = height() / h;
+        int i = 0;
+        for (QSGNode *n = root->firstChild(); n; n = n->nextSibling(), ++i) {
+            auto *tile = static_cast<QSGSimpleTextureNode *>(n);
+            const int tx = (i % cols) * s_maxTexture;
+            const int ty = (i / cols) * s_maxTexture;
+            const QRect px(tx, ty, qMin(s_maxTexture, w - tx), qMin(s_maxTexture, h - ty));
+            if (m_dirty) {
+                auto *texture = static_cast<SurfaceTexture *>(tile->texture());
+                texture->setPixels(cols * rows == 1 ? m_staging : m_staging.copy(px));
+                tile->markDirty(QSGNode::DirtyMaterial);
+            }
+            tile->setRect(QRectF(px.x() * sx, px.y() * sy, px.width() * sx, px.height() * sy));
+        }
+        if (m_dirty && cols * rows > 1)
+            g.surface_tiles.store(cols * rows);
+        m_dirty = false;
+        return root;
+    }
+
+private:
+    QImage m_staging;
+    bool m_dirty = false;
+    int m_tileCols = 0;
+    int m_tileRows = 0;
+    static int s_maxTexture;   // render thread; read once from the first GL context
+};
+
+int SurfaceItem::s_maxTexture = 0;
+
+// Host item -> its surface; entries go with either object.
+QHash<QObject *, QPointer<SurfaceItem>> g_surfaces;
+
+SurfaceItem *surface_for(QQuickItem *host, bool create)
+{
+    if (SurfaceItem *existing = g_surfaces.value(host).data())
+        return existing;
+    if (!create)
+        return nullptr;
+    auto *surface = new SurfaceItem(host);
+    g_surfaces.insert(host, QPointer<SurfaceItem>(surface));
+    QObject::connect(host, &QObject::destroyed, [host]() { g_surfaces.remove(host); });
+    return surface;
+}
+
+} // namespace
+
+int sailfish_host_surface_commit(long long handle, const void *pixels, int width, int height, int stride)
+{
+    QQuickItem *host = qobject_cast<QQuickItem *>(require_handle(handle));
+    if (!host)
+        return SFHOST_E_DEAD_HANDLE;
+    const bool empty = width <= 0 || height <= 0 || !pixels;
+    if (!empty && stride < width * 4)
+        return fail_args("sailfish_host_surface_commit");
+    SurfaceItem *surface = surface_for(host, !empty);
+    if (!surface)
+        return SFHOST_OK;   // nothing drawn yet, nothing to free
+    QElapsedTimer t;
+    t.start();
+    surface->commit(static_cast<const uchar *>(pixels), width, height, stride);
+    ++g.surface_commits;
+    g.surface_commit_us += t.nsecsElapsed() / 1000LL;
+    return SFHOST_OK;
+}
+
+void sailfish_host_set_frame_callback(sfhost_frame_fn fn, void *user_data)
+{
+    g.frame_fn = fn;
+    g.frame_user = user_data;
+}
+
+int sailfish_host_request_frame(void)
+{
+    if (g.shutdown)
+        return SFHOST_E_ARGS;
+    if (g.frame_requested)
+        return SFHOST_OK;
+    g.frame_requested = true;
+    if (QQuickWindow *qw = qobject_cast<QQuickWindow *>(g.window))
+        qw->update();
+    return SFHOST_OK;
 }
 
 } // extern "C"

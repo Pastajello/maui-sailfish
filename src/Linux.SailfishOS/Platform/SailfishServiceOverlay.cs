@@ -149,6 +149,13 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 			  || serviceType == typeof(Microsoft.Maui.ApplicationModel.IMap)
 				? Shared<SailfishCommunication>()
 			: serviceType == typeof(Microsoft.Maui.Media.IScreenshot) ? new SailfishScreenshot()
+			: serviceType == typeof(Microsoft.Maui.Devices.IFlashlight) ? new SailfishFlashlight()
+			: serviceType == typeof(Microsoft.Maui.Media.ITextToSpeech) ? new SailfishTextToSpeech()
+			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IGeocoding) ? new SailfishGeocoding()
+			: serviceType == typeof(Microsoft.Maui.Authentication.IPasskeys) ? new SailfishPasskeys()
+			: serviceType == typeof(Microsoft.Maui.ApplicationModel.IAppActions) ? new SailfishAppActions()
+			: serviceType == typeof(Microsoft.Maui.Authentication.IWebAuthenticator) ? new SailfishWebAuthenticator()
+			: serviceType == typeof(Microsoft.Maui.ApplicationModel.Communication.IContacts) ? new SailfishContacts()
 			: null;
 		if (created is not null)
 			_f4[serviceType] = created;

@@ -17,6 +17,9 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- mauisample:// links open the app (Application.OnAppLinkRequestReceived); leg silica K checks the path. -->
     <SailfishUrlSchemes>mauisample</SailfishUrlSchemes>
+    <!-- The acceptance host exercises services Sailjail has no permission for (F4 checks the flashlight), so it opts out
+         of the default sandbox; the Harbour leg (-p:SailfishHarbour=true) keeps it. -->
+    <SailfishSandboxing Condition="'$(SailfishHarbour)' != 'true'">false</SailfishSandboxing>
   </PropertyGroup>
 
   <ItemGroup>

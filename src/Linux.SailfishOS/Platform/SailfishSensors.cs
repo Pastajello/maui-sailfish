@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text.Json;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Devices.Sensors;
 using Microsoft.Maui.SailfishOS.Platform.QtHost;
 
@@ -200,6 +201,7 @@ public sealed class SailfishOrientationSensor : SailfishSensor, IOrientationSens
 
 /// <summary>
 /// Geolocation on QtPositioning: a request activates one PositionSource until a valid fix or the timeout.
+/// A sandboxed app without the Location Sailjail permission gets a PermissionException, as MAUI does on Android/iOS.
 /// </summary>
 public sealed class SailfishGeolocation : IGeolocation
 {
@@ -250,8 +252,12 @@ public sealed class SailfishGeolocation : IGeolocation
 	/// <summary>A positioning backend is present (diagnostics).</summary>
 	public static string NativeState => QtHostServices.Eval(Service, "JSON.stringify({valid:s.valid,error:s.sourceError,name:s.name,methods:s.supportedPositioningMethods})");
 
+	private static PermissionException? Missing() => SailfishPermissions.Missing(typeof(Permissions.LocationWhenInUse), "Geolocation");
+
 	public Task<Location?> GetLastKnownLocationAsync()
 	{
+		if (Missing() is { } missing)
+			return Task.FromException<Location?>(missing);
 		if (_last is null && EnsureService())
 		{
 			var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
@@ -266,6 +272,8 @@ public sealed class SailfishGeolocation : IGeolocation
 
 	public async Task<Location?> GetLocationAsync(GeolocationRequest request, CancellationToken cancelToken)
 	{
+		if (Missing() is { } missing)
+			throw missing;
 		if (!EnsureService())
 			throw new FeatureNotSupportedException("Positioning is not available.");
 		var tcs = new TaskCompletionSource<Location?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -294,6 +302,8 @@ public sealed class SailfishGeolocation : IGeolocation
 
 	public Task<bool> StartListeningForegroundAsync(GeolocationListeningRequest request)
 	{
+		if (Missing() is { } missing)
+			return Task.FromException<bool>(missing);
 		if (!EnsureService())
 			return Task.FromResult(false);
 		_listening = request;

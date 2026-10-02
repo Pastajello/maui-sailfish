@@ -188,9 +188,14 @@ public sealed class SailfishPickers : IMediaPicker, IFilePicker
 		return _pending.Task;
 	}
 
-	private static FileResult? One(List<string> paths) => paths.Count > 0 ? new FileResult(paths[0]) : null;
+	private static FileResult? One(List<string> paths) => paths.Count > 0 ? ToFileResult(paths[0]) : null;
 
-	private static List<FileResult> Many(List<string> paths) => paths.Select(p => new FileResult(p)).ToList();
+	private static List<FileResult> Many(List<string> paths) => paths.Select(ToFileResult).ToList();
+
+	/// <summary>A picked file with its MIME type: the plain-net FileBase cannot resolve one (its platform lookup
+	/// throws), so ContentType threw for every picked file. OpenReadAsync stays MAUI's and throws on plain .NET; read
+	/// <see cref="FileBase.FullPath"/> instead (porting-existing-apps.md).</summary>
+	internal static FileResult ToFileResult(string path) => new(path, MimeTypes.For(path));
 
 	public bool IsCaptureSupported => false;
 
@@ -235,15 +240,24 @@ public sealed class SailfishPermissions : IPermissions
 {
 	private static readonly Lazy<(bool Sandboxed, HashSet<string> Declared)> Policy = new(ReadPolicy);
 
+	/// <summary>The app runs in Sailjail (its .desktop file lists Permissions).</summary>
+	internal static bool IsSandboxed => Policy.Value.Sandboxed;
+
 	private static (bool, HashSet<string>) ReadPolicy()
 	{
-		var declared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		var desktop = Path.Combine("/usr/share/applications", SailfishAppPaths.PackageName + ".desktop");
-		if (!File.Exists(desktop))
-			return (false, declared);
+		return File.Exists(desktop)
+			? ParsePolicy(File.ReadAllLines(desktop))
+			: (false, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+	}
+
+	/// <summary>The [X-Sailjail] section of a .desktop file: an empty Permissions= line is still a sandbox.</summary>
+	internal static (bool Sandboxed, HashSet<string> Declared) ParsePolicy(IEnumerable<string> desktopLines)
+	{
+		var declared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		var inSailjail = false;
 		var sandboxed = false;
-		foreach (var raw in File.ReadAllLines(desktop))
+		foreach (var raw in desktopLines)
 		{
 			var line = raw.Trim();
 			if (line.StartsWith('['))
@@ -285,14 +299,33 @@ public sealed class SailfishPermissions : IPermissions
 		_ => Array.Empty<string>(),
 	};
 
-	internal static PermissionStatus StatusFor(Type permission)
+	internal static PermissionStatus StatusFor(Type permission) => StatusFor(permission, Policy.Value);
+
+	internal static PermissionStatus StatusFor(Type permission, (bool Sandboxed, HashSet<string> Declared) policy)
 	{
-		var (sandboxed, declared) = Policy.Value;
 		var needs = SailjailFor(permission);
-		if (!sandboxed || needs.Length == 0)
+		if (!policy.Sandboxed || needs.Length == 0)
 			return PermissionStatus.Granted;
-		return needs.Any(declared.Contains) ? PermissionStatus.Granted : PermissionStatus.Denied;
+		return needs.Any(policy.Declared.Contains) ? PermissionStatus.Granted : PermissionStatus.Denied;
 	}
+
+	/// <summary>Unsandboxed, or the Sailjail permission is declared (WebView, Secrets… have no MAUI permission type).</summary>
+	internal static bool Declares(string sailjailPermission) =>
+		!Policy.Value.Sandboxed || Policy.Value.Declared.Contains(sailjailPermission);
+
+	/// <summary>Throws the PermissionException MAUI throws on Android/iOS when <paramref name="feature"/> runs undeclared.</summary>
+	internal static void Demand(Type permission, string feature)
+	{
+		if (Missing(permission, feature) is { } missing)
+			throw missing;
+	}
+
+	/// <summary><see cref="Demand"/> for a non-async Task method, which returns the exception as a faulted task.</summary>
+	internal static PermissionException? Missing(Type permission, string feature) =>
+		StatusFor(permission) == PermissionStatus.Granted ? null : new PermissionException(MissingMessage(feature, SailjailFor(permission)));
+
+	internal static string MissingMessage(string feature, string[] sailjail) =>
+		$"{feature} needs the {string.Join(" or ", sailjail)} Sailjail permission: add {sailjail[0]} to <SailfishPermissions> in the project file.";
 
 	public Task<PermissionStatus> CheckStatusAsync<TPermission>() where TPermission : Permissions.BasePermission, new() =>
 		Task.FromResult(StatusFor(typeof(TPermission)));
@@ -420,4 +453,34 @@ public sealed class SailfishScreenshot : IScreenshot
 			await source.CopyToAsync(destination).ConfigureAwait(true);
 		}
 	}
+}
+
+/// <summary>MIME types by file extension for the files the pickers and Share hand out.</summary>
+internal static class MimeTypes
+{
+	private static readonly Dictionary<string, string> ByExtension = new(StringComparer.OrdinalIgnoreCase)
+	{
+		[".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".png"] = "image/png", [".gif"] = "image/gif",
+		[".webp"] = "image/webp", [".bmp"] = "image/bmp", [".heic"] = "image/heic", [".svg"] = "image/svg+xml",
+		[".tif"] = "image/tiff", [".tiff"] = "image/tiff",
+		[".mp4"] = "video/mp4", [".m4v"] = "video/mp4", [".mov"] = "video/quicktime", [".webm"] = "video/webm",
+		[".mkv"] = "video/x-matroska", [".avi"] = "video/x-msvideo", [".3gp"] = "video/3gpp",
+		[".mp3"] = "audio/mpeg", [".m4a"] = "audio/mp4", [".aac"] = "audio/aac", [".ogg"] = "audio/ogg",
+		[".oga"] = "audio/ogg", [".opus"] = "audio/opus", [".wav"] = "audio/wav", [".flac"] = "audio/flac",
+		[".pdf"] = "application/pdf", [".txt"] = "text/plain", [".csv"] = "text/csv", [".html"] = "text/html",
+		[".htm"] = "text/html", [".xml"] = "application/xml", [".json"] = "application/json",
+		[".zip"] = "application/zip", [".vcf"] = "text/vcard", [".ics"] = "text/calendar",
+		[".odt"] = "application/vnd.oasis.opendocument.text",
+		[".ods"] = "application/vnd.oasis.opendocument.spreadsheet",
+		[".odp"] = "application/vnd.oasis.opendocument.presentation",
+		[".doc"] = "application/msword",
+		[".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		[".xls"] = "application/vnd.ms-excel",
+		[".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		[".ppt"] = "application/vnd.ms-powerpoint",
+		[".pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	};
+
+	public static string For(string path) =>
+		ByExtension.TryGetValue(Path.GetExtension(path), out var type) ? type : "application/octet-stream";
 }

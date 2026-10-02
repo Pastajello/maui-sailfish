@@ -562,8 +562,16 @@ public class SailfishWebViewHandler : SailfishSnapshotHandler<IWebView>
 		},
 	};
 
+	private static bool _warnedSandbox;
+
 	public SailfishWebViewHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Generic)
 	{
+		// Gecko cannot start in Sailjail without the WebView permission; MAUI has no permission type for it to deny.
+		if (!_warnedSandbox && !Platform.SailfishPermissions.Declares("WebView"))
+		{
+			_warnedSandbox = true;
+			Console.Error.WriteLine("[Sailfish] WebView: " + Platform.SailfishPermissions.MissingMessage("WebView", new[] { "WebView" }));
+		}
 	}
 
 	protected override string? AdapterUri => "web-view";

@@ -49,6 +49,13 @@ public static class SailfishEssentials
 		services.TryAddSingleton<IShare, SailfishShare>();
 		services.TryAddSingleton<IPermissions, SailfishPermissions>();
 		services.TryAddSingleton<Microsoft.Maui.Media.IScreenshot, SailfishScreenshot>();
+		services.TryAddSingleton<IFlashlight, SailfishFlashlight>();
+		services.TryAddSingleton<Microsoft.Maui.Media.ITextToSpeech, SailfishTextToSpeech>();
+		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IGeocoding, SailfishGeocoding>();
+		services.TryAddSingleton<Microsoft.Maui.Authentication.IPasskeys, SailfishPasskeys>();
+		services.TryAddSingleton<IAppActions, SailfishAppActions>();
+		services.TryAddSingleton<Microsoft.Maui.Authentication.IWebAuthenticator, SailfishWebAuthenticator>();
+		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.IContacts, SailfishContacts>();
 		// One instance each serves several interfaces.
 		services.TryAddSingleton<SailfishPickers>();
 		services.TryAddSingleton<Microsoft.Maui.Media.IMediaPicker>(sp => sp.GetRequiredService<SailfishPickers>());
@@ -107,6 +114,13 @@ public static class SailfishEssentials
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.ApplicationModel.Communication.Sms))]
 	[DynamicDependency("SetDefault", typeof(Map))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Media.Screenshot))]
+	[DynamicDependency("SetDefault", typeof(Flashlight))]
+	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Media.TextToSpeech))]
+	[DynamicDependency("SetCurrent", typeof(Microsoft.Maui.Devices.Sensors.Geocoding))]
+	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Authentication.Passkeys))]
+	[DynamicDependency("SetCurrent", typeof(AppActions))]
+	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Authentication.WebAuthenticator))]
+	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.ApplicationModel.Communication.Contacts))]
 	[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The hooks are rooted by the DynamicDependency attributes above.")]
 	/// <summary>The statics a MauiProgram reads while it builds the app (FileSystem paths for a log or database file,
 	/// Preferences, AppInfo, DeviceInfo), installed before CreateMauiApp: their plain-net defaults throw
@@ -156,6 +170,13 @@ public static class SailfishEssentials
 		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.Sms), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.ISms)));
 		Hook(typeof(Map), "SetDefault", services.GetService(typeof(IMap)));
 		Hook(typeof(Microsoft.Maui.Media.Screenshot), "SetDefault", services.GetService(typeof(Microsoft.Maui.Media.IScreenshot)));
+		Hook(typeof(Flashlight), "SetDefault", services.GetService(typeof(IFlashlight)));
+		Hook(typeof(Microsoft.Maui.Media.TextToSpeech), "SetDefault", services.GetService(typeof(Microsoft.Maui.Media.ITextToSpeech)));
+		Hook(typeof(Microsoft.Maui.Devices.Sensors.Geocoding), "SetCurrent", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IGeocoding)));
+		Hook(typeof(Microsoft.Maui.Authentication.Passkeys), "SetDefault", services.GetService(typeof(Microsoft.Maui.Authentication.IPasskeys)));
+		Hook(typeof(AppActions), "SetCurrent", services.GetService(typeof(IAppActions)));
+		Hook(typeof(Microsoft.Maui.Authentication.WebAuthenticator), "SetDefault", services.GetService(typeof(Microsoft.Maui.Authentication.IWebAuthenticator)));
+		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.Contacts), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.IContacts)));
 	}
 
 	/// <summary>Installs one more static.</summary>

@@ -57,7 +57,8 @@
 		<!-- No MAUI workload on this head, so no $(MauiVersion) from it -->
 		<MauiVersion Condition="'$(MauiVersion)' == ''">11.0.0-rc.1.26451.6</MauiVersion>
 		<!-- Sailfish packaging (docs/sailfishos-packaging.md):
-		     <SailfishPermissions>Internet;Pictures</SailfishPermissions>  Sailjail sandbox (required by Harbour)
+		     <SailfishPermissions>Location;Pictures</SailfishPermissions>  Sailjail permissions beyond Internet (the app is sandboxed by default)
+		     <SailfishSandboxing>false</SailfishSandboxing>                no sandbox (sideloading only; Harbour rejects it)
 		     <SailfishHarbour>true</SailfishHarbour>                       Jolla Store layout (validator-clean RPM)
 		     <SailfishSecureStorage>Secrets</SailfishSecureStorage>        SecureStorage on the Sailfish Secrets daemon
 		     <SailfishCover>true</SailfishCover>                           home-screen cover (or SailfishCover.SetContent in code)

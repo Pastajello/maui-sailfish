@@ -231,13 +231,18 @@ Each: every screen and control once, every back gesture, every text field typed 
 
 | # | Seen | Cause | Where | Status |
 |---|---|---|---|---|
+| X2 | SecureStorage threw `rc=1011`/`1060` on every call (f4 failed since 2026-09-27) | the app's device-lock Secrets collection stays locked: the daemon never gets the lock code without Jolla's device-lock plugin, and the system password agent refuses third-party apps (no prompt) | `sfsec_open` probes the collection; locked → the file store with the reason | fixed (f4 36/36) |
+| X3 | Picked files: `FileResult.ContentType` threw | plain-net `FileBase` cannot look up a MIME type | pickers pass it (`MimeTypes`); `OpenReadAsync` stays MAUI-internal (documented) | fixed / documented |
+| X4 | Contacts: "Count contacts" showed 0, while the phone has a contact (also sandboxed with `Permissions=Contacts`) | the address book is in `~/.local/share/system/privileged` (privileged:privileged 0770). Firejail's `privileged-data Contacts` mounts it, but only system apps get the `privileged` group (`Privileged` permission + `mapplauncherd` `privileges.d`, e.g. `jolla-contacts,hip`). Other apps read the non-privileged store | platform limit; the wrong "needs a sandbox" PermissionException removed | documented, not worked around |
 | X1 | `/tmp/kitchen-diag.log` on the phone held 335 MB of RAM (tmpfs) | the diagnostics mirror appended every line of every run, opening the file per line | `QtHostDiag.Mirror`: each process starts the file afresh, one writer, 32 MB cap | fixed |
 
 ## Open questions
 
-- **Missing Essentials** found while porting: TextToSpeech, Flashlight, Geocoding, Contacts, AppActions and
-  WebAuthenticator still throw the reference-assembly exception. Implement them (TextToSpeech has no system
-  service on Sailfish; Contacts/Geocoding need sailjail permissions), or leave them as documented gaps?
+- ~~Missing Essentials~~ — done 2026-10-02: Flashlight, Contacts, AppActions and WebAuthenticator implemented;
+  TextToSpeech, Geocoding and Passkeys report FeatureNotSupported (no engine or provider on the platform). Checked
+  by hand on the phone (Sample → Features → Essentials).
+- **SecureStorage without Jolla's device-lock integration** falls back to the file store (obfuscation only). Real
+  protection would need that integration or an app passphrase (Secrets `CustomLock`). Worth doing?
 
 - **Syncfusion Toolkit** (the MAUI template's sample content uses it): its self-drawn views now render through the
   IDrawable fallback (DB3), but SfTextInputLayout, the chart and other text-drawing controls call Syncfusion's

@@ -81,7 +81,12 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Ambience colour scheme | `AppTheme`, `RequestedThemeChanged` | native (simulated event in the test) | f4 B |
 | Notifications (`Nemo.Notifications`) | — | Sailfish API `SailfishNotifications` | f4 G |
 | Share (`Sailfish.Share`), pickers (`Sailfish.Pickers`) | `Share`, `MediaPicker`, `FilePicker` | native | f4 E |
-| Secrets | `SecureStorage` | native (needs the Secrets daemon) | f4 A |
+| Secrets | `SecureStorage` | native (needs the Secrets daemon and an unlocked device-lock collection; else the file store) | f4 A |
+| Torch (`org.sailfish.flashlight.provider`) | `Flashlight` | native (not reachable from a Sailjail sandbox) | unit + manual |
+| Address book (`org.nemomobile.contacts`), `ContactSelectPage` | `Contacts` | native, but only the non-privileged store: the user's address book is privileged data, open to system apps only (platform limit) | unit + manual |
+| Cover actions | `AppActions` | native (two actions) | unit + manual |
+| Browser + URL scheme callback | `WebAuthenticator` | native (needs `SailfishUrlSchemes`) | unit |
+| — | `TextToSpeech`, `Geocoding`, `Passkeys` | n/a — `FeatureNotSupportedException` (no engine, geocoder or authenticator) | unit |
 | Sensors, location, battery, connectivity, haptics, keep-alive | Essentials | native | f4 C/D |
 | Open a URL in the browser | `Launcher`, `Browser` | native, not tested (it would move the test app to the background) | — |
 | Open a file in another app | `Launcher.OpenAsync(OpenFileRequest)` | native (the other app sees only its sandbox) | silica N |
@@ -94,5 +99,5 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 
 - **Opening another app** (URL, share sheet UI): it takes focus away from the test app and every later leg.
 - **A real ambience switch**: it changes the phone's settings. f4 B injects the ambience event instead.
-- **The Secrets unlock prompt**: f4 fails while the app's Secrets collection is locked (device lock
-  authentication pending). That is phone state, not code.
+- **The Secrets unlock prompt**: there is none for a third-party app (the system password agent refuses it). While
+  the app's Secrets collection is locked, f4 checks the file-store fallback and its reason instead.

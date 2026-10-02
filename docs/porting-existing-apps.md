@@ -193,6 +193,30 @@ These follow Silica conventions. Port authors should expect them; none needs app
   shape in the colour behind the Border, with the Border's solid stroke on top. The mask is exact on a solid
   background only.
 - Flicking a list against its end dims the list content for a moment: Silica's end-of-list feedback.
+- `Flashlight` drives the system torch (the Top menu's toggle). Sailjail has no permission for it, so in a sandboxed
+  app (the default) it throws `FeatureNotSupportedException`; it works with `<SailfishSandboxing>false</SailfishSandboxing>`.
+- `Contacts` cannot reach the user's address book: a platform limit, not a missing feature. Sailfish OS keeps it in
+  privileged data that only system apps open (the `Privileged` permission plus a `mapplauncherd` `privileges.d`
+  entry, as Jolla's People app has). Sailjail's `Contacts` permission does not open it. A third-party app, sandboxed or not,
+  reads qtcontacts-sqlite's non-privileged store, which does not hold the user's contacts.
+  `GetAllAsync` therefore returns an empty list, and `PickContactAsync` opens Silica's contact selection page
+  showing "No people" (back returns `null`). In a sandbox both need `Contacts` in `SailfishPermissions`, else
+  `PermissionException`. This is not worked around: an app that needs contacts has to say it is unavailable on
+  Sailfish OS.
+- `Geolocation` needs `Location` in `SailfishPermissions`, else `PermissionException` (as on Android without the
+  manifest entry). `Permissions.RequestAsync` never shows a dialog: Sailjail asks once, at the first launch.
+- `AppActions` become the buttons of the app's home-screen cover: the first two actions (a Silica cover has two).
+  Tapping one raises `AppActions.OnAppAction`. The icon is a theme cover icon name (`icon-cover-search`), an
+  `image://` or a file path; without one the button shows `icon-cover-next`.
+- `WebAuthenticator` opens the sign-in page in the system browser and completes when the browser hands the callback
+  URL back. The callback scheme must be declared (`<SailfishUrlSchemes>myapp</SailfishUrlSchemes>`), or the call
+  throws `InvalidOperationException`. That URL goes to the waiting call, not to `OnAppLinkRequestReceived`. A
+  sign-in the user abandons stays pending until its cancellation token fires or a new one starts.
+- `SecureStorage` keeps secrets in Sailfish Secrets when the daemon can open the app's device-lock collection. On a
+  phone without Jolla's device-lock integration the daemon never gets the lock code and the collection stays locked
+  (unlocking the screen does not help); the app then uses the file store (obfuscation only, the key lives next to
+  the data) and logs `SecureStorage: Sailfish Secrets unavailable (… collection locked …)`. Entries move into
+  Secrets once it opens.
 - A borderless `Entry` (`BackgroundColor` set) without a `Placeholder` has no Silica label line, and an Entry taller
   than its natural height centres its text (MAUI's default `VerticalTextAlignment`), as on Android.
 
@@ -204,8 +228,11 @@ These follow Silica conventions. Port authors should expect them; none needs app
   nothing. (CommunityToolkit 12+ shows popups as modal pages; that path is not verified yet.)
 - **Native-only controls** with no cross-platform part, such as AiForms.SettingsView.
 - **Plugins** with Android/iOS implementations only: local notifications, biometrics, in-app rating.
-- **Essentials** without a Sailfish implementation yet: `TextToSpeech`, `Flashlight`, `Geocoding`, `Contacts`,
-  `AppActions` and `WebAuthenticator` throw `NotImplementedInReferenceAssemblyException`.
+- **Essentials the platform lacks:** `TextToSpeech` (no speech engine), `Geocoding` (no geocoder) and `Passkeys` (no
+  WebAuthn authenticator) throw `FeatureNotSupportedException`, as MAUI does on a device without the feature;
+  `TextToSpeech.GetLocalesAsync` returns no locales. `MediaPicker.CapturePhotoAsync`/`CaptureVideoAsync` likewise.
+- **`FileResult.OpenReadAsync()`** throws: MAUI's plain-`net` `FileBase` has no platform reader and the method is
+  internal to MAUI. Read `File.OpenRead(result.FullPath)` instead. `ContentType` and `FileName` work.
 
 ## MAUI 10/11 changes that break older libraries everywhere
 

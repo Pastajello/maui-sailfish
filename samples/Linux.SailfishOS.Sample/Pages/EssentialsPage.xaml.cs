@@ -1,4 +1,6 @@
 using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.ApplicationModel.Communication;
+using Microsoft.Maui.Media;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Storage;
@@ -116,6 +118,45 @@ public partial class EssentialsPage : ContentPage
 
 	private void OnSecureRemoveClicked(object? sender, EventArgs e) =>
 		SecureLabel.Text = Safe(() => $"secure: removed={SecureStorage.Default.Remove("sample_secret")}");
+
+	// Essentials added for Sailfish: flashlight (system torch), contacts (address book + Silica picker), app actions
+	// (cover buttons), text-to-speech (no engine: reports unsupported).
+	private async void OnTorchOnClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () => { await Flashlight.Default.TurnOnAsync(); return "more: torch on"; });
+
+	private async void OnTorchOffClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () => { await Flashlight.Default.TurnOffAsync(); return "more: torch off"; });
+
+	private async void OnPickContactClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () =>
+		{
+			var contact = await Contacts.Default.PickContactAsync();
+			return contact is null
+				? "more: no contact picked"
+				: $"more: {contact.DisplayName} — {contact.Phones.FirstOrDefault()?.PhoneNumber ?? "no phone"}, {contact.Emails.FirstOrDefault()?.EmailAddress ?? "no email"}";
+		});
+
+	private async void OnCountContactsClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () => $"more: {(await Contacts.Default.GetAllAsync()).Count()} contacts");
+
+	private async void OnCoverActionsClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () =>
+		{
+			AppActions.Current.AppActionActivated -= OnAppAction;
+			AppActions.Current.AppActionActivated += OnAppAction;
+			await AppActions.Current.SetAsync(new[]
+			{
+				new AppAction("refresh", "Refresh", icon: "icon-cover-refresh"),
+				new AppAction("search", "Search", icon: "icon-cover-search"),
+			});
+			return "more: cover actions set — minimize the app and tap a cover button";
+		});
+
+	private void OnAppAction(object? sender, AppActionEventArgs e) =>
+		MoreLabel.Text = $"more: cover action '{e.AppAction.Id}' at {DateTime.Now:HH:mm:ss}";
+
+	private async void OnSpeakClicked(object? sender, EventArgs e) =>
+		MoreLabel.Text = await SafeAsync(async () => { await TextToSpeech.Default.SpeakAsync("Hello from Sailfish"); return "more: spoken"; });
 
 	private static async Task<string> SafeAsync(Func<Task<string>> probe)
 	{

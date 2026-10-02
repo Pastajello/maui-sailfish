@@ -116,9 +116,14 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
   the daemon — a file (obfuscation only) with a warning in the log; once
   Secrets appears, entries from the file migrate, and the file and key disappear. On the device:
   f4 with the `secrets` backend (dev and Harbour via launcher) and `file`.
-- Deliberately open: camera photos
-  (Sailfish has no in-app capture API — IsCaptureSupported
-  false), Geocoding, TextToSpeech, Contacts.
+- [x] Flashlight, Contacts, AppActions (cover actions), WebAuthenticator (browser + URL scheme), and
+  FeatureNotSupportedException for TextToSpeech, Geocoding and Passkeys (2026-10-02; unit tests, checked by hand
+  on the phone).
+- Platform limit: Contacts sees only qtcontacts-sqlite's non-privileged store. The user's address book is privileged
+  data, which Sailfish OS opens only to system apps (`Privileged` + `mapplauncherd` `privileges.d`); Sailjail's
+  `Contacts` permission is not enough. Documented, not worked around.
+- Deliberately open: camera photos (Sailfish has no in-app capture API — IsCaptureSupported false); no speech
+  engine or geocoder on the platform.
 
 ### F5 — quality and release (ongoing) — IN PROGRESS
 - [x] Renderer tests on the host: `QtHostRuntime.TestShim` + `FakeShim`
@@ -207,7 +212,7 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
 
 **Deliberately open** (not touched without a new decision)
-- Camera photos (Sailfish has no in-app capture API), Geocoding, TextToSpeech, Contacts.
+- Camera photos (Sailfish has no in-app capture API); Geocoding and TextToSpeech (no provider on the platform).
 - BlazorWebView.
 - `MauiSplashScreen` ignored (Sailfish apps have no splash, `sailfishos-packaging.md`); the ugly
   cold start is a separate defect in `BUG_LIST.md` (S3-1).

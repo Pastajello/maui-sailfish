@@ -48,9 +48,14 @@ internal sealed class FakeShim : IQtHostShim
 
 	public IEnumerable<FakeObject> ByUri(string uri) => Objects.Where(o => o.Uri == uri);
 
+	/// <summary>Answers an Eval before the built-in handling (platform service tests); null = not handled.</summary>
+	public Func<string, string?>? EvalHook { get; set; }
+
 	public string Eval(string expression)
 	{
 		Evals.Add(expression);
+		if (EvalHook?.Invoke(expression) is { } hooked)
+			return hooked;
 		var ops = expression.IndexOf("applyMauiOps(", StringComparison.Ordinal);
 		if (ops >= 0)
 		{

@@ -99,9 +99,17 @@ payload_audit() { # <rpm> <release>
 	[ "$n_dll" -ge "$min_dll" ] || { sf_error "too few assemblies ($n_dll < $min_dll for profile $SF_PROFILE)"; record "P:dll-count" "FAIL"; return 1; }
 	staged="$(find "$SF_SAMPLE_DIR/obj/SailfishRpm" -name "$SF_PKG.desktop" 2>/dev/null | head -1)"
 	[ -n "$staged" ] || { sf_error "staged desktop file not found"; record "P:desktop" "FAIL"; return 1; }
-	grep -q '^\[X-Sailjail\]$' "$staged" && grep -q '^Sandboxing=Disabled$' "$staged" \
-		|| { sf_error "desktop lacks [X-Sailjail] Sandboxing=Disabled:"; cat "$staged"; record "P:desktop" "FAIL"; return 1; }
-	sf_ok "payload: desktop file has [X-Sailjail] Sandboxing=Disabled"
+	# Either the opt-out (SailfishSandboxing=false) or a sandbox: Permissions= plus the data-dir identity.
+	if grep -q '^Sandboxing=Disabled$' "$staged"; then
+		grep -q '^\[X-Sailjail\]$' "$staged" && ! grep -q '^Permissions=' "$staged" \
+			|| { sf_error "desktop has a malformed unsandboxed [X-Sailjail] section:"; cat "$staged"; record "P:desktop" "FAIL"; return 1; }
+		sf_ok "payload: desktop file has [X-Sailjail] Sandboxing=Disabled (SailfishSandboxing=false)"
+	else
+		grep -q '^\[X-Sailjail\]$' "$staged" && grep -q '^Permissions=' "$staged" \
+			&& grep -q '^OrganizationName=.' "$staged" && grep -q '^ApplicationName=.' "$staged" \
+			|| { sf_error "desktop lacks a Sailjail sandbox (Permissions=, OrganizationName, ApplicationName):"; cat "$staged"; record "P:desktop" "FAIL"; return 1; }
+		sf_ok "payload: desktop file declares a Sailjail sandbox ($(grep '^Permissions=' "$staged"))"
+	fi
 	record "P:payload(release $2)" "PASS"
 }
 
@@ -226,8 +234,8 @@ sf_note "launcher resolves to ELF: $ELF_OK"
 if [ "$MODES_OK" = 1 ]; then record "C:modes" "PASS"; else record "C:modes" "FAIL"; fi
 
 # -- [L] launcher-style launches ----------------------------------------------
-# Direct exec of /usr/bin/<pkg> is what lipstick runs for a Sandboxing=Disabled entry
-# without an invoker type, so it is graded; windowmodel and sailjail are informational.
+# Direct exec of /usr/bin/<pkg> is graded: the binary is the same one lipstick starts, but a sandboxed
+# entry goes through sailjail, which refuses an SSH session, so windowmodel and sailjail stay informational.
 sf_info "[L] Launcher-path launches (direct graded; windowmodel/sailjail probes)"
 sf_push_helper "$SCRIPT_DIR/../remote/sf-package-launch-remote.sh"
 for mode in direct windowmodel sailjail; do

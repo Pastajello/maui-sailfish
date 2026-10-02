@@ -108,7 +108,7 @@ The app process has the session and system bus. Two paths:
 - **`Nemo.DBus` in QML** (`DBusInterface`, `DBusAdaptor`) via the invisible service from 2.3. This is what most
   native Sailfish apps do, and such code is easy to port from existing QML projects.
 
-In the sandbox (`SailfishPermissions` non-empty, required for Harbour) Sailjail filters D-Bus by permissions.
+In the sandbox (the default; required for Harbour) Sailjail filters D-Bus by permissions.
 A call to a service the app has no permission for will not reach its target (behavior to be verified on the
 phone). Add the needed permissions to `SailfishPermissions` ([sailfishos-packaging.md](sailfishos-packaging.md)).
 

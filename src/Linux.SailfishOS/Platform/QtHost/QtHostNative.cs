@@ -30,6 +30,9 @@ internal static class QtHostNative
 	/* Callback queued onto the Qt thread via sailfish_host_post. */
 	public delegate void VoidFn(IntPtr userData);
 
+	/* Frame callback of the drawing surfaces: the next frame after sailfish_host_request_frame. */
+	public delegate void FrameFn(IntPtr userData);
+
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_init(string appName, LogFn? log, IntPtr logUser);
 
@@ -163,4 +166,16 @@ internal static class QtHostNative
 
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_open_url(IntPtr url);
+
+	/* --- Drawing surfaces --- */
+
+	/* Shows width x height RGBA8888-premultiplied pixels in the host item; width/height 0 frees them. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_surface_commit(long handle, IntPtr pixels, int width, int height, int stride);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern void sailfish_host_set_frame_callback(FrameFn? fn, IntPtr userData);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_request_frame();
 }

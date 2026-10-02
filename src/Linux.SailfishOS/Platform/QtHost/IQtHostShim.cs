@@ -20,4 +20,12 @@ internal interface IQtHostShim
 	int PushPage(string qmlPath, string? propsJson);
 	int PopPage();
 	void Post(Action action);
+
+	/// <summary>A drawing-surface commit (pixels are only valid during the call).</summary>
+	int SurfaceCommit(long handle, IntPtr pixels, int width, int height, int stride) => QtHostRuntime.SfhostOk;
+
+	/// <summary>Asks for a frame; the test raises it with <see cref="QtHostSurface.RunFrame"/>.</summary>
+	void RequestFrame()
+	{
+	}
 }

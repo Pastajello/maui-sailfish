@@ -25,11 +25,47 @@ through `invoker`/`sailjail`, which reject non-ELF `Exec` targets
 ("is not elf binary", exit 1). A symlink keeps `/usr/bin/<pkg>` an ELF while
 the real binary (and `libsailfishhost.so`, `qml/`) live in `/usr/share/<pkg>/`.
 
-The generated desktop entry opts out of the Sailfish sandbox with a
-`[X-Sailjail] Sandboxing=Disabled` section — the pattern used by system and
-sideloaded apps on Sailfish OS 4.4+ (e.g. fingerterm, jolla-settings) and
-parsed by `sailjail`/`sailjaild`. (`X-Nemo-Sandboxing-Disabled=` and
+### Sandbox and permissions
+
+Every build (Debug and Release) runs the app in the Sailjail sandbox, like a
+Jolla Store app, so Debug already sees the permissions and data directories a
+Harbour build gets. Declare what the app needs in the project file, as in the
+Android manifest:
+
+```xml
+<SailfishPermissions>Location;Pictures</SailfishPermissions>
+```
+
+The desktop entry then carries an `[X-Sailjail]` section with
+`Permissions=Internet;Location;Pictures`, `OrganizationName` and
+`ApplicationName`. Sailjail asks the user once, at the first launch.
+`Internet` is always added: the sandbox has no network otherwise, and every
+other MAUI head has it without asking. `SailfishSecureStorage=Secrets` adds
+`Secrets`. The names are the files in `/etc/sailjail/permissions/` on the
+phone (`Location`, `Camera`, `Contacts`, `Pictures`, `WebView`, …).
+
+At runtime `Permissions.CheckStatusAsync`/`RequestAsync` report `Granted` for
+a declared permission and `Denied` otherwise. Request never shows a dialog,
+since Sailjail only asks at launch. `Geolocation` and `Contacts` throw
+`PermissionException` when their permission is missing, as on Android/iOS.
+`Contacts` grants the contacts D-Bus names and directories but not the user's
+address book, which is privileged data that only system apps open (see
+[porting-existing-apps.md](porting-existing-apps.md)). A
+`WebView` without the `WebView` permission logs a warning, because Gecko cannot
+start in the sandbox without it.
+
+`<SailfishSandboxing>false</SailfishSandboxing>` opts out with
+`[X-Sailjail] Sandboxing=Disabled`, the pattern used by system and sideloaded
+apps on Sailfish OS 4.4+ (e.g. fingerterm, jolla-settings). An unsandboxed app
+keeps its data under `~/.config|.local/share|.cache/<Assembly>` instead of
+`<org>/<pkg>`, reaches services Sailjail has no permission for (the
+flashlight), and cannot go to Harbour. (`X-Nemo-Sandboxing-Disabled=` and
 `X-Nemo-Application-Type=no-invoker` are parsed by nothing on Sailfish OS 5.2.)
+
+`tools/sf run` starts `/usr/bin/<pkg>` directly over SSH, outside the jail
+(sailjaild refuses launches from an SSH session), so the Permissions policy
+and data directories match the sandbox there, but the firejail filtering does
+not. To check a feature under the real sandbox, launch the app from the app grid.
 
 Because the app is published **self-contained**, the whole .NET runtime is
 bundled inside the package and no runtime dependencies are declared.
@@ -102,7 +138,8 @@ Size         : 86304638
 | `SailfishRpmArch` | derived from RID | `x86_64` / `aarch64` / `armv7hl` |
 | `SailfishRpmOutputDir` | `bin/SailfishRpm` | Output directory |
 | `SailfishRpmFileName` | `<pkg>-<ver>-<rel>.<arch>.rpm` | Output file name |
-| `SailfishPermissions` | *(empty)* | Semicolon-separated Sailjail permissions; empty = `Sandboxing=Disabled` |
+| `SailfishSandboxing` | `true` | `false` opts out of Sailjail (`Sandboxing=Disabled`); Harbour requires the sandbox |
+| `SailfishPermissions` | *(empty)* | Semicolon-separated Sailjail permissions on top of `Internet` (see [Sandbox and permissions](#sandbox-and-permissions)) |
 | `SailfishSecureStorage` | *(empty)* | `Secrets`: `SecureStorage` requires the Sailfish Secrets daemon (see below) |
 | `SailfishOrientation` | `Any` | `Any`, `Portrait` or `Landscape`; the window follows the phone like MAUI on iOS/Android |
 | `SailfishCover` | `false` | Generic cover with the app title |
@@ -137,7 +174,7 @@ Sailfish Secrets is **not preinstalled**, so an app that relies on it opts in:
 
 This adds `Requires: sailfishsecretsdaemon` and
 `sailfishsecretsdaemon-secretsplugins-default` to the RPM (both allowed in
-Harbour), and adds the `Secrets` permission for a sandboxed app. At runtime the
+Harbour), and adds the `Secrets` permission. At runtime the
 store uses Secrets whenever the device has it. Without Secrets it falls back to
 an AES file under `~/.config/<app>/`, which is obfuscation only because the key
 sits next to the data, and logs a warning. When Secrets later appears, entries
@@ -199,9 +236,9 @@ PackageKit round-trip but bypasses the zypp stack.
 - The package declares **no dependencies** (everything the app needs is bundled)
   unless `SailfishSecureStorage=Secrets` adds the Sailfish Secrets daemon —
   both allowed in Harbour.
-- `/usr/bin/<pkg>` is a symlink to the bundled ELF; the desktop entry opts out
-  of the sandbox via `[X-Sailjail] Sandboxing=Disabled` (sideloaded-app
-  pattern). A Store submission would instead declare `Permissions=` there.
+- `/usr/bin/<pkg>` is a symlink to the bundled ELF; the desktop entry declares
+  the Sailjail sandbox (`Permissions=`, `OrganizationName`, `ApplicationName`)
+  unless `SailfishSandboxing=false` opts out, which Harbour rejects.
 - The app reports its Wayland app_id as the package name
   (`QtHostRuntime.ResolveAppId`), so lipstick associates the window with the
   desktop entry (launcher icon, events view) like for any normal app.
@@ -216,7 +253,7 @@ PackageKit round-trip but bypasses the zypp stack.
 
 ```bash
 dotnet publish -c Release -r linux-arm64 -p:SelfContained=true -p:CreateSailfishRpm=true \
-  -p:SailfishHarbour=true -p:SailfishPermissions="Internet%3BPictures" \
+  -p:SailfishHarbour=true -p:SailfishPermissions=Pictures \
   -p:SailfishOrganizationName=org.example
 ```
 
@@ -227,8 +264,7 @@ What changes against the default (sideloading) layout:
 | `/usr/bin/<pkg>` | symlink to the .NET apphost | **native launcher** (`sailfish-launcher`, 7 KB): PIE, exports `main()` for the `silica-qt5` booster, links `__libc_start_main`, loads `libhostfxr.so` and runs `<app>.dll` through the .NET hosting API |
 | payload | `/usr/share/<pkg>/` | `/usr/share/<pkg>/lib/` (no apphost, no `createdump`, no `libcoreclrtraceptprovider.so` — it links lttng, not allowed) |
 | launcher rpath | — | `$ORIGIN/../share/<pkg>/lib` (written into the prebuilt launcher's placeholder at packaging) |
-| desktop | absolute icon path, `Sandboxing=Disabled` | `Icon=<pkg>`, `X-Nemo-Application-Type=silica-qt5`, `Permissions=` + `OrganizationName` + `ApplicationName` (SailfishPermissions is required) |
-| data dirs | `~/.config/<Assembly>` … | Sailjail's `~/.config|.local/share|.cache/<org>/<pkg>` |
+| desktop | absolute icon path | `Icon=<pkg>`, `X-Nemo-Application-Type=silica-qt5`; `SailfishSandboxing=false` is an error |
 | RPM | `Vendor:` set | no `Vendor:` (not allowed); files root:root, non-ELF 0644 |
 
 Verified on the device (Jolla Phone, SFOS 5.2): the Harbour RPM installs, and

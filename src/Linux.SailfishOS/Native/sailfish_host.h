@@ -211,6 +211,21 @@ int sailfish_host_clipboard_get(char *buf, int cap);
 /* Opens a URL with the system handler (QDesktopServices). Qt thread. */
 int sailfish_host_open_url(const char *url);
 
+/* --- Drawing surfaces ---
+ *
+ * A surface shows pixels drawn by managed code (SkiaSharp's raster canvas) inside a host item, which it fills.
+ * It is created on the first commit and dies with its host. Qt thread. */
+
+/* Copies width x height RGBA8888 premultiplied pixels (stride bytes per row, >= width*4) and shows them in the next
+ * frame. width or height 0 (or pixels NULL) frees the surface's pixels. -3 for a dead handle. */
+int sailfish_host_surface_commit(long long handle, const void *pixels, int width, int height, int stride);
+
+/* Called on the Qt thread in the next frame after sailfish_host_request_frame (QQuickWindow::afterAnimating, before
+ * the scene graph syncs), once however many requests came. */
+typedef void (*sfhost_frame_fn)(void *user_data);
+void sailfish_host_set_frame_callback(sfhost_frame_fn fn, void *user_data);
+int sailfish_host_request_frame(void);
+
 /* Copies the last error into buf; returns the full message length. */
 int sailfish_host_last_error(char *buf, int cap);
 

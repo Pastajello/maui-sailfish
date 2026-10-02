@@ -96,6 +96,8 @@ SailfishCover.ActiveChanged += (_, _) =>
 For your own cover layout, set `<SailfishCoverQml>Cover.qml</SailfishCoverQml>`: the item receives
 `{title, lines}` in a declared `property var mauiCoverData` ([`sailfishos-packaging.md`](sailfishos-packaging.md#cover)).
 
+MAUI's `AppActions` map onto the same two cover actions (`AppActions.SetAsync` replaces actions set here).
+
 ## Lifecycle events
 
 MAUI's `Window` events (`Activated`, `Deactivated`, `Resumed`, `Stopped`) fire as on the other platforms. The native

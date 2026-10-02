@@ -37,6 +37,33 @@ public class EssentialsTests
 	}
 
 	[Fact]
+	public void Sailjail_section_decides_the_permission_status()
+	{
+		var optedOut = SailfishPermissions.ParsePolicy(new[] { "[Desktop Entry]", "Permissions=Location", "", "[X-Sailjail]", "Sandboxing=Disabled" });
+		Assert.False(optedOut.Sandboxed);
+		Assert.Equal(PermissionStatus.Granted, SailfishPermissions.StatusFor(typeof(Permissions.LocationWhenInUse), optedOut));
+
+		// an empty list is still a sandbox (jolla-calculator's form)
+		var bare = SailfishPermissions.ParsePolicy(new[] { "[X-Sailjail]", "Permissions=", "OrganizationName=org.maui", "ApplicationName=harbour-x" });
+		Assert.True(bare.Sandboxed);
+		Assert.Equal(PermissionStatus.Denied, SailfishPermissions.StatusFor(typeof(Permissions.LocationWhenInUse), bare));
+		Assert.Equal(PermissionStatus.Granted, SailfishPermissions.StatusFor(typeof(Permissions.Vibrate), bare));
+
+		var located = SailfishPermissions.ParsePolicy(new[] { "[X-Sailjail]", "Permissions=Internet;location ; Secrets" });
+		Assert.Equal(PermissionStatus.Granted, SailfishPermissions.StatusFor(typeof(Permissions.LocationAlways), located));
+		Assert.Equal(PermissionStatus.Denied, SailfishPermissions.StatusFor(typeof(Permissions.Camera), located));
+	}
+
+	[Fact]
+	public void Missing_permission_names_the_project_property()
+	{
+		var message = SailfishPermissions.MissingMessage("Geolocation", SailfishPermissions.SailjailFor(typeof(Permissions.LocationWhenInUse)));
+		Assert.Equal("Geolocation needs the Location Sailjail permission: add Location to <SailfishPermissions> in the project file.", message);
+		// off device there is no .desktop file, so nothing is sandboxed and nothing throws
+		Assert.Null(SailfishPermissions.Missing(typeof(Permissions.LocationWhenInUse), "Geolocation"));
+	}
+
+	[Fact]
 	public void Release_files_parse_like_os_release()
 	{
 		var path = Path.GetTempFileName();

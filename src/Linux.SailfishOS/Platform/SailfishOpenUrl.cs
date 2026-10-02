@@ -17,6 +17,9 @@ internal static class SailfishOpenUrl
 	/// <summary>Diagnostics: every URI delivered to MAUI.</summary>
 	internal static event Action<Uri>? Delivered;
 
+	/// <summary>Takes a URI before the app sees it (a pending WebAuthenticator sign-in); true = consumed.</summary>
+	internal static Func<Uri, bool>? Intercept;
+
 	/// <summary>The D-Bus names baked into maui-appmeta.json; absent when the app declares no schemes or types.</summary>
 	internal static void Configure(string? service, string? path, string? iface)
 	{
@@ -71,8 +74,14 @@ internal static class SailfishOpenUrl
 		PendingLaunch.Clear();
 	}
 
-	private static void Deliver(Uri uri)
+	internal static void Deliver(Uri uri)
 	{
+		if (Intercept?.Invoke(uri) == true)
+		{
+			QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"open url → WebAuthenticator callback ({uri.Scheme}://…)");
+			Delivered?.Invoke(uri);
+			return;
+		}
 		QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"open url → OnAppLinkRequestReceived({uri})");
 		try
 		{

@@ -81,6 +81,16 @@ public static class SailfishCover
 	/// <summary>Diagnostics: cover actions delivered.</summary>
 	internal static int Triggered { get; private set; }
 
+	/// <summary>The current actions (AppActions reads them back).</summary>
+	internal static SailfishCoverAction[] Actions
+	{
+		get
+		{
+			lock (Sync)
+				return _actions;
+		}
+	}
+
 	private static void Push()
 	{
 		if (!QtHostRuntime.IsRunning || !SailfishEssentials.HostReady.Task.IsCompleted)
