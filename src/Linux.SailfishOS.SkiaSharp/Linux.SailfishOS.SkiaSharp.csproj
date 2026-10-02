@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Sailfish OS platform handlers for SkiaSharp's MAUI views: the counterpart of the per-platform assets
+       SkiaSharp.Views.Maui.Core ships for Android/iOS/Windows, built on the backend's generic drawing surface
+       (QtHostSurface). Shaped so it can move upstream into SkiaSharp. See docs/skiasharp-plan.md. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>Microsoft.Maui.SailfishOS.SkiaSharp</RootNamespace>
+    <AssemblyName>Microsoft.Maui.SailfishOS.SkiaSharp</AssemblyName>
+    <PackageId>Microsoft.Maui.SailfishOS.SkiaSharp</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Description>Sailfish OS handlers for SkiaSharp.Views.Maui (SKCanvasView, SKGLView, SK*ImageSource): reference it next to SkiaSharp.Views.Maui.Controls and SkiaSharp.NativeAssets.Linux in the Sailfish head.</Description>
+    <PackageTags>maui;sailfish;sailfishos;skiasharp</PackageTags>
+    <IsPackable>true</IsPackable>
+    <IsShipping>true</IsShipping>
+    <!-- The lowest SkiaSharp 3.x the supported apps use; NuGet lets apps resolve any later 3.x. -->
+    <SailfishSkiaSharpVersion Condition="'$(SailfishSkiaSharpVersion)' == ''">3.116.1</SailfishSkiaSharpVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Linux.SailfishOS/Linux.SailfishOS.csproj" />
+    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="$(SailfishSkiaSharpVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+    <InternalsVisibleTo Include="Microsoft.Maui.SailfishOS.SkiaSharp.Diagnostics" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="buildTransitive/**" Pack="true"
+          PackagePath="buildTransitive/net11.0/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

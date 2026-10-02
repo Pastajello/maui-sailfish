@@ -337,6 +337,60 @@ public static class QtHostRuntime
 		return QtHostNative.sailfish_host_render_glyph(family, text, px, color, outPath) == 0;
 	}
 
+	// --- Drawing surfaces (Qt thread only; see QtHostSurface) ---
+
+	private static QtHostNative.FrameFn? _frameFn;
+
+	internal static int SurfaceCommit(long handle, IntPtr pixels, int width, int height, int stride)
+	{
+		if (TestShim is { } shim)
+			return shim.SurfaceCommit(handle, pixels, width, height, stride);
+		CheckThread("surface_commit");
+		return QtHostNative.sailfish_host_surface_commit(handle, pixels, width, height, stride);
+	}
+
+	private static QtHostNative.SurfaceTouchFn? _surfaceTouchFn;
+
+	internal static int SurfaceSetTouch(long handle, bool enabled, QtHostNative.SurfaceTouchFn onTouch)
+	{
+		if (TestShim is { } shim)
+			return shim.SurfaceSetTouch(handle, enabled);
+		CheckThread("surface_set_touch");
+		if (_surfaceTouchFn is null)
+		{
+			_surfaceTouchFn = onTouch;
+			QtHostNative.sailfish_host_set_surface_touch_callback(_surfaceTouchFn, IntPtr.Zero);
+		}
+		return QtHostNative.sailfish_host_surface_set_touch(handle, enabled ? 1 : 0);
+	}
+
+	/// <summary>Diagnostics: one multi-touch event through Qt's real input path (window pixels; states are
+	/// Qt::TouchPointState: 1 pressed, 2 moved, 4 stationary, 8 released). Qt thread.</summary>
+	public static void InjectTouch(int[] ids, double[] xy, int[] states)
+	{
+		if (TestShim is not null)
+			return;
+		CheckThread("inject_touch");
+		QtHostNative.sailfish_host_inject_touch(ids.Length, ids, xy, states);
+	}
+
+	/// <summary>Asks the shim for one frame callback; <paramref name="onFrame"/> is installed once and kept alive.</summary>
+	internal static void RequestFrame(QtHostNative.FrameFn onFrame)
+	{
+		if (TestShim is { } shim)
+		{
+			shim.RequestFrame();
+			return;
+		}
+		CheckThread("request_frame");
+		if (_frameFn is null)
+		{
+			_frameFn = onFrame;
+			QtHostNative.sailfish_host_set_frame_callback(_frameFn, IntPtr.Zero);
+		}
+		QtHostNative.sailfish_host_request_frame();
+	}
+
 	/// <summary>Writes the current scene to a PNG on the device (Qt thread only).</summary>
 	public static int GrabPng(string path)
 	{

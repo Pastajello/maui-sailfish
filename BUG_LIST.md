@@ -26,6 +26,11 @@ Collected from the old "To do" list, from `BUG_LIST_S1.md` (analysis of the 2026
 - [ ] **Kitchen: card thumbnails interrupted by `Shutdown` stay placeholders after returning.** Fix in place
       (2026-09-30: `CatalogViewModel.OnActivated` resumes cards without a thumbnail); not yet reproduced on the
       phone, where a warm image cache finishes before the push.
+- [ ] **An `Image` without a size request measures 100×100 dp whatever its source** (`SailfishMeasure.Image`). On
+      Android it takes the image's own size: a resizetizer `MauiImage` at its `BaseSize`, a bitmap (SkiaSharp's
+      `SKBitmapImageSource`, a stream) at its pixels ÷ density. The Sailfish head packs resizetizer images as one 4×
+      raster (`_SailfishProcessMauiImages`), so the intrinsic size needs the source's kind, not just the PNG size.
+      Found 2026-10-02 while adding SkiaSharp's image sources.
 
 **Phone state, not code**
 - Leg f4: Sailfish Secrets collection locked ("requires device lock authentication") — unlock with the code.

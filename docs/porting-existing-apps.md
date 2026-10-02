@@ -112,13 +112,26 @@ nothing for plain `net`. Its 2.0 release adds `net10.0`, which the Sailfish head
 3.119.4). Without such a release, condition the package out and supply the types the XAML names. The XAML
 compiler keeps `OnPlatform` branches for Sailfish, so every type in the file must exist.
 
-**SkiaSharp's native library.** Restore brings no `libSkiaSharp.so` for linux-arm64. Any library that touches
-SkiaSharp, even only through `SKTypeface` in a view-model constructor (MoneyFox, Profitocracy), throws
-`DllNotFoundException`, and its pages fail to open. Add the glibc build in the version the app resolves:
+**SkiaSharp.** SkiaSharp 3.x views (`SKCanvasView`, `SKGLView`, the `SK*ImageSource` types) work through
+`Microsoft.Maui.SailfishOS.SkiaSharp`. It holds the Sailfish handlers, the counterpart of the per-platform assets
+SkiaSharp ships for Android and iOS, and registers itself, so `UseSkiaSharp()` stays as it is. Restore brings no
+`libSkiaSharp.so` for linux-arm64, so add the glibc build in the version the app resolves. Without it, any code
+that touches SkiaSharp (even an `SKTypeface` in a view-model constructor: MoneyFox, Profitocracy) throws
+`DllNotFoundException`:
 
 ```xml
-<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.6" />  <!-- = the app's SkiaSharp -->
+<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+  <PackageReference Include="Microsoft.Maui.SailfishOS.SkiaSharp" Version="0.1.0" />
+  <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />  <!-- = the app's SkiaSharp -->
+</ItemGroup>
 ```
+
+Canvases behave as on Android: the same `Info`/`RawInfo` sizes, `IgnorePixelScaling`, one paint per frame however
+often `InvalidateSurface` is called, and touch with `Handled` and parent-scroll interception. Limits:
+- `SKGLView` draws through the same raster path, so `GRContext` is null.
+- SkiaSharp 2.88 (the MAUI 6–8 line) is not supported.
+- Libraries built on SkiaSharp draw, but their own platform code is theirs to port. LiveCharts' plain-`net` input
+  is a stub, so its charts show but do not react to touch.
 
 ## Platform `#if` blocks
 
@@ -184,8 +197,8 @@ failure once per handler type, logs `[QT_HOST][WARN] <handler> failed for <view>
   again on every render pass, not on the library's own invalidate, so animations show their end state. A drawing
   that throws (Syncfusion's text measurer on plain .NET) logs `IDrawable.Draw (…) failed` once and draws what it
   got to.
-- **Anything else renders as an empty container** whose MAUI children still paint: SkiaSharp's
-  `SKCanvasViewHandler` (LiveCharts, Microcharts), AiForms.SettingsView.
+- **Anything else renders as an empty container** whose MAUI children still paint: AiForms.SettingsView, and
+  SkiaSharp's views without `Microsoft.Maui.SailfishOS.SkiaSharp` (see above).
 - Collection item views are the `CollectionView`'s logical children, so `{RelativeSource AncestorType=…}`
   bindings in item templates (a page model's command) resolve as on Android.
 
@@ -255,7 +268,8 @@ These follow Silica conventions. Port authors should expect them; none needs app
 
 ## Not supported yet
 
-- **SkiaSharp views** (`SKCanvasView`, `SKGLView`), and with them LiveCharts and Microcharts: the area stays empty.
+- **SkiaSharp 2.88 views**, a GPU `GRContext` in `SKGLView`, and input of SkiaSharp-based libraries whose
+  plain-`net` platform code is a stub (LiveCharts: charts draw, touch does nothing).
 - **CommunityToolkit.Maui platform features.** The v1 `Popup` (CommunityToolkit ≤ 9, `ShowPopupAsync`) never
   opens. `Toast`, `Snackbar` and `Badge` have no Sailfish implementation; their plain-`net` services throw or do
   nothing. (CommunityToolkit 12+ shows popups as modal pages; that path is not verified yet.)

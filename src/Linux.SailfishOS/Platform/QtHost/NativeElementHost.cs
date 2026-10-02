@@ -58,6 +58,13 @@ public sealed class NativeElementHost
 	/// <summary>Whether the native handle is attached (object created and resolved).</summary>
 	public bool IsAttached => NativeHandle != 0;
 
+	/// <summary>Raised on the Qt thread each time a fresh QML object is attached: the first creation and every
+	/// re-creation (navigation back, a recycled collection row, a healed host). State that lives only in the native
+	/// object and not in the adapter's properties (a drawing surface's pixels) must be sent again.</summary>
+	public event Action<NativeElementHost>? Attached;
+
+	internal void RaiseAttached() => Attached?.Invoke(this);
+
 	/* --- Geometry --- */
 
 	/// <summary>The element's absolute rectangle in root space (page content area, dp).</summary>

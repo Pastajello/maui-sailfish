@@ -23,6 +23,7 @@
 
         "shape":           "shapes/Shape.qml",
         "graphics-view":   "shapes/GraphicsView.qml",
+        "surface":         "controls/Surface.qml",
 
         "content-view":    "containers/ContentView.qml",
         "drawn-view":      "containers/DrawnView.qml",

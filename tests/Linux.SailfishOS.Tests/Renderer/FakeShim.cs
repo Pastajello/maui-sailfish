@@ -282,6 +282,32 @@ internal sealed class FakeShim : IQtHostShim
 
 	/// <summary>Posts run inline (the test thread is the "Qt thread").</summary>
 	public void Post(Action action) => action();
+
+	/* --- Drawing surfaces --- */
+
+	/// <summary>One surface commit; Pixels is a copy (empty when the surface was released).</summary>
+	internal sealed record SurfaceCommitRecord(long Handle, int Width, int Height, byte[] Pixels);
+
+	public List<SurfaceCommitRecord> SurfaceCommits { get; } = new();
+	public int FrameRequests { get; private set; }
+	public Dictionary<long, bool> SurfaceTouch { get; } = new();
+
+	public int SurfaceCommit(long handle, IntPtr pixels, int width, int height, int stride)
+	{
+		var copy = new byte[width > 0 && height > 0 && pixels != IntPtr.Zero ? width * height * 4 : 0];
+		for (var y = 0; copy.Length > 0 && y < height; y++)
+			System.Runtime.InteropServices.Marshal.Copy(pixels + y * stride, copy, y * width * 4, width * 4);
+		SurfaceCommits.Add(new SurfaceCommitRecord(handle, width, height, copy));
+		return _byHandle.TryGetValue(handle, out var o) && !o.Destroyed ? QtHostRuntime.SfhostOk : QtHostRuntime.SfhostEDeadHandle;
+	}
+
+	public void RequestFrame() => FrameRequests++;
+
+	public int SurfaceSetTouch(long handle, bool enabled)
+	{
+		SurfaceTouch[handle] = enabled;
+		return QtHostRuntime.SfhostOk;
+	}
 }
 
 internal sealed record NavState(List<string> ids, bool busy, bool topModel, bool active, int appState);

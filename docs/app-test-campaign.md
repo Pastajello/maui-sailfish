@@ -56,7 +56,8 @@ Walkthrough:
 - [x] First run: profile wizard (name, currency picker, initial balance), Save
 - [x] Home: balance card, Start new period, Today/Tomorrow, spending types, category expenses
 - [x] Transactions: list, sub-tabs All / Recurring, FAB → new transaction form, close (×)
-- [x] Overview: cards (charts are SkiaSharp: expected empty)
+- [x] Overview: cards; since 2026-10-02 (`Microsoft.Maui.SailfishOS.SkiaSharp`) the LiveCharts charts draw (axes, and
+      the pie charts after one expense was added); chart touch is LiveCharts' own plain-`net` stub
 - [x] Settings → Profiles (list, swipe a row: delete/edit, edit with typed name), back
 - [x] Settings → Categories, Import/Export, Authentication, Notifications, Theme, Language: each in and back
 - [x] Settings → Theme: switch Light/Dark/System and return
@@ -118,7 +119,9 @@ Walkthrough:
 - [x] Settings page (AiForms.SettingsView: expected empty), back
 - [x] Add weight: the CommunityToolkit 7 popup does not open (expected, see questions)
 
-Bugs: none new in round 1 (`rec/wt1.mp4`). Known gaps: SkiaSharp chart (white area), AiForms.SettingsView, CT v1 Popup.
+Bugs: none new in round 1 (`rec/wt1.mp4`). Known gaps: AiForms.SettingsView, CT v1 Popup (so no weight can be added).
+Since 2026-10-02 the Microcharts graph draws through `Microsoft.Maui.SailfishOS.SkiaSharp` (empty data: the add-weight
+popup is the CT v1 gap).
 
 ## 4. GitTrends
 
@@ -248,8 +251,9 @@ Each: every screen and control once, every back gesture, every text field typed 
   IDrawable fallback (DB3), but SfTextInputLayout, the chart and other text-drawing controls call Syncfusion's
   TextMeasurer, which throws on plain .NET. A `Microsoft.Maui.SailfishOS.Syncfusion` add-on could install a Qt
   text measurer into that private static (reflection, brittle across versions). Build it, or document the gap?
-- **SkiaSharp** (LiveCharts, Microcharts: MoneyFox, Profitocracy, WeightTracker, GitTrends). Support for it would
-  be a separate `Microsoft.Maui.SailfishOS.SkiaSharp` package with an `SKCanvasView` handler. Should it be built?
+- ~~**SkiaSharp** (LiveCharts, Microcharts).~~ Decided 2026-10-01 and built: `Microsoft.Maui.SailfishOS.SkiaSharp` with
+  the SkiaSharp 3.x view handlers ([`skiasharp-plan.md`](skiasharp-plan.md)). Libraries built on it port their own
+  platform code (LiveCharts' input).
 - **CommunityToolkit integration** (v1 Popup, Toast, Snackbar). Same question: a separate package?
 - **GitTrends**: on MAUI 11 rc1 CommunityToolkit.Maui.Markup's typed bindings throw `MethodAccessException`, because
   MAUI 11 dropped the toolkit's `InternalsVisibleTo`. Is there a newer MAUI 11 build or a toolkit preview to try,

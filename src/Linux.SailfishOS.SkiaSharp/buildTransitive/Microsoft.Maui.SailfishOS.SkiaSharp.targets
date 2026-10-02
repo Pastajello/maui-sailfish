@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- Names the registrar the Sailfish backend calls before CreateMauiApp (SailfishExtensions), so referencing the
+       package is all an app does; the assembly is rooted because only that string names it. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>Microsoft.Maui.SailfishOS.Extension</_Parameter1>
+      <_Parameter2>Microsoft.Maui.SailfishOS.SkiaSharp.SailfishSkiaSharp, Microsoft.Maui.SailfishOS.SkiaSharp</_Parameter2>
+    </AssemblyAttribute>
+    <TrimmerRootAssembly Include="Microsoft.Maui.SailfishOS.SkiaSharp" />
+  </ItemGroup>
+
+</Project>

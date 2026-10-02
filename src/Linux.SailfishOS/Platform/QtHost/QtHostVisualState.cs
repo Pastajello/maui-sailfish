@@ -173,6 +173,10 @@ internal static class QtHostVisualState
 
 	public static bool HasGenericBackground(VisualElement element)
 	{
+		// A drawing surface (QtHostSurface) paints only its pixels; the view's background goes under them, as Android
+		// draws a View's background before its content.
+		if (element.Handler is Handlers.ISailfishAdapterHandler { AdapterUri: QtHostSurface.AdapterUri })
+			return true;
 		var type = element.GetType();
 		foreach (var t in GenericBackgroundTypes)
 			if (t.IsAssignableFrom(type))

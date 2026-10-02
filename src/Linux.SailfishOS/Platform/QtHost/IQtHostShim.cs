@@ -24,6 +24,9 @@ internal interface IQtHostShim
 	/// <summary>A drawing-surface commit (pixels are only valid during the call).</summary>
 	int SurfaceCommit(long handle, IntPtr pixels, int width, int height, int stride) => QtHostRuntime.SfhostOk;
 
+	/// <summary>Surface touch on/off; the test delivers touches with <see cref="QtHostSurface.DeliverTouch"/>.</summary>
+	int SurfaceSetTouch(long handle, bool enabled) => QtHostRuntime.SfhostOk;
+
 	/// <summary>Asks for a frame; the test raises it with <see cref="QtHostSurface.RunFrame"/>.</summary>
 	void RequestFrame()
 	{

@@ -45,12 +45,37 @@ spec, read from the 3.119 packages. The glue does what they do, no more.
   know those types, so they show nothing.
 - Adapter events reach C# asynchronously; the input router forwards the first touch point only. Android's `Handled`
   needs a synchronous path, hence the touch primitive.
-- **Done in this round (uncommitted):**
-  - the shim's drawing surface (`MauiSurfaceItem`: staging copy, persistent texture updated with
-    `glTexSubImage2D`, tiles past `GL_MAX_TEXTURE_SIZE`, nearest sampling),
-  - `sailfish_host_surface_commit`, `sailfish_host_request_frame`/`set_frame_callback` (in `afterAnimating`),
-  - surface counters in `perf_stats`,
-  - managed `QtHostSurface` (not built yet).
+- **Done (2026-10-02, uncommitted):** P1–P5. Matrix 29/29 PASS after P1; the new legs `skia` (11 checks) and
+  `skiainput` (5) PASS on `samples/SkiaSharpProbe`. A-1 Profitocracy: the LiveCharts charts draw, the pie charts
+  with data. A-2 WeightTracker: the Microcharts graph draws. All device runs used the default trimmed + R2R payload,
+  so the registrar survives trimming. Docs from §6 are updated.
+  - Shim: `MauiSurfaceItem`, the surface ABI (`surface_commit`, `surface_set_touch` + touch callback,
+    `request_frame`/frame callback in `afterAnimating`, `inject_touch`), and surface counters in `perf_stats`.
+  - Core: `QtHostSurface`, the generic `surface` adapter, `NativeElementHost.Attached`,
+    `SailfishHandlersFactory.ReplaceLibraryHandler`, `SailfishExtensions` (registrar metadata) and
+    `QtHostImageSources`.
+  - Package: `SailfishSKCanvasViewHandler` + `SkiaSurfaceRenderer` + `SkiaTouch`, the registrar, and
+    buildTransitive targets; `tools/sf pack-local` packs it.
+  - P4: `SailfishSKGLViewHandler` (raster, `GRContext` null, render loop) and `SkiaImageSources` (PNG per source,
+    rewritten when the source object changes; pictures are drawn onto a raster surface, since
+    `SKImage.FromPicture` segfaults in SkiaSharp 3.116).
+  - Tests: 244 host tests green. The device probe (`SkiaProbe`, scratch app, prototype of D-1/D-2) passes 15/15 in
+    portrait. A run with the phone in landscape relaid the page for the landscape width and the canvases repainted
+    at that size, so the portrait pixel checks need the probe locked to portrait.
+- **Measured on the device** (Xperia, density 1.911, `QSGThreadedRenderLoop`, `GL_MAX_TEXTURE_SIZE` 16383):
+  - pixels on screen equal the bitmap exactly (0 of 131 790 differ);
+  - a 993×764 px canvas invalidated every frame paints at about 88 fps;
+  - commit (staging copy) averages 1.1 ms and upload (`glTexSubImage2D`) 2.1 ms, with a 20 ms peak on the first
+    upload of a size.
+- **Learned on the device:**
+  - `afterAnimating` must be connected on the current `QQuickView`. Silica's window changes after the first
+    attach, so the frame hook follows it.
+  - A texture needs its GL id before the first `bind()`. The scene-graph renderer batches materials that compare
+    equal by `textureId()`, so surfaces first committed in the same frame drew one texture.
+  - The surface shows the bitmap 1:1 from the host's corner instead of stretching it. The host item's own pixel
+    rounding can differ by one from MAUI Android's, and stretching doubled a column.
+  - Qt 5.6 sends no ungrab when a Flickable ancestor takes a drag. The item watches the ancestors' `dragging`
+    NOTIFY and cancels, as Android's interception does.
 
 ## 3. Requirements
 
@@ -62,7 +87,7 @@ Each row names its tests (§5).
 |---|---|---|
 | R1 | With the package referenced, `UseSkiaSharp()` alone makes `SKCanvasView`/`SKGLView` render, whatever order the app registers things in. The Sailfish handler replaces SkiaSharp's plain-`net` one | U-R1 |
 | R2 | Subclasses of `SKCanvasView` (library chart views) resolve to the Sailfish handler | U-R2 |
-| R3 | Mapper and command keys equal SkiaSharp's (`EnableTouchEvents`, `IgnorePixelScaling`, `HasRenderLoop` for GL, `InvalidateSurface`, + `ViewMapper`); an app's `AppendToMapping` on SkiaSharp's static mappers still runs | U-R3 |
+| R3 | Mapper and command keys cover SkiaSharp's (`EnableTouchEvents`, `IgnorePixelScaling`, `HasRenderLoop` for GL, `InvalidateSurface`, + `ViewMapper`). Known limit: an `AppendToMapping` on SkiaSharp's own `SKCanvasViewMapper` targets its handler type and does not run on Sailfish; apps extend `SailfishSKCanvasViewHandler.Mapper` instead | U-R3 |
 
 Mechanism: the package's `buildTransitive` targets add an `AssemblyMetadata` naming its registrar, which the backend
 calls at startup (the pattern `SailfishMauiApplication` already uses for the application id). It registers the

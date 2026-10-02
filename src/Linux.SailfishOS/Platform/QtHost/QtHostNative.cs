@@ -33,6 +33,10 @@ internal static class QtHostNative
 	/* Frame callback of the drawing surfaces: the next frame after sailfish_host_request_frame. */
 	public delegate void FrameFn(IntPtr userData);
 
+	/* Surface touch: action 0 pressed, 1 moved, 2 released, 3 cancelled; device 0 touch, 1 mouse; returns handled. */
+	public delegate int SurfaceTouchFn(long handle, int action, int pointer, double x, double y, double pressure,
+		int device, int button, IntPtr userData);
+
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_init(string appName, LogFn? log, IntPtr logUser);
 
@@ -178,4 +182,14 @@ internal static class QtHostNative
 
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_request_frame();
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern void sailfish_host_set_surface_touch_callback(SurfaceTouchFn? fn, IntPtr userData);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_surface_set_touch(long handle, int enabled);
+
+	/* Diagnostics: one multi-touch event; states are Qt::TouchPointState values. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern void sailfish_host_inject_touch(int count, int[] ids, double[] xy, int[] states);
 }

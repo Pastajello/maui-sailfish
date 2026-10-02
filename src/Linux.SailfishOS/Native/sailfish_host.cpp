@@ -40,6 +40,7 @@
 #include <QJsonValue>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QMetaMethod>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -167,14 +168,20 @@ struct HostState {
     // Drawing surfaces: the frame callback runs once per requested frame, in afterAnimating (GUI thread, before sync).
     sfhost_frame_fn frame_fn = nullptr;
     void *frame_user = nullptr;
+    sfhost_surface_touch_fn surface_touch_fn = nullptr;
+    void *surface_touch_user = nullptr;
+    long long surface_touches = 0;
     bool frame_requested = false;
-    bool frame_hooked = false;
-    long long surface_commits = 0;          // Qt thread
+    QPointer<QQuickWindow> frame_window;   // the window afterAnimating is connected on
+    long long frame_requests = 0;           // Qt thread
+    long long frame_callbacks = 0;
+    long long surface_commits = 0;
     long long surface_commit_us = 0;
     std::atomic<long long> surface_uploads{0};      // render thread
     std::atomic<long long> surface_upload_us{0};
     std::atomic<long long> surface_upload_max_us{0};
     std::atomic<long long> surface_tiles{0};        // textures of the last multi-tile upload
+    std::atomic<long long> surface_max_texture{0};  // GL_MAX_TEXTURE_SIZE, once a surface rendered
     int argc = 1;
     char *argv0 = nullptr;
     char *argv[2] = {nullptr, nullptr};
@@ -360,16 +367,22 @@ void hook_perf_signals(QWindow *w)
 
 // Drawing surfaces paint in afterAnimating: on the GUI thread, once per frame, before the scene graph syncs, so a
 // surface committed there shows in the same frame (Android draws a View in its frame's onDraw the same way).
+// Per window: Silica creates its windows late, so the main window can change after the first attach, and a signal
+// connected on the earlier one would never fire for the frames requested on the current one.
 void hook_frame_signal(QWindow *w)
 {
     QQuickWindow *qw = qobject_cast<QQuickWindow *>(w);
-    if (g.frame_hooked || !qw)
+    if (!qw || g.frame_window == qw)
         return;
-    g.frame_hooked = true;
-    QObject::connect(qw, &QQuickWindow::afterAnimating, []() {
+    g.frame_window = qw;
+    log_line(0, QStringLiteral("frame callback hooked on %1").arg(QString::fromUtf8(qw->metaObject()->className())));
+    QObject::connect(qw, &QQuickWindow::afterAnimating, qw, [qw]() {
+        if (g.frame_window != qw)
+            return;
         if (!g.frame_requested)
             return;
         g.frame_requested = false;
+        ++g.frame_callbacks;
         if (g.frame_fn)
             g.frame_fn(g.frame_user);
         else if (g.shutdown)
@@ -1213,6 +1226,7 @@ void shutdown_teardown(void *)
     g.pointer = nullptr; g.key = nullptr; g.input_user = nullptr;
     g.event_fn = nullptr; g.event_user = nullptr;
     g.frame_fn = nullptr; g.frame_user = nullptr;
+    g.surface_touch_fn = nullptr; g.surface_touch_user = nullptr;
     // Input filter.
     if (g.input_filter) { g.app->removeEventFilter(g.input_filter); g.input_filter->deleteLater(); g.input_filter = nullptr; }
     // The view owns the engine, which owns root and its window, so deleteLater cascades.
@@ -2665,7 +2679,8 @@ int sailfish_host_perf_stats(char *buf, int cap)
         "\"findObjects\":%27,\"pushes\":%28,\"pops\":%29,\"grabs\":%30,"
         "\"injects\":%31,\"destroys\":%32,\"shutdown\":%33,\"geometryReads\":%34,"
         "\"surfaceCommits\":%35,\"surfaceCommitUs\":%36,\"surfaceUploads\":%37,\"surfaceUploadUs\":%38,"
-        "\"surfaceUploadMaxUs\":%39,\"surfaceTiles\":%40}")
+        "\"surfaceUploadMaxUs\":%39,\"surfaceTiles\":%40,\"surfaceTouches\":%41,\"frameRequests\":%42,"
+        "\"frameCallbacks\":%43,\"surfaceMaxTexture\":%44}")
         .arg(uptime_ms)
         .arg(g.first_frame_ms.load())
         .arg(fr)
@@ -2705,7 +2720,11 @@ int sailfish_host_perf_stats(char *buf, int cap)
         .arg(g.surface_uploads.load())
         .arg(g.surface_upload_us.load())
         .arg(g.surface_upload_max_us.load())
-        .arg(g.surface_tiles.load());
+        .arg(g.surface_tiles.load())
+        .arg(g.surface_touches)
+        .arg(g.frame_requests)
+        .arg(g.frame_callbacks)
+        .arg(g.surface_max_texture.load());
     const QByteArray utf = json.toUtf8();
     return copy_out(utf, buf, cap);
 }
@@ -2777,15 +2796,22 @@ public:
     bool hasAlphaChannel() const override { return true; }
     bool hasMipmaps() const override { return false; }
 
-    // Render thread (updatePaintNode); the image shares the staging data until bind() uploads it.
-    void setPixels(const QImage &image) { m_pending = image; }
+    // Render thread (updatePaintNode, context current); the image shares the staging data until bind() uploads it.
+    // The id exists from here on: the renderer batches nodes whose materials compare equal by textureId(), so
+    // surfaces first committed in the same frame would otherwise all draw the first one's texture.
+    void setPixels(const QImage &image)
+    {
+        m_pending = image;
+        if (!m_id)
+            QOpenGLContext::currentContext()->functions()->glGenTextures(1, &m_id);
+    }
 
     void bind() override
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-        const bool fresh = m_id == 0;
-        if (fresh)
+        if (!m_id)
             f->glGenTextures(1, &m_id);
+        const bool fresh = !m_size.isValid();
         f->glBindTexture(GL_TEXTURE_2D, m_id);
         if (!m_pending.isNull()) {
             QElapsedTimer t;
@@ -2793,7 +2819,7 @@ public:
             const int w = m_pending.width();
             const int h = m_pending.height();
             // QImage rows of 32-bit pixels are tightly packed, which GLES2 needs (no GL_UNPACK_ROW_LENGTH).
-            if (fresh || m_size != m_pending.size()) {
+            if (m_size != m_pending.size()) {
                 f->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_pending.constBits());
                 m_size = m_pending.size();
             } else {
@@ -2823,8 +2849,17 @@ public:
         setObjectName(QStringLiteral("mauiSurface"));
         setFlag(ItemHasContents, true);
         setSize(QSizeF(host->width(), host->height()));
-        QObject::connect(host, &QQuickItem::widthChanged, this, [this, host]() { setWidth(host->width()); });
-        QObject::connect(host, &QQuickItem::heightChanged, this, [this, host]() { setHeight(host->height()); });
+        // Without pixels the surface fills its host (it takes touch there); with pixels it has their size, 1:1 from
+        // the host's top-left corner. The managed side sizes the bitmap from MAUI Android's pixel rounding of the
+        // view, which can differ by a pixel from the host item's own rounding; stretching would double a column.
+        QObject::connect(host, &QQuickItem::widthChanged, this, [this, host]() {
+            if (m_staging.isNull())
+                setWidth(host->width());
+        });
+        QObject::connect(host, &QQuickItem::heightChanged, this, [this, host]() {
+            if (m_staging.isNull())
+                setHeight(host->height());
+        });
     }
 
     // Qt thread. width/height 0 frees the pixels (a hidden or empty canvas holds no memory, as on Android).
@@ -2832,7 +2867,10 @@ public:
     {
         if (width <= 0 || height <= 0 || !pixels) {
             m_staging = QImage();
+            if (QQuickItem *host = parentItem())
+                setSize(QSizeF(host->width(), host->height()));
         } else {
+            setSize(QSizeF(width, height));
             const QSize size(width, height);
             // Still shared with the render thread (the previous frame is not uploaded yet): a fresh image instead of
             // the copy bits() would make, since every pixel is overwritten anyway.
@@ -2852,7 +2890,135 @@ public:
         update();
     }
 
+    // Touch follows SkiaSharp's Android SKTouchHandler: the first press decides whether the item keeps the gesture
+    // (handled) or Qt passes it on to the items below and the parents, as an unhandled ACTION_DOWN does on Android.
+    void setTouchEnabled(bool enabled)
+    {
+        if (m_touch == enabled)
+            return;
+        m_touch = enabled;
+        setAcceptedMouseButtons(enabled ? Qt::LeftButton | Qt::RightButton | Qt::MiddleButton : Qt::NoButton);
+        if (!enabled)
+            cancelAll();
+    }
+
 protected:
+    void touchEvent(QTouchEvent *e) override
+    {
+        if (!m_touch) {
+            e->ignore();
+            return;
+        }
+        const QList<QTouchEvent::TouchPoint> points = e->touchPoints();
+        if (e->type() == QEvent::TouchCancel) {
+            cancelAll();
+            e->accept();
+            return;
+        }
+        if (e->type() == QEvent::TouchBegin) {
+            m_points.clear();
+            bool handled = false;
+            for (const QTouchEvent::TouchPoint &p : points)
+                if (p.state() == Qt::TouchPointPressed) {
+                    m_points.insert(p.id(), p.pos());
+                    handled = send(0, p.id(), p.pos(), p.pressure(), 0, 0) || handled;
+                }
+            if (!handled) {
+                m_points.clear();
+                e->ignore();
+                return;
+            }
+            watchAncestors();
+            e->accept();
+            return;
+        }
+        if (m_points.isEmpty()) {
+            e->ignore();
+            return;
+        }
+        // Qt 5.6 lets a Flickable ancestor take the gesture through its child mouse filter while this item still
+        // holds the touch points; on Android the parent's interception cancels the child. Do the same.
+        if (ancestorTookOver()) {
+            cancelAll();
+            ungrabTouchPoints();
+            e->ignore();
+            return;
+        }
+        // A Qt update can carry presses, moves and releases at once; Android sends them as separate events, in this
+        // order, and a move reports every pointer still down.
+        bool moved = false;
+        for (const QTouchEvent::TouchPoint &p : points) {
+            if (p.state() == Qt::TouchPointPressed && !m_points.contains(p.id())) {
+                m_points.insert(p.id(), p.pos());
+                send(0, p.id(), p.pos(), p.pressure(), 0, 0);
+            } else if (p.state() == Qt::TouchPointMoved) {
+                moved = true;
+            }
+        }
+        if (moved)
+            for (const QTouchEvent::TouchPoint &p : points)
+                if (m_points.contains(p.id()) && (p.state() == Qt::TouchPointMoved || p.state() == Qt::TouchPointStationary)) {
+                    m_points[p.id()] = p.pos();
+                    send(1, p.id(), p.pos(), p.pressure(), 0, 0);
+                }
+        for (const QTouchEvent::TouchPoint &p : points)
+            if (p.state() == Qt::TouchPointReleased && m_points.remove(p.id()))
+                send(2, p.id(), p.pos(), p.pressure(), 0, 0);
+        if (e->type() == QEvent::TouchEnd)
+            m_points.clear();
+        if (m_points.isEmpty())
+            unwatchAncestors();
+        e->accept();
+    }
+
+    // A parent (a Flickable) took the gesture over.
+    void touchUngrabEvent() override { cancelAll(); }
+
+    // A real mouse; Qt's mouse synthesized from touch is left alone, since touch already reported it.
+    void mousePressEvent(QMouseEvent *e) override
+    {
+        if (!m_touch || e->source() != Qt::MouseEventNotSynthesized || m_mouseDown) {
+            e->ignore();
+            return;
+        }
+        m_mouseButton = e->button() == Qt::RightButton ? 2 : e->button() == Qt::MiddleButton ? 1 : 0;
+        if (!send(0, 0, e->localPos(), 1.0, 1, m_mouseButton)) {
+            e->ignore();
+            return;
+        }
+        m_mouseDown = true;
+        e->accept();
+    }
+
+    void mouseMoveEvent(QMouseEvent *e) override
+    {
+        if (!m_mouseDown || e->source() != Qt::MouseEventNotSynthesized) {
+            e->ignore();
+            return;
+        }
+        send(1, 0, e->localPos(), 1.0, 1, m_mouseButton);
+        e->accept();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *e) override
+    {
+        if (!m_mouseDown || e->source() != Qt::MouseEventNotSynthesized) {
+            e->ignore();
+            return;
+        }
+        m_mouseDown = false;
+        send(2, 0, e->localPos(), 0.0, 1, m_mouseButton);
+        e->accept();
+    }
+
+    void mouseUngrabEvent() override
+    {
+        if (!m_mouseDown)
+            return;
+        m_mouseDown = false;
+        send(3, 0, m_lastMouse, 0.0, 1, m_mouseButton);
+    }
+
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override
     {
         QQuickItem::geometryChanged(newGeometry, oldGeometry);
@@ -2871,6 +3037,7 @@ protected:
             GLint max = 0;
             QOpenGLContext::currentContext()->functions()->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
             s_maxTexture = max > 0 ? max : 2048;
+            g.surface_max_texture.store(s_maxTexture);
         }
         const int w = m_staging.width();
         const int h = m_staging.height();
@@ -2914,6 +3081,83 @@ protected:
     }
 
 private:
+    bool send(int action, int pointer, const QPointF &pos, qreal pressure, int device, int button)
+    {
+        if (device == 1)
+            m_lastMouse = pos;
+        ++g.surface_touches;
+        QQuickItem *host = parentItem();
+        if (!g.surface_touch_fn || !host)
+            return false;
+        const long long handle = static_cast<long long>(reinterpret_cast<qintptr>(host));
+        return g.surface_touch_fn(handle, action, pointer, pos.x(), pos.y(), pressure, device, button,
+                                  g.surface_touch_user) != 0;
+    }
+
+    // An ancestor grabbed the mouse Qt synthesizes for its child filter, or an ancestor Flickable started dragging.
+    bool ancestorTookOver() const
+    {
+        QQuickItem *grabber = window() ? window()->mouseGrabberItem() : nullptr;
+        for (QQuickItem *p = parentItem(); p; p = p->parentItem()) {   // QQuickItem::isAncestorOf is Qt 5.7+
+            if (p == grabber)
+                return true;
+            const QVariant dragging = p->property("dragging");
+            if (dragging.isValid() && dragging.toBool())
+                return true;
+        }
+        return false;
+    }
+
+    // Once a Flickable ancestor starts dragging, Qt stops sending this item the gesture without an ungrab; its
+    // dragging NOTIFY starts a zero-delay check (connected via QMetaMethod, no moc) that cancels the touch points.
+    void watchAncestors()
+    {
+        unwatchAncestors();
+        if (!m_stealCheck) {
+            m_stealCheck = new QTimer(this);
+            m_stealCheck->setSingleShot(true);
+            m_stealCheck->setInterval(0);
+            QObject::connect(m_stealCheck, &QTimer::timeout, this, [this]() {
+                if (!m_points.isEmpty() && ancestorTookOver()) {
+                    cancelAll();
+                    ungrabTouchPoints();
+                }
+            });
+        }
+        const QMetaObject *tmo = m_stealCheck->metaObject();
+        const QMetaMethod start = tmo->method(tmo->indexOfSlot("start()"));
+        for (QQuickItem *p = parentItem(); p; p = p->parentItem()) {
+            const QMetaObject *mo = p->metaObject();
+            const int pi = mo->indexOfProperty("dragging");
+            if (pi >= 0 && mo->property(pi).hasNotifySignal())
+                m_watched.append(QObject::connect(p, mo->property(pi).notifySignal(), m_stealCheck, start));
+        }
+    }
+
+    void unwatchAncestors()
+    {
+        for (const QMetaObject::Connection &c : m_watched)
+            QObject::disconnect(c);
+        m_watched.clear();
+    }
+
+    void cancelAll()
+    {
+        unwatchAncestors();
+        const QHash<int, QPointF> points = m_points;
+        m_points.clear();
+        for (auto it = points.constBegin(); it != points.constEnd(); ++it)
+            send(3, it.key(), it.value(), 0.0, 0, 0);
+        mouseUngrabEvent();
+    }
+
+    bool m_touch = false;
+    QHash<int, QPointF> m_points;   // touch points this item holds, by Qt id
+    QTimer *m_stealCheck = nullptr;
+    QList<QMetaObject::Connection> m_watched;
+    bool m_mouseDown = false;
+    int m_mouseButton = 0;
+    QPointF m_lastMouse;
     QImage m_staging;
     bool m_dirty = false;
     int m_tileCols = 0;
@@ -2959,6 +3203,53 @@ int sailfish_host_surface_commit(long long handle, const void *pixels, int width
     return SFHOST_OK;
 }
 
+void sailfish_host_set_surface_touch_callback(sfhost_surface_touch_fn fn, void *user_data)
+{
+    g.surface_touch_fn = fn;
+    g.surface_touch_user = user_data;
+}
+
+int sailfish_host_surface_set_touch(long long handle, int enabled)
+{
+    QQuickItem *host = qobject_cast<QQuickItem *>(require_handle(handle));
+    if (!host)
+        return SFHOST_E_DEAD_HANDLE;
+    SurfaceItem *surface = surface_for(host, enabled != 0);
+    if (surface)
+        surface->setTouchEnabled(enabled != 0);
+    return SFHOST_OK;
+}
+
+void sailfish_host_inject_touch(int count, const int *ids, const double *xy, const int *states)
+{
+    if (!g.window || count <= 0 || !ids || !xy || !states)
+        return;
+    ++g.injects;
+    static QTouchDevice *device = nullptr;
+    if (!device) {
+        device = new QTouchDevice();
+        device->setName(QStringLiteral("maui-inject"));
+        device->setType(QTouchDevice::TouchScreen);
+        device->setCapabilities(QTouchDevice::Position | QTouchDevice::Area | QTouchDevice::Pressure
+                                | QTouchDevice::NormalizedPosition);
+        QWindowSystemInterface::registerTouchDevice(device);
+    }
+    const QRect screen = g.window->screen() ? g.window->screen()->geometry() : QRect(0, 0, 1, 1);
+    QList<QWindowSystemInterface::TouchPoint> points;
+    for (int i = 0; i < count; ++i) {
+        QWindowSystemInterface::TouchPoint p;
+        p.id = ids[i];
+        p.state = static_cast<Qt::TouchPointState>(states[i]);
+        const QPointF global(xy[2 * i] + g.window->x(), xy[2 * i + 1] + g.window->y());
+        p.area = QRectF(global.x() - 2, global.y() - 2, 4, 4);
+        p.normalPosition = QPointF(global.x() / qMax(1, screen.width()), global.y() / qMax(1, screen.height()));
+        p.pressure = p.state == Qt::TouchPointReleased ? 0.0 : 1.0;
+        points.append(p);
+    }
+    QWindowSystemInterface::handleTouchEvent(g.window, static_cast<ulong>(QDateTime::currentMSecsSinceEpoch()),
+                                             device, points);
+}
+
 void sailfish_host_set_frame_callback(sfhost_frame_fn fn, void *user_data)
 {
     g.frame_fn = fn;
@@ -2969,9 +3260,11 @@ int sailfish_host_request_frame(void)
 {
     if (g.shutdown)
         return SFHOST_E_ARGS;
-    if (g.frame_requested)
-        return SFHOST_OK;
     g.frame_requested = true;
+    ++g.frame_requests;
+    // Every request schedules a frame (cheap: Qt coalesces them), so a frame that never came cannot leave the
+    // request flag set with nothing scheduled.
+    hook_frame_signal(g.window);
     if (QQuickWindow *qw = qobject_cast<QQuickWindow *>(g.window))
         qw->update();
     return SFHOST_OK;

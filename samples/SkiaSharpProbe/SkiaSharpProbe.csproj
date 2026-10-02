@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- SkiaSharp on Sailfish OS: the scenes of the skia/skiainput matrix legs (tools/sf matrix skia skiainput), which
+	     check themselves on the device (MAUI_SAILFISH_SKIA_DIAG=render|input), and a demo without that variable.
+	     A package consumer like SailfishKitchen: run tools/sf pack-local after backend changes. -->
+	<PropertyGroup>
+		<TargetFrameworks>net11.0-sailfish</TargetFrameworks>
+		<OutputType>Exe</OutputType>
+		<RootNamespace>SkiaSharpProbe</RootNamespace>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<ApplicationTitle>SkiaSharp Probe</ApplicationTitle>
+		<ApplicationId>com.mauisailfish.skiasharpprobe</ApplicationId>
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+		<!-- The pixel and gesture checks use portrait window coordinates. -->
+		<SailfishOrientation>Portrait</SailfishOrientation>
+		<MauiVersion Condition="'$(MauiVersion)' == ''">11.0.0-rc.1.26451.6</MauiVersion>
+		<!-- SkiaSharp and its Linux native library always in the same version (SKIA_VERSION=3.116.1 for the lowest). -->
+		<SkiaVersion Condition="'$(SkiaVersion)' == ''">3.119.4</SkiaVersion>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="$(SkiaVersion)" />
+		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaVersion)" />
+		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
+		<PackageReference Include="Microsoft.Maui.SailfishOS.SkiaSharp" Version="$(PlatformMauiSailfishVersion)" />
+	</ItemGroup>
+
+</Project>

@@ -1392,6 +1392,8 @@ public sealed partial class QtHostPageRenderer
 			foreach (var key in GenericNativeKeys)
 				if (props.TryGetValue(key, out var generic) && generic is not ("" or false))
 					QtHostRuntime.SetProperty(host.NativeHandle, key, BridgeValue.Serialize(generic));
+		if (host.IsAttached)
+			host.RaiseAttached();
 	}
 
 	private static readonly string[] GenericNativeKeys =

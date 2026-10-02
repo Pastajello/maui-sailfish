@@ -6,7 +6,9 @@
 #   SF_MATRIX_EXTRA_ENV="NAME=VALUE ..." adds env to every leg (A/B runs)
 #   legs: see ALL_LEGS below
 #
-# Runs against the installed RPM (deploy first). The device must be unlocked with
+# Runs against the installed RPM (deploy first); the skia legs run samples/SkiaSharpProbe instead, deployed
+# here when it is not installed (redeploy it after a change: SF_SAMPLE_DIR=samples/SkiaSharpProbe tools/sf deploy).
+# The device must be unlocked with
 # the display on, or the window never foregrounds and every leg reports NO-VERDICT.
 # sf run exits non-zero for auto-shutdown legs, so verdicts come only from the device log.
 
@@ -17,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/sf-lib.sh
 . "$SCRIPT_DIR/../lib/sf-lib.sh"
 
-ALL_LEGS="page controls nav popup collection collection10 collection100 collection500 shapes visual text input geometry reconcile bridge stress perf error tree shell containers pulley tabpulley silica navback features f3 f4 adapterbench"
+ALL_LEGS="page controls nav popup collection collection10 collection100 collection500 shapes visual text input geometry reconcile bridge stress perf error tree shell containers pulley tabpulley silica navback features f3 f4 adapterbench skia skiainput"
 LEGS="${*:-$ALL_LEGS}"
 # Checked up front: leg_env/leg_marker run in $(...), where sf_die only leaves the subshell.
 for leg in $LEGS; do
@@ -55,6 +57,8 @@ leg_env() {
 		adapterbench) echo "MAUI_SAILFISH_QT_HOST_ADAPTERBENCH_DIAG=1" ;;
 		f3)         echo "MAUI_SAILFISH_QT_HOST_F3_DIAG=1" ;;
 		f4)         echo "MAUI_SAILFISH_QT_HOST_F4_DIAG=1" ;;
+		skia)       echo "MAUI_SAILFISH_SKIA_DIAG=render" ;;
+		skiainput)  echo "MAUI_SAILFISH_SKIA_DIAG=input" ;;
 		*) sf_die "unknown leg: $1" ;;
 	esac
 }
@@ -89,6 +93,8 @@ leg_marker() {
 		adapterbench) echo 'Qt adapterbench diag: ACCEPTANCE' ;;
 		f3)          echo 'Qt f3 diag: ACCEPTANCE' ;;
 		f4)          echo 'Qt f4 diag: ACCEPTANCE' ;;
+		skia)        echo 'Qt skia diag: ACCEPTANCE' ;;
+		skiainput)   echo 'Qt skiainput diag: ACCEPTANCE' ;;
 		*) sf_die "no verdict marker for leg: $1" ;;
 	esac
 }
@@ -105,7 +111,11 @@ run_leg() { # <leg> -> prints "leg|verdict|evidence"
 	for e in ${SF_MATRIX_EXTRA_ENV:-}; do args+=(--env "$e"); done
 	# Waits for the leg's auto-shutdown (long legs finish well after the launch window); a leg still
 	# running after 240 s gets its verdict from whatever the log holds by then.
-	"$SCRIPT_DIR/run.sh" --wait 240 "${args[@]}" >"$log" 2>&1 || true
+	case "$leg" in
+		skia*) SF_SAMPLE_DIR="$SKIA_PROBE_DIR" SF_PKG="$SKIA_PROBE_PKG" SF_BIN="$SKIA_PROBE_BIN" \
+		       "$SCRIPT_DIR/run.sh" --wait 240 "${args[@]}" >"$log" 2>&1 || true ;;
+		*)     "$SCRIPT_DIR/run.sh" --wait 240 "${args[@]}" >"$log" 2>&1 || true ;;
+	esac
 	# Most legs print their verdict after sf-run's log dump, so re-fetch the device log.
 	sf_ssh "cat /tmp/sf_run.log" >"$log.dev" 2>/dev/null || true
 	cat "$log" "$log.dev" >"$log.all" 2>/dev/null || cp "$log" "$log.all"
@@ -128,6 +138,20 @@ sf_info "=== QT MATRIX: legs: $LEGS ==="
 if ! sf_device_ready; then
 	sf_die "device is not awake+unlocked — unlock the phone and wake the display, then re-run"
 fi
+
+# The skia legs' app (SkiaSharp views on the drawing surface), installed once.
+SKIA_PROBE_DIR="$SF_REPO_ROOT/samples/SkiaSharpProbe"
+SKIA_PROBE_PKG="harbour-skiasharpprobe"
+SKIA_PROBE_BIN="SkiaSharpProbe"
+case " $LEGS " in
+	*" skia"*)
+		if ! sf_ssh "test -x /usr/share/$SKIA_PROBE_PKG/$SKIA_PROBE_BIN" >/dev/null 2>&1; then
+			sf_info "deploying $SKIA_PROBE_PKG for the skia legs"
+			SF_SAMPLE_DIR="$SKIA_PROBE_DIR" SF_PKG="$SKIA_PROBE_PKG" SF_BIN="$SKIA_PROBE_BIN" "$SCRIPT_DIR/deploy.sh" >/tmp/sf-matrix-skia-deploy.log 2>&1 \
+				|| sf_die "deploying $SKIA_PROBE_PKG failed (see /tmp/sf-matrix-skia-deploy.log)"
+		fi
+		;;
+esac
 
 RESULTS=""
 PASS_N=0

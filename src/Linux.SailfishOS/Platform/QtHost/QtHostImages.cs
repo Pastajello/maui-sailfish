@@ -112,6 +112,7 @@ internal static class QtHostImages
 		UriImageSource { Uri: { } uri } remote when uri.Scheme is "http" or "https" => WithCachePolicy(remote, uri),
 		FontImageSource glyph => GlyphUrl(glyph),
 		StreamImageSource stream => StreamUrl(stream),
+		{ } other => QtHostImageSources.Resolve(other),
 		_ => null,
 	};
 

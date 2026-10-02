@@ -55,7 +55,11 @@ semantic MAUI API (`IsOpen`, `Open()`) is implemented (`BottomSheet → BottomSh
 invoke, post, tick, event callback, last error). No ABI function exists merely because a Silica class exists.
 
 **No per-frame CPU copy.** The path is QML → scene graph → GPU → Wayland. `grabWindow()` / PNG readback is
-for diagnostics and screenshots only, never the renderer.
+for diagnostics and screenshots only, never the renderer. The one CPU-drawn exception is a drawing surface
+(`QtHostSurface`). Library code that draws its own pixels, such as SkiaSharp's raster canvas (on Android that
+canvas is a CPU `Bitmap` too), commits them once per paint. The shim copies them into a staging image and uploads
+them with `glTexSubImage2D` into a persistent texture. This happens only for that view's area, never per frame
+without a paint, and never with a readback.
 
 **Native hosts are persistent.** Elements are created once and updated in place, so focus, caret,
 selection, scroll and animation state survive reconcile passes. The host tree mirrors MAUI's view tree (F1:

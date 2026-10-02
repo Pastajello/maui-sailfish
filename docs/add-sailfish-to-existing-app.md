@@ -161,7 +161,7 @@ code.
 | Plugins with Android/iOS implementations only (`*.Current`, `Use…()` registrations) | Profitocracy (`UseLocalNotification`), GitTrends (Plugin.StoreReview, Shiny notifications and jobs), GameSpur (Firebase push) | skip the registration under `#if !SAILFISH`, or register a Sailfish implementation of the plugin's interface |
 | Handlers or effects registered per platform | GameSpur (`AddHandler<Shell, TabbarBadgeRenderer>`), GitTrends (`ConfigureSyncfusionCore()`), MoneyFox (Sharpnado tab effects) | keep platform handlers under `#if ANDROID \|\| IOS`; skip `ConfigureSyncfusionCore` on Sailfish; give routing effects a Sailfish `PlatformEffect` |
 | Packages with Android/iOS assets only (NU1202) | WeightTracker (Microcharts.Maui 1.x), GameSpur (Sharpnado.Maui.Nuke, Vapolia.StrokedLabel) | a release with a plain `net` asset (Microcharts 2.0), or condition the package out and define the types the code and XAML use |
-| SkiaSharp anywhere in the app, charts included | MoneyFox, Profitocracy, WeightTracker, GitTrends (`DllNotFoundException: libSkiaSharp`) | `SkiaSharp.NativeAssets.Linux` in the app's SkiaSharp version |
+| SkiaSharp anywhere in the app, charts included | MoneyFox, Profitocracy, WeightTracker, GitTrends (`DllNotFoundException: libSkiaSharp`; empty chart areas) | `SkiaSharp.NativeAssets.Linux` in the app's SkiaSharp version, and `Microsoft.Maui.SailfishOS.SkiaSharp` for the views (SkiaSharp 3.x) |
 | A UraniumUI `PickerField` reset with `SelectedItem = ""` | WeightTracker (100 % CPU, app hangs) | reset with `null`; this happens on every MAUI 10+ head |
 
 Android and iOS show the same MAUI 10/11 problems (`Shell.Current`, `ConvertBack`, UraniumUI) once the app moves

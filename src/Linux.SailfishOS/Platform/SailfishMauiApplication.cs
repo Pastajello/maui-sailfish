@@ -92,6 +92,7 @@ public abstract class SailfishMauiApplication : IPlatformApplication
 		// one from the start: async work the app starts in its constructor, CreateWindow or OnStart resumes here, not on
 		// a pool thread (Profitocracy built its AppShell and set Window.Page from such a continuation).
 		SynchronizationContext.SetSynchronizationContext(new SailfishSynchronizationContext(SailfishDispatcherProvider.BindLoopThread()));
+		SailfishExtensions.Load(GetType().Assembly);
 		var mauiApp = CreateMauiApp();
 		Console.Error.WriteLine("[Sailfish] MAUI app created");
 

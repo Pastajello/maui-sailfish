@@ -2,12 +2,14 @@
   <Folder Name="/samples/">
     <Project Path="samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj" />
     <Project Path="samples/SailfishKitchen/SailfishKitchen.csproj" />
+    <Project Path="samples/SkiaSharpProbe/SkiaSharpProbe.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj" />
     <Project Path="src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
     <Project Path="src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
     <Project Path="src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
+    <Project Path="src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" />
   </Folder>
   <Folder Name="/templates/">
     <Project Path="templates/sailfishos/SailfishOS.Templates.csproj" />

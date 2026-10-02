@@ -14,6 +14,22 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </remarks>
 public static class QtHostSurface
 {
+	/// <summary>The generic adapter a drawing surface's handler names (qml/adapters.json): an empty item the surface
+	/// fills.</summary>
+	public const string AdapterUri = "surface";
+
+	private static readonly Dictionary<NativeElementHost, TouchTarget> TouchByHost = new();
+	private static readonly Dictionary<long, TouchTarget> TouchByHandle = new();
+	private static QtHostNative.SurfaceTouchFn? _touch;   // kept alive for the process lifetime
+
+	private sealed class TouchTarget(NativeElementHost host, Func<SurfaceTouch, bool> handler)
+	{
+		public NativeElementHost Host { get; } = host;
+		public Func<SurfaceTouch, bool> Handler { get; set; } = handler;
+		public long Handle { get; set; }
+		public Dictionary<int, int> Ids { get; } = new();   // Qt touch point id → pointer id
+	}
+
 	private static readonly List<Action> Pending = new();
 	private static readonly HashSet<Action> PendingSet = new();
 	private static readonly List<Action> _running = new();
@@ -47,17 +63,81 @@ public static class QtHostSurface
 			QtHostRuntime.SurfaceCommit(host.NativeHandle, IntPtr.Zero, 0, 0, 0);
 	}
 
+	/// <summary>Delivers touch on the surface of <paramref name="host"/> to <paramref name="handler"/> (null turns it
+	/// off). The handler runs synchronously during Qt's event delivery; what it returns for the first
+	/// <see cref="SurfaceTouchAction.Pressed"/> of a gesture decides whether the surface keeps the gesture (true) or it
+	/// goes on to whatever is below and to the parents, as an unhandled <c>ACTION_DOWN</c> on Android. Call it again
+	/// after <see cref="NativeElementHost.Attached"/>: a re-created QML object starts with touch off.</summary>
+	public static void SetTouch(NativeElementHost host, Func<SurfaceTouch, bool>? handler)
+	{
+		ArgumentNullException.ThrowIfNull(host);
+		if (TouchByHost.TryGetValue(host, out var target))
+		{
+			TouchByHandle.Remove(target.Handle);
+			if (handler is null)
+				TouchByHost.Remove(host);
+		}
+		if (handler is not null)
+		{
+			target ??= new TouchTarget(host, handler);
+			target.Handler = handler;
+			target.Handle = host.NativeHandle;
+			target.Ids.Clear();
+			TouchByHost[host] = target;
+			if (host.IsAttached)
+				TouchByHandle[host.NativeHandle] = target;
+		}
+		if (host.IsAttached)
+			QtHostRuntime.SurfaceSetTouch(host.NativeHandle, handler is not null, _touch ??= OnNativeTouch);
+	}
+
+	private static int OnNativeTouch(long handle, int action, int pointer, double x, double y, double pressure,
+		int device, int button, IntPtr userData) =>
+		DeliverTouch(handle, (SurfaceTouchAction)action, pointer, x, y, pressure, device == 1, button) ? 1 : 0;
+
+	/// <summary>Routes one native touch to its handler (the shim's callback; tests call it directly).</summary>
+	internal static bool DeliverTouch(long handle, SurfaceTouchAction action, int nativeId, double x, double y,
+		double pressure, bool mouse, int button)
+	{
+		if (!TouchByHandle.TryGetValue(handle, out var target))
+			return false;
+		int id;
+		if (mouse)
+			id = 0;
+		else if (action == SurfaceTouchAction.Pressed)
+		{
+			// Android hands out the lowest pointer id not in use, so a second finger is 1 and a finger that comes
+			// back after a lift gets the free slot again; Qt ids just count up.
+			id = 0;
+			while (target.Ids.ContainsValue(id))
+				id++;
+			target.Ids[nativeId] = id;
+		}
+		else if (!target.Ids.TryGetValue(nativeId, out id))
+			return false;
+		if (!mouse && action is SurfaceTouchAction.Released or SurfaceTouchAction.Cancelled)
+			target.Ids.Remove(nativeId);
+		try
+		{
+			return target.Handler(new SurfaceTouch(action, id, x, y, pressure, mouse, button));
+		}
+		catch (Exception ex)
+		{
+			QtHostDiag.Error(QtHostDiagChannel.Input, $"unhandled exception in a surface touch handler: {ex}");
+			return false;
+		}
+	}
+
 	/// <summary>Runs <paramref name="callback"/> once in the next frame, before the scene graph syncs, so a commit
 	/// made there shows in that frame. A callback already waiting is not queued twice; one requested while frame
 	/// callbacks run waits for the following frame. Nothing runs while the window renders no frames (hidden).</summary>
 	public static void RequestFrame(Action callback)
 	{
 		ArgumentNullException.ThrowIfNull(callback);
-		if (!PendingSet.Add(callback))
-			return;
-		Pending.Add(callback);
-		if (Pending.Count == 1)
-			QtHostRuntime.RequestFrame(_frame ??= _ => RunFrame());
+		if (PendingSet.Add(callback))
+			Pending.Add(callback);
+		// Asked every time (the shim coalesces), so one frame that never came cannot stall the queue.
+		QtHostRuntime.RequestFrame(_frame ??= _ => RunFrame());
 	}
 
 	/// <summary>Whether <paramref name="callback"/> waits for the next frame.</summary>
@@ -89,3 +169,21 @@ public static class QtHostSurface
 		}
 	}
 }
+
+/// <summary>The phase of a <see cref="SurfaceTouch"/>.</summary>
+public enum SurfaceTouchAction
+{
+	Pressed = 0,
+	Moved = 1,
+	Released = 2,
+	Cancelled = 3,
+}
+
+/// <summary>One touch on a drawing surface (<see cref="QtHostSurface.SetTouch"/>).</summary>
+/// <param name="PointerId">Android-style pointer id: the lowest free one for touch (0, 1, …), 0 for the mouse.</param>
+/// <param name="X">Surface-local, in device pixels.</param>
+/// <param name="Y">Surface-local, in device pixels.</param>
+/// <param name="IsMouse">A real mouse (Qt's mouse synthesized from touch is never reported).</param>
+/// <param name="MouseButton">0 left, 1 middle, 2 right.</param>
+public readonly record struct SurfaceTouch(SurfaceTouchAction Action, int PointerId, double X, double Y,
+	double Pressure, bool IsMouse, int MouseButton);

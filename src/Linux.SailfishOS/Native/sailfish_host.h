@@ -226,6 +226,21 @@ typedef void (*sfhost_frame_fn)(void *user_data);
 void sailfish_host_set_frame_callback(sfhost_frame_fn fn, void *user_data);
 int sailfish_host_request_frame(void);
 
+/* Touch on a surface, after SkiaSharp's Android SKTouchHandler. action: 0 pressed, 1 moved, 2 released, 3 cancelled;
+ * pointer = Qt touch point id (0 for the mouse); x/y in item pixels; device 0 touch, 1 mouse; button 0 left, 1 middle,
+ * 2 right. Called synchronously during Qt's event delivery; the return value of the first press decides whether the
+ * surface keeps the gesture (nonzero) or Qt passes it on. handle is the host's handle. Qt thread. */
+typedef int (*sfhost_surface_touch_fn)(long long handle, int action, int pointer, double x, double y,
+                                       double pressure, int device, int button, void *user_data);
+void sailfish_host_set_surface_touch_callback(sfhost_surface_touch_fn fn, void *user_data);
+
+/* Turns touch delivery for a host's surface on or off (creates the surface when turning it on). */
+int sailfish_host_surface_set_touch(long long handle, int enabled);
+
+/* Diagnostics: one multi-touch event through the QPA window-system interface, like real input. x/y pairs in window
+ * pixels; states are Qt::TouchPointState values (1 pressed, 2 moved, 4 stationary, 8 released). Qt thread. */
+void sailfish_host_inject_touch(int count, const int *ids, const double *xy, const int *states);
+
 /* Copies the last error into buf; returns the full message length. */
 int sailfish_host_last_error(char *buf, int cap);
 

@@ -69,7 +69,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		for (var t = type; t is not null; t = t.BaseType)
 		{
 			if (Registered(t) is { } descriptor && !IsStock(DescriptorType(descriptor)))
-				return (descriptor, null);
+				return Replacement(DescriptorType(descriptor)) is { } replaced ? (null, replaced) : (descriptor, null);
 			if (isView && ExactRow(t) is { } row)
 				return (null, row);
 			// A stock registration of a non-view element: the Sailfish application/window handlers, else the no-op one.
@@ -81,7 +81,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		// Interface registrations, as MAUI resolves them after the class chain.
 		foreach (var contract in type.GetInterfaces())
 			if (Registered(contract) is { } descriptor && !IsStock(DescriptorType(descriptor)))
-				return (descriptor, null);
+				return Replacement(DescriptorType(descriptor)) is { } replaced ? (null, replaced) : (descriptor, null);
 		return isView ? (null, FallbackRow(type)) : (null, null);
 	}
 
@@ -114,6 +114,38 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 			return false;
 		var name = assembly.GetName().Name ?? string.Empty;
 		return name == "Microsoft.Maui" || name.StartsWith("Microsoft.Maui.", StringComparison.Ordinal);
+	}
+
+	private static readonly List<HandlerRow> LibraryReplacements = new();
+
+	/// <summary>
+	/// Serves every registration of <typeparamref name="TLibraryHandler"/> (or a subclass of it) with
+	/// <typeparamref name="TSailfishHandler"/>. For a library whose plain-<c>net</c> handler is a stub with no platform
+	/// view (SkiaSharp's <c>SKCanvasViewHandler</c>), so the Sailfish implementation wins wherever and whenever the
+	/// app registers the library. Call it before the app's handlers resolve, from a Sailfish extension
+	/// (<see cref="Platform.SailfishExtensions"/>).
+	/// </summary>
+	public static void ReplaceLibraryHandler<TLibraryHandler, TSailfishHandler>()
+		where TLibraryHandler : IElementHandler
+		where TSailfishHandler : IElementHandler, new()
+	{
+		lock (LibraryReplacements)
+		{
+			LibraryReplacements.RemoveAll(r => r.View == typeof(TLibraryHandler));
+			// The row's View holds the replaced library handler type here.
+			LibraryReplacements.Add(Row<TLibraryHandler, TSailfishHandler>());
+		}
+	}
+
+	private static HandlerRow? Replacement(Type? registered)
+	{
+		if (registered is null)
+			return null;
+		lock (LibraryReplacements)
+			foreach (var row in LibraryReplacements)
+				if (row.View.IsAssignableFrom(registered))
+					return row;
+		return null;
 	}
 
 	/// <summary>One Sailfish handler row: the view type it serves and how to create it without reflection.</summary>

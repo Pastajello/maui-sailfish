@@ -142,6 +142,48 @@ The backend sets the adapter's geometry from the MAUI layout pass. Silica items 
 `width`/`height` to their content need plain `width: 0; height: 0`, or the bindings overwrite the managed
 geometry.
 
+## A control that draws its own pixels
+
+A library that renders with its own engine (a raster canvas, a video frame) uses the generic drawing surface
+instead of a QML adapter. `Microsoft.Maui.SailfishOS.SkiaSharp` is built this way: it is the Sailfish counterpart
+of SkiaSharp's Android platform views.
+
+```csharp
+public class MyCanvasHandler : SailfishViewHandler<IMyCanvas>
+{
+    private readonly Action _paint;
+
+    public MyCanvasHandler() : base(Mapper) => _paint = Paint;
+
+    protected override string? AdapterUri => QtHostSurface.AdapterUri;   // an empty item the surface fills
+
+    protected override void ConnectHandler(NativeElementHost host)
+    {
+        base.ConnectHandler(host);
+        // A re-created QML object (navigation back, a recycled row) starts empty and with touch off.
+        host.Attached += _ => { QtHostSurface.SetTouch(host, OnTouch); QtHostSurface.RequestFrame(_paint); };
+    }
+
+    // InvalidateSurface → QtHostSurface.RequestFrame(_paint): runs once in the next frame, however often asked.
+    private void Paint()
+    {
+        // Draw RGBA8888 premultiplied pixels into a reused buffer, then:
+        QtHostSurface.Commit(PlatformView, pixels, widthPx, heightPx, rowBytes);   // copied; reuse the buffer
+    }
+
+    // Synchronous, during Qt's event delivery; the first Pressed's result decides whether the surface keeps the
+    // gesture, as an unhandled ACTION_DOWN does on Android. A parent Flickable taking the drag sends Cancelled.
+    private bool OnTouch(SurfaceTouch touch) => true;
+}
+```
+
+The pixels are shown 1:1 from the host's top-left corner, so size the buffer from the arranged frame in device
+pixels. When a library's plain-`net` handler is a stub, its Sailfish handler replaces it wherever the app registers
+it with `SailfishHandlersFactory.ReplaceLibraryHandler<TStub, TSailfish>()`. The package calls that from a
+registrar the app assembly names with `[assembly: AssemblyMetadata("Microsoft.Maui.SailfishOS.Extension",
+"Type, Assembly")]`, written by its buildTransitive targets (`SailfishExtensions`). Library image sources resolve
+through `QtHostImageSources.Register`.
+
 ## Limits
 
 - A registered adapter is used for controls that derive from `View` directly. A control deriving from a built-in
