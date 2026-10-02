@@ -53,10 +53,59 @@ Page {
     // A Shell section's contents (Android's top tabs), under the section tabs.
     property var mauiSubTabs: []
     property int mauiSubTabIndex: 0
+    // Tab swipe: the canvas follows the finger (mauiTabDrag, px) with the neighbour tab's title beside it; a committed
+    // swipe slides the page out, asks managed for the tab ("tab-swipe-commit"), and slides the new tab in from the side.
+    property bool __ownOrientations: false   // SailfishPage.AllowedOrientations set allowedOrientations
+    property real mauiTabDrag: 0
+    property int __tabSwipeDir: 0
+    function mauiSetTabDrag(x) {
+        tabSlide.stop();
+        __tabSwipeDir = 0;
+        mauiTabDrag = x;
+    }
+    function mauiEndTabDrag(delta) {
+        tabSlide.stop();
+        __tabSwipeDir = delta;
+        tabSlide.to = delta === 0 ? 0 : -delta * width;
+        tabSlide.start();
+    }
+    NumberAnimation {
+        id: tabSlide
+        target: page
+        property: "mauiTabDrag"
+        duration: 160
+        easing.type: Easing.OutCubic
+        onStopped: {
+            if (page.__tabSwipeDir !== 0 && Math.abs(page.mauiTabDrag) >= page.width - 1) {
+                page.mauiNotify("tab-swipe-commit", JSON.stringify({ delta: page.__tabSwipeDir }));
+                tabSwipeGuard.restart();
+            }
+        }
+    }
+    // The tab never changed (managed refused it): bring the page back rather than leave it off screen.
+    Timer {
+        id: tabSwipeGuard
+        interval: 1500
+        onTriggered: if (page.__tabSwipeDir !== 0) page.mauiEndTabDrag(0)
+    }
+    // The tab changed after a committed swipe: the new content comes in from the side the finger went to.
+    function __slideInTab() {
+        if (__tabSwipeDir === 0)
+            return;
+        mauiTabDrag = __tabSwipeDir * width;
+        __tabSwipeDir = 0;
+        tabSlide.to = 0;
+        tabSlide.start();
+    }
+
     function setMauiTabs(json) {
         var o = JSON.parse(json);
         mauiTabs = o.titles || [];
-        mauiTabIndex = o.index !== undefined ? o.index : 0;
+        var index = o.index !== undefined ? o.index : 0;
+        var changed = index !== mauiTabIndex;
+        mauiTabIndex = index;
+        if (changed)
+            __slideInTab();
         mauiSubTabs = (o.sub && o.sub.titles) || [];
         mauiSubTabIndex = o.sub && o.sub.index !== undefined ? o.sub.index : 0;
     }
@@ -188,7 +237,12 @@ Page {
     // Managed entry point (Qt thread): applies a reconciled batch of title/background/create/
     // destroy/order/reparent ops. "order" re-parents existing objects without recreating them.
     // Returns "created:destroyed".
+    property int __opsFindMs: 0     // MAUI_SAILFISH_OPS_TIMING: parent lookups and createObject in the batch
+    property int __opsCreateMs: 0
     function applyMauiOps(opsJson) {
+        var __t0 = window.mauiOpsTiming ? Date.now() : 0;
+        __opsFindMs = 0;
+        __opsCreateMs = 0;
         var ops = JSON.parse(opsJson);
         // Settle pending re-parents whose parents an earlier batch created.
         __resolveReparents();
@@ -200,6 +254,21 @@ Page {
             if (o.op === "title") { pageTitle = o.text; continue; }
             if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
             if (o.op === "back") { backNavigation = !!o.on; continue; }
+            // SailfishPage.AllowedOrientations; 0 rebinds the page to the window's default (Silica's own binding), so it
+            // keeps following a window that changes its orientations later.
+            if (o.op === "orientations") {
+                if (o.mask > 0) {
+                    allowedOrientations = o.mask;
+                    __ownOrientations = true;
+                } else if (__ownOrientations) {
+                    allowedOrientations = Qt.binding(function() {
+                        return page.__shell && page.__shell._defaultPageOrientations !== undefined
+                            ? page.__shell._defaultPageOrientations : Orientation.All;
+                    });
+                    __ownOrientations = false;
+                }
+                continue;
+            }
             if (o.op === "scheme") { palette.colorScheme = o.light ? Theme.DarkOnLight : Theme.LightOnDark; continue; }
             if (o.op === "background") {
                 mauiBackground = o.color || "transparent";
@@ -239,8 +308,28 @@ Page {
                 __reparentHost(o.id, o.parent || "");
                 continue;
             }
+            // A pooled row subtree joins its next row: the host takes the new element's id.
+            if (o.op === "rekey") {
+                var h = __hosts[o.from];
+                if (h !== undefined && __hosts[o.to] === undefined) {
+                    delete __hosts[o.from];
+                    h.parentId = o.parent || "";
+                    __hosts[o.to] = h;
+                    h.item.objectName = "maui_" + o.to;
+                    h.item.mauiId = o.to;
+                    var at = __order.indexOf(o.from);
+                    if (at >= 0)
+                        __order[at] = o.to;
+                } else {
+                    unknown++; unknownIds.push(o.from);
+                }
+                continue;
+            }
             unknown++;
         }
+        if (__t0 && created > 0)
+            console.log("OPS-TIMING page=" + mauiPageId + " created=" + created + " total=" + (Date.now() - __t0) +
+                        "ms find=" + __opsFindMs + "ms create=" + __opsCreateMs + "ms");
         createdTotal += created;
         destroyedTotal += destroyed;
         // unknown=N in a destroy batch means it hit the wrong page instance (how hosts leak across a pop).
@@ -355,7 +444,9 @@ Page {
         // Geometry arrives parent-relative; pre-order batches create parents first.
         var hostParent = __hostItem(parentId);
         if (parentObj && parentObj.length > 0) {
+                var __tf = window.mauiOpsTiming ? Date.now() : 0;
             var resolved = __mauiFindByName(parentObj);
+            if (__tf) __opsFindMs += Date.now() - __tf;
             if (resolved)
                 hostParent = resolved;
             else {
@@ -367,7 +458,14 @@ Page {
                 page.__pendingReparents.push({ id: id, parentObj: parentObj });
             }
         }
-        var item = comp.createObject(hostParent, init);
+        var __tc = window.mauiOpsTiming ? Date.now() : 0;
+        // A row/slot root is owned by the canvas and only shown in its delegate: when the ListView destroys the
+        // delegate the subtree survives, so managed can hand it to the next row of the same template (row pool).
+        var owner = parentObj && parentObj.length > 0 ? canvas : hostParent;
+        var item = comp.createObject(owner, init);
+        if (item && owner !== hostParent)
+            item.parent = hostParent;
+        if (__tc) __opsCreateMs += Date.now() - __tc;
         if (!item) {
             console.error("HOST create failed id=" + id + " uri=" + uri + " src=" + src);
             return false;
@@ -804,8 +902,22 @@ Page {
             // The shim recognizes this parent: hosts carry canvas coords, which must not include
             // the live contentY (mapFromScene would bake it in).
             objectName: "mauiCanvas"
+            x: page.mauiTabDrag
             width: page.width
             height: Math.max(page.height, page.mauiContentHeight)
+        }
+
+        // The neighbour tab during a tab swipe: its title where its page will come in.
+        Label {
+            readonly property int neighbour: page.mauiTabDrag < 0 ? page.mauiTabIndex + 1 : page.mauiTabIndex - 1
+            visible: page.mauiTabDrag !== 0 && text !== ""
+            text: neighbour >= 0 && neighbour < page.mauiTabs.length ? page.mauiTabs[neighbour] : ""
+            // Centred in the strip the page uncovered, fading in as it widens.
+            x: page.mauiTabDrag > 0 ? (page.mauiTabDrag - width) / 2 : page.width + page.mauiTabDrag + (-page.mauiTabDrag - width) / 2
+            opacity: Math.min(1, Math.abs(page.mauiTabDrag) / (page.width / 3))
+            y: flick.contentY + page.topInset + Theme.itemSizeLarge
+            color: palette.secondaryHighlightColor
+            font.pixelSize: Theme.fontSizeExtraLarge
         }
 
         // RefreshView spinner, pinned to the viewport so it rides the top overscroll.

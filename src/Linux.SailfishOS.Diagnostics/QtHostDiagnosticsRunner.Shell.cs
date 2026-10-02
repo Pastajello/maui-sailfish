@@ -194,15 +194,31 @@ internal sealed partial class QtHostDiagnosticsRunner
 		Console.Error.WriteLine("[Sailfish] Qt shell diag: leg F3 — injected swipe right across the page");
 		const double y = 1100;
 		QtHost.QtHostRuntime.InjectPointer(0, 250, y);
-		for (var x = 300; x <= 800; x += 50)
+		for (var x = 300; x <= 600; x += 50)
 			QtHost.QtHostRuntime.InjectPointer(2, x, y);
-		QtHost.QtHostRuntime.InjectPointer(1, 820, y);
-		_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () =>
+		// Mid-swipe the page follows the finger, the previous tab's title beside it.
+		_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
+		{
+			var drag = DiagQml.Num(QtHost.QtHostRuntime.Eval("String(pageStack.currentPage.mauiTabDrag)"));
+			_qtShellChecks.Check($"leg F3 drag: the page follows the finger (mauiTabDrag={drag:F0} px, finger moved 350 px)",
+				drag > 250 && drag < 400);
+			Shot(_context.Dispatcher, "shell-tab-drag", () =>
+			{
+				for (var x = 650; x <= 800; x += 50)
+					QtHost.QtHostRuntime.InjectPointer(2, x, y);
+				QtHost.QtHostRuntime.InjectPointer(1, 820, y);
+				_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), VerifyShellLegF3);
+			});
+		});
+
+		void VerifyShellLegF3()
 		{
 			_qtShellChecks.Check($"leg F3 swipe: tabs '{TabState()}'=='One,Two@0', 'Tab One' rendered (router tab swipes {QtHost.QtHostInputRouter.Active?.TabSwipes})",
 				TabState() == "One,Two@0" && PageShows(renderer, "Tab One", "tab one body"));
+			var settled = DiagQml.Num(QtHost.QtHostRuntime.Eval("String(pageStack.currentPage.mauiTabDrag)"));
+			_qtShellChecks.Check($"leg F3 slide: the new tab slid in and rests (mauiTabDrag={settled:F0})", Math.Abs(settled) < 1);
 			RunTabbedPageLeg(renderer);
-		});
+		}
 	}
 
 	private void RunTabbedPageLeg(QtHost.QtHostPageRenderer renderer)

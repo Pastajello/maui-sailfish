@@ -17,6 +17,7 @@ Every call is safe from any thread; callbacks run on the main thread.
 | [`SailfishCover`](#sailfishcover) | `CoverBackground`, `CoverActionList` | the app's card on the home screen |
 | [Lifecycle events](#lifecycle-events) | `QGuiApplication`, Silica window, MCE | cover state, orientation, ambience, keyboard, display, lock screen, memory pressure, quit |
 | [Opening URLs and files](#opening-urls-and-files) | `.desktop` `MimeType`, D-Bus `openUrl` | links and files other apps hand to yours |
+| [`SailfishPage`](#sailfishpage) | `Page.allowedOrientations` | a page that turns to landscape (a video, a photo) while the rest of the app stays portrait |
 | [`SailfishTheme`, `SailfishDisplay`](#theme-and-display) | ambience, window | read-only state |
 
 Also native without extra code, shown here because they are easy to miss:
@@ -147,6 +148,21 @@ protected override void OnAppLinkRequestReceived(Uri uri)   // in your App
 Files come as `file://` URIs. The other way round, `Launcher.OpenAsync(new OpenFileRequest(...))` opens a file in the
 app registered for its type; under Sailjail that app only sees its own allowed locations (Documents, Downloads,
 Pictures, …), not your app's private data.
+
+## SailfishPage
+
+The orientations one page may turn to, Silica's `Page.allowedOrientations`. It works inside the app-wide setting
+(`<SailfishOrientation>` in the project, `Any` by default), as an Android activity's own `screenOrientation` does:
+
+```csharp
+SailfishPage.SetAllowedOrientations(playerPage, SailfishOrientations.LandscapeMask);  // landscape either way up
+SailfishPage.SetAllowedOrientations(Shell.Current, SailfishOrientations.Portrait);     // every page of the Shell
+```
+
+Set it on the page or on a container around it (a `NavigationPage`, a `Shell`, a `TabbedPage`); the nearest one
+wins, and `SailfishOrientations.Default` hands the page back to the app's setting. It is a bindable attached
+property, so XAML works too (`xmlns:sf="clr-namespace:Microsoft.Maui.SailfishOS.Platform;assembly=Microsoft.Maui.SailfishOS"`,
+`sf:SailfishPage.AllowedOrientations="Landscape"`).
 
 ## Theme and display
 

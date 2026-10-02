@@ -20,7 +20,7 @@ public static class BridgeValue
 		char c => Quote(c.ToString()),
 		byte or sbyte or short or ushort or int or uint or long or ulong
 			=> Convert.ToInt64(value, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
-		float f => f.ToString("R", CultureInfo.InvariantCulture),
+		float f => float.IsFinite(f) ? f.ToString("R", CultureInfo.InvariantCulture) : "0",
 		double d => Number(d),
 		decimal m => m.ToString(CultureInfo.InvariantCulture),
 		Enum e => Quote(e.ToString()),
@@ -37,8 +37,11 @@ public static class BridgeValue
 		_ => Quote(value.ToString() ?? string.Empty),
 	};
 
-	/// <summary>Round-trip invariant number text, the form both JSON and JS parse.</summary>
-	public static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+	/// <summary>Round-trip invariant number text, the form both JSON and JS parse. JSON has no NaN/Infinity: a
+	/// non-finite value becomes 0 (as the text-metrics, shape and recorder serializers already do) instead of a token
+	/// that makes QJsonDocument reject the whole batch.</summary>
+	public static string Number(double value) =>
+		double.IsFinite(value) ? value.ToString("R", CultureInfo.InvariantCulture) : "0";
 
 	/// <summary>
 	/// Minimal JSON string escaping; reflection-based System.Text.Json is trimmed out of the published app.
@@ -155,6 +158,9 @@ internal static class BridgeOps
 
 	/// <summary>Silica Page.backNavigation: the back gesture and indicator.</summary>
 	public static Dictionary<string, object?> Back(bool enabled) => new() { ["op"] = "back", ["on"] = enabled };
+
+	/// <summary>Silica Page.allowedOrientations (SailfishPage.AllowedOrientations); 0 = the app's.</summary>
+	public static Dictionary<string, object?> Orientations(int mask) => new() { ["op"] = "orientations", ["mask"] = mask };
 
 	public static Dictionary<string, object?> Background(string color, string image = "") =>
 		new() { ["op"] = "background", ["color"] = color, ["image"] = image };

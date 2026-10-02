@@ -54,6 +54,22 @@ internal readonly record struct Affine2(double M11, double M12, double M21, doub
 		}
 	}
 
+	public bool TryInvert(out Affine2 inverse)
+	{
+		var det = M11 * M22 - M12 * M21;
+		if (Math.Abs(det) < 1e-12)
+		{
+			inverse = Identity;
+			return false;
+		}
+		var i11 = M22 / det;
+		var i12 = -M12 / det;
+		var i21 = -M21 / det;
+		var i22 = M11 / det;
+		inverse = new Affine2(i11, i12, i21, i22, -(Tx * i11 + Ty * i21), -(Tx * i12 + Ty * i22));
+		return true;
+	}
+
 	/// <summary>True for uniform scale ∘ rotation, which QQuickItem rotation+scale reproduce exactly.</summary>
 	public bool IsUniformScaleRotation
 	{
@@ -65,11 +81,76 @@ internal readonly record struct Affine2(double M11, double M12, double M21, doub
 	}
 }
 
+/// <summary>A projective 4×4 transform, row-major with column vectors (QMatrix4x4's layout), for 3D-rotated hosts.</summary>
+internal readonly struct Mat4
+{
+	public double[] Values { get; }
+
+	private Mat4(double[] values) => Values = values;
+
+	private static Mat4 Of(params double[] v) => new(v);
+
+	public static Mat4 Translation(double x, double y) => Of(1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, 0, 0, 0, 0, 1);
+
+	public static Mat4 Scale(double sx, double sy) => Of(sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+
+	/// <summary>Positive tilts the top edge away from the viewer (y grows downwards, the viewer sits at +z).</summary>
+	public static Mat4 RotationX(double degrees)
+	{
+		var (s, c) = Math.SinCos(degrees * Math.PI / 180);
+		return Of(1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 1);
+	}
+
+	/// <summary>Positive turns the right edge away from the viewer.</summary>
+	public static Mat4 RotationY(double degrees)
+	{
+		var (s, c) = Math.SinCos(degrees * Math.PI / 180);
+		return Of(c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, 0, 0, 0, 1);
+	}
+
+	/// <summary>Clockwise on screen, as <see cref="Affine2.RotationDeg"/>.</summary>
+	public static Mat4 RotationZ(double degrees)
+	{
+		var (s, c) = Math.SinCos(degrees * Math.PI / 180);
+		return Of(c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+	}
+
+	/// <summary>A camera at <paramref name="distance"/> on +z: a point at z is drawn scaled by d / (d − z).</summary>
+	public static Mat4 Perspective(double distance) => Of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -1 / distance, 1);
+
+	/// <summary>A 2D map (dp) as a 4×4 in Qt units: the linear part as is, the translation scaled.</summary>
+	public static Mat4 Affine(in Affine2 a, double qtPerDp) =>
+		Of(a.M11, a.M21, 0, a.Tx * qtPerDp, a.M12, a.M22, 0, a.Ty * qtPerDp, 0, 0, 1, 0, 0, 0, 0, 1);
+
+	/// <summary>Applies <c>this</c> first, then <paramref name="then"/>.</summary>
+	public Mat4 Then(in Mat4 then)
+	{
+		var r = new double[16];
+		for (var i = 0; i < 4; i++)
+			for (var j = 0; j < 4; j++)
+			{
+				double sum = 0;
+				for (var k = 0; k < 4; k++)
+					sum += then.Values[i * 4 + k] * Values[k * 4 + j];
+				r[i * 4 + j] = sum;
+			}
+		return new Mat4(r);
+	}
+
+	/// <summary>The projected 2D image of (x, y, 0).</summary>
+	public (double X, double Y) Project(double x, double y)
+	{
+		var v = Values;
+		var w = v[12] * x + v[13] * y + v[15];
+		return ((v[0] * x + v[1] * y + v[3]) / w, (v[4] * x + v[5] * y + v[7]) / w);
+	}
+}
+
 /// <summary>
 /// Generic visual state (opacity, enabled, z, transforms, background, semantics, shadow/clip) mapped onto
 /// standard QQuickItem properties so adapters need not know about it. Nested hosts let Qt cascade
-/// opacity/enabled; flat collection rows cascade managed-side. 3D rotation and non-uniform scale are
-/// approximated with a one-time warning.
+/// opacity/enabled; flat collection rows cascade managed-side. Non-uniform scale, shear and 3D rotation go to a
+/// QML Matrix4x4 (<see cref="HostMatrix"/>).
 /// </summary>
 internal static class QtHostVisualState
 {
@@ -242,18 +323,63 @@ internal static class QtHostVisualState
 			.Then(Affine2.Translation(px + tx, py + ty));
 	}
 
-	/// <summary>Warning text when the transform needs more than QQuickItem rotation+scale (3D rotation or
-	/// non-uniform scale); null otherwise.</summary>
-	public static string? TransformLimit(VisualElement element)
+	/// <summary>Android's default camera distance (View.setCameraDistance: 1280 at mdpi, scaling with density), in dp:
+	/// the perspective RotationX/RotationY are seen with.</summary>
+	public const double CameraDistanceDp = 1280;
+
+	/// <summary>Whether the element rotates out of the screen plane (RotationX/RotationY).</summary>
+	public static bool Is3D(VisualElement element) => element.RotationX != 0 || element.RotationY != 0;
+
+	/// <summary>
+	/// The host's QML transform as a row-major 4×4 matrix (column vectors, as QMatrix4x4), in Qt units relative to the
+	/// pushed x/y; null when QQuickItem rotation+scale reproduce it (a translation, or uniform scale ∘ rotation).
+	/// <paramref name="toHost"/> is the 2D map into the hosting parent (the element's own transform, its offset and the
+	/// unhosted ancestors'). A 3D element replaces its own 2D part with scale → RotationX → RotationY → Rotation and
+	/// translation → perspective around the anchor, as Android's RenderNode composes them; the result then goes through
+	/// the ancestors' part.
+	/// </summary>
+	public static double[]? HostMatrix(VisualElement element, in Affine2 toHost, double width, double height, double qtPerDp)
 	{
-		if (element.RotationX != 0 || element.RotationY != 0)
-			return $"RotationX={element.RotationX}/RotationY={element.RotationY} (3D needs a QML Rotation transform with an axis)";
-		var sx = element.Scale * element.ScaleX;
-		var sy = element.Scale * element.ScaleY;
-		if (Math.Abs(sx - sy) > 1e-9)
-			return $"scaleX={sx} != scaleY={sy} (non-uniform scale needs a QML Scale transform)";
-		return null;
+		if (!Is3D(element))
+		{
+			if (toHost.IsTranslationOnly || toHost.IsUniformScaleRotation)
+				return null;
+			// Non-uniform scale or shear: the linear part as is (x/y carry the translation).
+			return new[]
+			{
+				toHost.M11, toHost.M21, 0, 0,
+				toHost.M12, toHost.M22, 0, 0,
+				0, 0, 1, 0,
+				0, 0, 0, 1,
+			};
+		}
+		// The ancestors' part: the element's own 2D transform undone.
+		var own = LocalTransform(element, width, height);
+		if (!own.TryInvert(out var ownInverse))
+			return null;
+		var outer = ownInverse.Then(toHost);
+		var px = element.AnchorX * width * qtPerDp;
+		var py = element.AnchorY * height * qtPerDp;
+		var m = Mat4.Translation(-px, -py)
+			.Then(Mat4.Scale(element.Scale * element.ScaleX, element.Scale * element.ScaleY))
+			.Then(Mat4.RotationX(element.RotationX))
+			.Then(Mat4.RotationY(element.RotationY))
+			.Then(Mat4.RotationZ(element.Rotation))
+			.Then(Mat4.Translation(element.TranslationX * qtPerDp, element.TranslationY * qtPerDp))
+			.Then(Mat4.Perspective(CameraDistanceDp * qtPerDp))
+			.Then(Mat4.Translation(px, py))
+			.Then(Mat4.Affine(outer, qtPerDp))
+			// Relative to the pushed x/y, where the 2D map puts the origin.
+			.Then(Mat4.Translation(-toHost.Tx * qtPerDp, -toHost.Ty * qtPerDp));
+		return m.Values;
 	}
+
+	/// <summary>Warning text when the transform is approximated: the input router hit-tests a 3D-rotated element by its
+	/// 2D footprint. Null otherwise.</summary>
+	public static string? TransformLimit(VisualElement element) =>
+		Is3D(element)
+			? $"RotationX={element.RotationX}/RotationY={element.RotationY}: drawn in 3D, hit-tested by the 2D footprint"
+			: null;
 
 	/// <summary>Properties pushed immediately as generic native state.</summary>
 	public static bool IsStateProperty(string propertyName) =>

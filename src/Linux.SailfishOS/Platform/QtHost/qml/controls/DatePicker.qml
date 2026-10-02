@@ -121,7 +121,11 @@ ValueButton {
 
     onClicked: __open()
     function __open() {
+        if (__dialog)
+            return;   // already open (a second tap during the push transition)
         var dialog = pageStack.push(dialogComponent, { date: __date });
+        if (!dialog)
+            return;   // the stack was busy; Silica returns null and logs
         __applyBounds(dialog);
         __track(dialog);
         dialog.accepted.connect(function() {

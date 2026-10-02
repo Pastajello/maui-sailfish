@@ -176,7 +176,8 @@ Flickable {
                     sourceSize.width: width
                     sourceSize.height: height
                 }
-                Label {
+                // QtQuick Text, not Label: the sibling Label.qml adapter shadows the Silica type (as RadioButton.qml).
+                Text {
                     id: label
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: modelData.text || ""

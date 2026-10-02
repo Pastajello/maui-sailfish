@@ -78,30 +78,99 @@ internal static class QtHostImages
 		return props;
 	}
 
-	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)?> PngSizes = new();
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)?> FileSizes = new();
 
-	/// <summary>A local PNG's pixel size (a button's icon, which Silica's Icon paints at its native pixels; font glyphs
-	/// render to PNG too), or null when the source is not a local PNG.</summary>
+	/// <summary>A local image's pixel size (a button's icon, which Silica's Icon paints at its native pixels; font glyphs
+	/// render to PNG too), or null when the source is not a local image file.</summary>
 	public static (int Width, int Height)? PixelSize(ImageSource? source)
 	{
 		if (Resolve(source) is not { } url || !url.StartsWith("file://", StringComparison.Ordinal))
 			return null;
-		return PngSizes.GetOrAdd(new Uri(url).LocalPath, static path =>
+		return FilePixelSize(new Uri(url).LocalPath);
+	}
+
+	private static (int Width, int Height)? FilePixelSize(string path) =>
+		FileSizes.GetOrAdd(path, static p =>
 		{
 			try
 			{
-				// PNG signature, then the IHDR chunk: width/height big-endian at bytes 16..23.
-				using var fs = File.OpenRead(path);
-				Span<byte> h = stackalloc byte[24];
-				if (fs.Read(h) < 24 || h[0] != 0x89 || h[1] != (byte)'P' || h[12] != (byte)'I' || h[15] != (byte)'R')
-					return null;
-				return ((h[16] << 24) | (h[17] << 16) | (h[18] << 8) | h[19], (h[20] << 24) | (h[21] << 16) | (h[22] << 8) | h[23]);
+				using var fs = File.OpenRead(p);
+				return ImageHeader.PixelSize(fs);
 			}
 			catch (IOException)
 			{
 				return null;
 			}
+			catch (UnauthorizedAccessException)
+			{
+				return null;
+			}
 		});
+
+	/// <summary>
+	/// The size (dp) an Image with this source takes when nothing sizes it, as Android's ImageView sizes to its drawable:
+	/// a resizetizer image at its BaseSize (here one 4× raster), an image MAUI copied unresized (a bitmap without
+	/// BaseSize, a GIF) at one dp per pixel (Android's <c>drawable/</c>, mdpi), and any other bitmap (a file, a stream,
+	/// a downloaded or library image, a font glyph) at its pixels ÷ density. Null while unknown: no resolvable source, a
+	/// stream still being read, a remote image not loaded yet (the adapter reports it, <see cref="ReportNaturalSize"/>).
+	/// </summary>
+	public static Size? IntrinsicSize(ImageSource? source)
+	{
+		if (Resolve(source) is not { } url)
+			return null;
+		var density = SailfishDisplay.Density > 0 ? SailfishDisplay.Density : 1;
+		if (!url.StartsWith("file://", StringComparison.Ordinal))
+			return RemoteSizes.TryGetValue(url, out var remote) ? new Size(remote.Width / density, remote.Height / density) : null;
+		var path = new Uri(url).LocalPath;
+		if (FilePixelSize(path) is not { } px)
+			return null;
+		var scale = PackagedImageScale(path) ?? density;
+		return new Size(px.Width / scale, px.Height / scale);
+	}
+
+	/// <summary>Natural pixel sizes of remote images, as the adapter reported them once loaded.</summary>
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)> RemoteSizes = new(StringComparer.Ordinal);
+
+	/// <summary>Records a loaded remote image's pixel size; true when it was not known yet (its views re-measure).</summary>
+	internal static bool ReportNaturalSize(string url, int width, int height)
+	{
+		if (width <= 0 || height <= 0 || url.StartsWith("file://", StringComparison.Ordinal))
+			return false;
+		var known = RemoteSizes.TryGetValue(url, out var old);
+		RemoteSizes[url] = (width, height);
+		return !known || old != (width, height);
+	}
+
+	/// <summary>Manifest of the images the resizetizer rasterized (one name per line, no extension), written by
+	/// <c>_SailfishProcessMauiImages</c>; the other files in images/ were copied as they are.</summary>
+	internal const string ResizedManifest = "maui-resized.txt";
+
+	private static HashSet<string>? _resized;
+
+	/// <summary>4 for a resizetizer raster in the app's images/, 1 for an image copied there unresized; null elsewhere.</summary>
+	private static double? PackagedImageScale(string path)
+	{
+		var imagesDir = Path.Combine(AppContext.BaseDirectory, "images");
+		if (!string.Equals(Path.GetDirectoryName(path), imagesDir.TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal))
+			return null;
+		var resized = _resized ??= ReadResizedManifest(Path.Combine(imagesDir, ResizedManifest));
+		return resized.Contains(Path.GetFileNameWithoutExtension(path)) ? 4 : 1;
+	}
+
+	private static HashSet<string> ReadResizedManifest(string path)
+	{
+		var names = new HashSet<string>(StringComparer.Ordinal);
+		try
+		{
+			if (File.Exists(path))
+				foreach (var line in File.ReadAllLines(path))
+					if (line.Trim() is { Length: > 0 } name)
+						names.Add(name);
+		}
+		catch (IOException)
+		{
+		}
+		return names;
 	}
 
 	/// <summary>ImageSource → a URL Qt can load; null when unsupported, missing or still pending.</summary>

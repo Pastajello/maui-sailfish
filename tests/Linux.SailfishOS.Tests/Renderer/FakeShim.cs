@@ -13,7 +13,7 @@ internal sealed class FakeShim : IQtHostShim
 	internal sealed class FakeObject
 	{
 		public required long Handle { get; init; }
-		public required string Id { get; init; }
+		public required string Id { get; set; }
 		public required string Uri { get; init; }
 		public string Page { get; init; } = "mp1";
 		public Dictionary<string, JsonElement> Props { get; } = new(StringComparer.Ordinal);
@@ -37,6 +37,9 @@ internal sealed class FakeShim : IQtHostShim
 
 	public List<string> Evals { get; } = new();
 	public List<JsonElement> Ops { get; } = new();
+
+	/// <summary>Row hosts handed to another row by the row pool.</summary>
+	public int Rekeys { get; private set; }
 	public int PropertyBatches { get; private set; }
 	public int GeometryBatches { get; private set; }
 	public int Destroys { get; private set; }
@@ -115,6 +118,19 @@ internal sealed class FakeShim : IQtHostShim
 						old.Destroyed = true;
 					_byName["maui_" + id] = obj;
 					_byHandle[obj.Handle] = obj;
+					break;
+				}
+				case "rekey":
+				{
+					// A pooled row host takes the new element's id (MauiModelPage.applyMauiOps).
+					var from = "maui_" + op.GetProperty("from").GetString();
+					var to = op.GetProperty("to").GetString()!;
+					if (_byName.Remove(from, out var moved))
+					{
+						moved.Id = to;
+						_byName["maui_" + to] = moved;
+						Rekeys++;
+					}
 					break;
 				}
 				case "destroy":

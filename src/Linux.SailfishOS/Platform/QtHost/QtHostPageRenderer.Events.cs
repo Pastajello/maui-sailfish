@@ -143,6 +143,16 @@ public sealed partial class QtHostPageRenderer
 					}
 					break;
 				}
+				case "tab-swipe-commit":
+				{
+					// The swiped page slid out: switch the tab (the new one slides in when its tabs arrive).
+					using var swipeDoc = JsonDocument.Parse(payload);
+					var delta = (int)BridgeJson.Num(swipeDoc.RootElement, "delta");
+					_tlStart = 0;
+					TimelineStart("tab");
+					SwipeTab(delta);
+					break;
+				}
 				case "remorse-done":
 					SailfishRemorse.OnDone(payload);   // RemorsePopup/RemorseItem countdown ended or was cancelled
 					break;

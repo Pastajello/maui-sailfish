@@ -1121,6 +1121,14 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Source = ImageSource.FromStream(() => new System.IO.MemoryStream(bytes)),
 			WidthRequest = 160, HeightRequest = 160, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
 		};
+		// No size request: an image copied into images/ unresized measures one dp per pixel (Android's drawable/), a
+		// stream image its pixels ÷ density once read.
+		var naturalImage = new Image { Source = "sailfish_logo.png", HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0) };
+		var naturalStream = new Image
+		{
+			Source = ImageSource.FromStream(() => new System.IO.MemoryStream(bytes)),
+			HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
+		};
 		var glyphButton = new Button
 		{
 			Text = "Done",
@@ -1130,7 +1138,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 		_ = nav!.PushAsync(new ContentPage
 		{
 			Title = "F3 images",
-			Content = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, glyphButton } },
+			Content = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, naturalImage, naturalStream, glyphButton } },
 		});
 		NativeElementHostOf(renderer, streamImage, out _);
 		WaitFor(dispatcher, () => PageTitle(renderer) == "F3 images" && NativeElementHostOf(renderer, streamImage, out var sh) && sh!.QmlUri == "image", 8000, () =>
@@ -1149,6 +1157,12 @@ internal sealed partial class QtHostDiagnosticsRunner
 				_qtF3Checks.Check($"F FontImageSource glyph → loaded image ({glyphState})", glyphState.Contains("\"loaded\":true") && glyphState.Contains(".png"));
 				var streamState = ImageState(streamImage);
 				_qtF3Checks.Check($"F StreamImageSource ({bytes.Length} bytes) → loaded image ({streamState})", bytes.Length > 0 && streamState.Contains("\"loaded\":true") && streamState.Contains(".img"));
+				var density = SailfishDisplay.Density;
+				_qtF3Checks.Check($"F unsized Image (128 px PNG copied to images/) → {naturalImage.Width:F1}×{naturalImage.Height:F1} dp == 128×128",
+					Math.Abs(naturalImage.Width - 128) < 0.5 && Math.Abs(naturalImage.Height - 128) < 0.5);
+				var streamDp = 128 / density;
+				_qtF3Checks.Check($"F unsized stream Image → {naturalStream.Width:F1}×{naturalStream.Height:F1} dp == {streamDp:F1} (128 px ÷ {density:F2})",
+					Math.Abs(naturalStream.Width - streamDp) < 0.5 && Math.Abs(naturalStream.Height - streamDp) < 0.5);
 				NativeElementHostOf(renderer, glyphButton, out var bh);
 				var icon = bh is null ? "" : QtHost.QtHostRuntime.GetProperty(bh.NativeHandle, "mauiIconSource");
 				_qtF3Checks.Check($"F Button ImageSource glyph → icon '{(icon.Length > 30 ? "…" + icon[^30..] : icon)}' is a rendered PNG", icon.EndsWith(".png", StringComparison.Ordinal));

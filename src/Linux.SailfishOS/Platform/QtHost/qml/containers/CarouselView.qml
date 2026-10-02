@@ -33,6 +33,10 @@ PathView {
     property real mauiHeaderH: 0
     property real mauiFooterH: 0
     property real mauiEmptyH: 0
+    // Scroll-bar visibility the bridge pushes with every LayoutProps batch (ListView.qml reads them); without the
+    // declarations the shim reported "no such property" and C# logged a bridge failure on every layout push.
+    property int mauiVBar: 0
+    property int mauiHBar: 0
 
     readonly property real __pageW: Math.max(1, width - mauiPeekStart - mauiPeekEnd)
     readonly property real __step: __pageW + mauiSpacing

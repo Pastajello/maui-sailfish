@@ -52,6 +52,9 @@ public static class QtHostRuntime
 	private static QtHostNative.PointerFn? _pointer;
 	private static QtHostNative.KeyFn? _key;
 	private static QtHostNative.EventFn? _event;
+	// The shim stores this function pointer in each queued PostEvent: a method-group conversion is only kept alive
+	// by the compiler's delegate cache, so hold the delegate explicitly.
+	private static readonly QtHostNative.VoidFn _postThunk = PostThunk;
 
 	// 1 once Shutdown() has run (makes teardown idempotent).
 	private static int _shutdownRequested;
@@ -159,9 +162,20 @@ public static class QtHostRuntime
 		if (rc != 0)
 			throw BootFailed(rc, "sailfish_host_show");
 
-		_pointer = (kind, x, y, delta, extra, _) => PointerInput?.Invoke(kind, x, y, delta, extra);
+		// Input callbacks run inside Qt's event delivery: an exception there would fail fast, so it is logged instead.
+		_pointer = (kind, x, y, delta, extra, _) =>
+		{
+			try { PointerInput?.Invoke(kind, x, y, delta, extra); }
+			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in pointer input: {ex}"); }
+		};
 		_key = (kind, key, mods, text, _) =>
-			KeyInput?.Invoke(kind, key, mods, text == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(text) ?? string.Empty);
+		{
+			try
+			{
+				KeyInput?.Invoke(kind, key, mods, text == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(text) ?? string.Empty);
+			}
+			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in key input: {ex}"); }
+		};
 		QtHostNative.sailfish_host_set_input_callbacks(_pointer, _key, IntPtr.Zero);
 
 		_event = (name, payload, _) =>
@@ -174,7 +188,8 @@ public static class QtHostRuntime
 		{
 			dispatcher.DrainQueue();
 			var now = DateTime.UtcNow;
-			SailfishRuntime.TickDueTimers(now);
+			try { SailfishRuntime.TickDueTimers(now); }
+			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in timer callback: {ex}"); }
 			var next = dispatcher.HasPendingWork ? 0 : SailfishRuntime.NextTimerDelayMs(DateTime.UtcNow);
 			QtHostNative.sailfish_host_wake(next >= 0 ? Math.Min(next, HeartbeatMs) : HeartbeatMs);
 		};
@@ -225,7 +240,7 @@ public static class QtHostRuntime
 			}
 			var handle = GCHandle.Alloc(action);
 			Interlocked.Increment(ref _handlesAllocated);
-			if (QtHostNative.sailfish_host_post(PostThunk, GCHandle.ToIntPtr(handle)) != 0)
+			if (QtHostNative.sailfish_host_post(_postThunk, GCHandle.ToIntPtr(handle)) != 0)
 			{
 				// Native refused (teardown started); free the handle or it leaks.
 				handle.Free();
@@ -638,6 +653,12 @@ public static class QtHostRuntime
 		try
 		{
 			((Action)handle.Target!).Invoke();
+		}
+		catch (Exception ex)
+		{
+			// Same policy as SailfishDispatcher.DrainQueue: an exception must not unwind into PostReceiver::event,
+			// where the runtime fails fast; it goes to the device log instead.
+			QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in posted work: {ex}");
 		}
 		finally
 		{

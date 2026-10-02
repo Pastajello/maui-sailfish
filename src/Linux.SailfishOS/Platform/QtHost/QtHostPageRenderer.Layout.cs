@@ -37,7 +37,11 @@ public sealed partial class QtHostPageRenderer
 			// Content scrolled out of a nested scroll viewport is not hit.
 			if (candidate.HitClipDp is { } clip && !clip.Contains(dpX, dpY))
 				continue;
-			if (top is null || ve.ZIndex >= topZ)
+			// A host inside another paints above it whatever the list order (a nested ScrollView's host can come after its
+			// content's), so a descendant wins over its ancestor and an ancestor never displaces its descendant.
+			if (top is not null && IsAncestor(ve, top.Element))
+				continue;
+			if (top is null || ve.ZIndex >= topZ || IsAncestor(top.Element, ve))
 			{
 				top = candidate;
 				topZ = ve.ZIndex;
@@ -45,6 +49,14 @@ public sealed partial class QtHostPageRenderer
 		}
 		host = top;
 		return top is not null;
+
+		static bool IsAncestor(Element? ancestor, Element? of)
+		{
+			for (var e = of?.Parent; e is not null; e = e.Parent)
+				if (ReferenceEquals(e, ancestor))
+					return true;
+			return false;
+		}
 	}
 
 	/// <summary>
@@ -427,31 +439,48 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>
-	/// Decomposes the accumulated transform into QQuickItem rotation/scale around TopLeft (the pushed x/y carry
-	/// the translation, so uniform scale ∘ rotation is exact). Shear degrades to the best uniform fit with a
-	/// one-time warning; an identity matrix resets a previously pushed rotation/scale.
+	/// Pushes the host's transform: QQuickItem rotation/scale around TopLeft when they reproduce it (the pushed x/y carry
+	/// the translation, so uniform scale ∘ rotation is exact), else a QML Matrix4x4 ("mauiMatrix": non-uniform scale,
+	/// shear, RotationX/RotationY). An identity resets whatever was pushed before.
 	/// </summary>
-	private void PushTransform(NativeElementHost host, VisualElement element, in Affine2 toRoot)
+	private void PushTransform(NativeElementHost host, VisualElement element, in Affine2 toHost)
 	{
-		var limit = QtHostVisualState.TransformLimit(element)
-			?? (toRoot.IsTranslationOnly || toRoot.IsUniformScaleRotation
-				? null
-				: "accumulated shear (non-uniform scale composed with rotation)");
+		var limit = QtHostVisualState.TransformLimit(element);
 		if (limit is not null && _transformLimitWarned.Add(host.Id))
-			QtHostDiag.Warn(QtHostDiagChannel.QmlProperty, $"{host} transform is best-effort — {limit} (2D uniform fit; see PLAN Q16 deferred notes)");
+			QtHostDiag.Trace(QtHostDiagChannel.QmlProperty, $"{host} transform — {limit}");
 
-		if (toRoot.IsTranslationOnly)
+		var matrix = QtHostVisualState.HostMatrix(element, toHost, element.Bounds.Width, element.Bounds.Height,
+			QtHostUnits.ToQtUnits(1));
+		var hadMatrix = host.AppliedProperties.ContainsKey("mauiMatrix");
+		if (matrix is not null)
 		{
-			if (host.AppliedProperties.ContainsKey("rotation") || host.AppliedProperties.ContainsKey("scale"))
-				ApplyUpdates(host, new Dictionary<string, object?> { ["rotation"] = 0.0, ["scale"] = 1.0 });
+			ApplyUpdates(host, new Dictionary<string, object?>
+			{
+				["rotation"] = 0.0,
+				["scale"] = 1.0,
+				["mauiMatrix"] = matrix,
+			});
 			return;
 		}
-		ApplyUpdates(host, new Dictionary<string, object?>
+		var updates = new Dictionary<string, object?>();
+		if (hadMatrix)
+			updates["mauiMatrix"] = Array.Empty<double>();   // identity
+		if (toHost.IsTranslationOnly)
 		{
-			["transformOrigin"] = "TopLeft",   // the pushed x/y is the transformed origin
-			["rotation"] = toRoot.RotationDegrees,
-			["scale"] = toRoot.UniformScale,
-		});
+			if (host.AppliedProperties.ContainsKey("rotation") || host.AppliedProperties.ContainsKey("scale"))
+			{
+				updates["rotation"] = 0.0;
+				updates["scale"] = 1.0;
+			}
+		}
+		else
+		{
+			updates["transformOrigin"] = "TopLeft";   // the pushed x/y is the transformed origin
+			updates["rotation"] = toHost.RotationDegrees;
+			updates["scale"] = toHost.UniformScale;
+		}
+		if (updates.Count > 0)
+			ApplyUpdates(host, updates);
 	}
 
 	/// <summary>

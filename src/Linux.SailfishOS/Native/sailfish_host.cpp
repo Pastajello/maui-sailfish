@@ -54,6 +54,8 @@
 #include <QQmlError>
 #include <QQmlExpression>
 #include <QQmlProperty>
+#include <QQmlListReference>
+#include <QMatrix4x4>
 #include <QQuickItem>
 #include <QSGNode>
 #include <QSGSimpleTextureNode>
@@ -401,7 +403,7 @@ void emit_pointer(int kind, double x, double y, double delta, int extra)
         g.pointer(kind, x, y, delta, extra, g.input_user);
     else if (g.shutdown)
         note_late_callback("pointer");
-    if (kind != 2 && kind != 5) // skip move / touch update to avoid log floods
+    if (kind != 2 && kind != 5 && kind != 7) // skip move / touch update / second finger to avoid log floods
         log_line(0, QStringLiteral("input kind=%1 x=%2 y=%3 delta=%4 extra=%5 total=%6")
                         .arg(kind)
                         .arg(x, 0, 'f', 1)
@@ -445,6 +447,14 @@ public:
             else
                 emit_pointer(kind, points.first().pos().x(), points.first().pos().y(),
                              0.0, points.size());
+            // Kind 7, right after: the second finger (pinch), with the number of fingers still down.
+            if (points.size() >= 2) {
+                int down = 0;
+                for (const QTouchEvent::TouchPoint &p : points)
+                    if (p.state() != Qt::TouchPointReleased)
+                        ++down;
+                emit_pointer(7, points.at(1).pos().x(), points.at(1).pos().y(), 0.0, down);
+            }
             break;
         }
         case QEvent::KeyPress:
@@ -2150,8 +2160,60 @@ static void apply_layer_effect(QObject *obj)
     item->setProperty("__mauiLayerOwned", true);
 }
 
+// mauiMatrix: the host's 3D / non-uniform transform (QtHostVisualState.HostMatrix), 16 row-major numbers; anything else
+// is the identity. One Matrix4x4 per item, appended after the adapter's own transforms (ProgressBar/Slider flip for RTL),
+// and kept at the identity once created, since Qt 5.6 cannot remove one entry of the transform list.
+static void apply_item_matrix(QObject *obj, const QJsonValue &value)
+{
+    QQuickItem *item = qobject_cast<QQuickItem *>(obj);
+    if (!item)
+        return;
+    const QJsonArray a = value.toArray();
+    const bool identity = a.size() != 16;
+    QObject *transform = item->property("__mauiMatrix").value<QObject *>();
+    if (!transform) {
+        if (identity)
+            return;
+        QQmlEngine *engine = qmlEngine(item) ? qmlEngine(item) : current_engine();
+        if (!engine)
+            return;
+        static QHash<QQmlEngine *, QQmlComponent *> components;
+        QQmlComponent *component = components.value(engine);
+        if (!component) {
+            component = new QQmlComponent(engine, engine);
+            component->setData("import QtQuick 2.6\nMatrix4x4 {}\n", QUrl());
+            components.insert(engine, component);
+        }
+        transform = component->create();
+        if (!transform) {
+            log_line(1, QStringLiteral("matrix: Matrix4x4 creation failed: %1").arg(component->errorString()));
+            return;
+        }
+        transform->setParent(item);
+        QQmlListReference list(item, "transform", engine);
+        if (!list.canAppend() || !list.append(transform)) {
+            log_line(1, QStringLiteral("matrix: cannot append to %1.transform").arg(item->objectName()));
+            delete transform;
+            return;
+        }
+        item->setProperty("__mauiMatrix", QVariant::fromValue(transform));
+    }
+    QMatrix4x4 m;
+    if (!identity) {
+        float v[16];
+        for (int i = 0; i < 16; ++i)
+            v[i] = static_cast<float>(a.at(i).toDouble());
+        m = QMatrix4x4(v);
+    }
+    transform->setProperty("matrix", QVariant::fromValue(m));
+}
+
 static bool apply_generic_prop(QObject *obj, const QByteArray &name, const QJsonValue &value)
 {
+    if (name == "mauiMatrix" && obj->metaObject()->indexOfProperty("mauiMatrix") < 0) {
+        apply_item_matrix(obj, value);
+        return true;
+    }
     const bool generic = name == "mauiBackgroundFill" || name == "mauiAccessibleName" ||
                          name == "mauiAccessibleDescription" || name == "mauiAutomationId" ||
                          name == "mauiLayerShadow" || name == "mauiLayerClip" ||

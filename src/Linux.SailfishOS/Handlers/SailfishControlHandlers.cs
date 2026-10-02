@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Handlers;
@@ -743,6 +744,15 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 
 	protected override Dictionary<string, object?>? Snapshot(IImage view) =>
 		view is IImage image ? QtHostImages.Props(image) : null;
+
+	// A remote image measured 0 × 0 until it loaded; now its own size is known.
+	protected override void OnAdapterEvent(string name, JsonElement payload)
+	{
+		if (name == "image-natural" &&
+		    payload.TryGetProperty("source", out var source) && source.GetString() is { } url &&
+		    QtHostImages.ReportNaturalSize(url, (int)BridgeJson.Num(payload, "width"), (int)BridgeJson.Num(payload, "height")))
+			ConnectedView?.InvalidateMeasure();
+	}
 }
 
 /// <summary>Border handler; the obsolete Frame uses the same adapter.</summary>

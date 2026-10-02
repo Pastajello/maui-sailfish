@@ -66,12 +66,15 @@ public sealed partial class QtHostPageRenderer
 		if (allocated.Count > 0)
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation,
 				$"synthetic allocated [{string.Join(",", allocated)}] for '{page.Title}' mirrorTop='{(NativeTopPageId ?? "-")}'");
-		foreach (var kv in _interactionHosts)
+		foreach (var (id, uri) in _interactionUris)
 		{
-			props[kv.Value] = _interactionProps.TryGetValue(kv.Key, out var p)
+			// A declared host whose NativeElementHost was dropped (push parked the page, dead handle) comes back here.
+			if (!_interactionHosts.TryGetValue(id, out var host))
+				_interactionHosts[id] = host = new NativeElementHost(id, uri, page);
+			props[host] = _interactionProps.TryGetValue(id, out var p)
 				? p
 				: new Dictionary<string, object?>();
-			desired.Add(kv.Value);
+			desired.Add(host);
 		}
 	}
 
@@ -143,6 +146,30 @@ public sealed partial class QtHostPageRenderer
 			return;
 		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"tab swipe {delta:+#;-#} → tab {target}");
 		_tabSelect!(target);
+	}
+
+	/// <summary>Whether a tab lies <paramref name="delta"/> tabs away from the shown one.</summary>
+	internal bool HasTabAt(int delta) => HasTabBar && _tabIndex + delta >= 0 && _tabIndex + delta < _tabCount;
+
+	/// <summary>A tab swipe in progress: the page follows the finger (<paramref name="dxDp"/>), with resistance where
+	/// no tab lies in that direction. Qt thread.</summary>
+	internal void SetTabDrag(double dxDp)
+	{
+		if (!HasTabBar)
+			return;
+		var shown = HasTabAt(dxDp < 0 ? 1 : -1) ? dxDp : dxDp / 3;
+		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiSetTabDrag", BridgeValue.Number(QtHostUnits.ToQtUnits(shown))));
+	}
+
+	/// <summary>Ends a tab swipe: slides on to the tab <paramref name="delta"/> away ("tab-swipe-commit" switches it
+	/// once the page is out), or back when 0 or no tab lies there.</summary>
+	internal void EndTabDrag(int delta)
+	{
+		if (!HasTabBar)
+			return;
+		if (delta != 0 && !HasTabAt(delta))
+			delta = 0;
+		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiEndTabDrag", delta.ToString(CultureInfo.InvariantCulture)));
 	}
 
 	/// <summary>Tabs of the rendered page, as the root container handler offers them (a Shell item's sections or a
@@ -410,7 +437,8 @@ public sealed partial class QtHostPageRenderer
 	{
 		var page = ResolveCurrentPage() ?? _window.Page
 			?? throw new InvalidOperationException("AddInteractionHost before any MAUI page");
-		var id = $"synth-{uri}-{_interactionHosts.Count + 1}";
+		var id = $"synth-{uri}-{++_interactionSeq}";   // monotonic: a removed id is never reused
+		_interactionUris[id] = uri;
 		_interactionHosts[id] = new NativeElementHost(id, uri, page);
 		_interactionProps[id] = props;
 		RequestPoll();   // page-level surface: the page reconcile creates it on the next loop turn
@@ -427,6 +455,7 @@ public sealed partial class QtHostPageRenderer
 	/// <summary>Removes an interaction host (destroyed on the next loop turn).</summary>
 	public void RemoveInteractionHost(string id)
 	{
+		_interactionUris.Remove(id);
 		_interactionHosts.Remove(id);
 		_interactionProps.Remove(id);
 		RequestPoll();

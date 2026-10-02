@@ -4,7 +4,8 @@ import Sailfish.Silica 1.0
 // Adapter: MAUI Image -> QtQuick Image. The root is an Item because Qt 5.6 fillMode cannot
 // express Aspect.Center (no Image.Pad), and the element bounds belong to the geometry pass.
 // Sources arrive as absolute file:// or http(s):// URLs (QtHostImages); Qt decodes them.
-// Events: "image-failed" {id, source}.
+// Events: "image-failed" {id, source}; "image-natural" {id, source, width, height} once a remote image loads at its
+// own size (local files are measured from their headers), so an Image without a size request can size to it.
 // The GIF player, the corner caps and the tap surface sit behind Loaders that are active only when used, so a
 // plain list thumbnail creates none of them (~45% cheaper; adapterbench keeps it pixel-identical to
 // Linux.SailfishOS.Diagnostics/qml/diag/reference/ImageEager.qml).
@@ -77,6 +78,11 @@ Item {
     property int mauiNaturalWidth: 0
     property int mauiNaturalHeight: 0
     property string mauiLoadError: ""
+    function __reportNatural(w, h) {
+        if (w > 0 && h > 0 && !mauiApplying && /^https?:/i.test(String(mauiSource)) &&
+                (__gif || (__decode.width <= 0 && __decode.height <= 0)))
+            mauiEvent("image-natural", JSON.stringify({ id: mauiId, source: String(mauiSource), width: w, height: h }));
+    }
 
     clip: true                       // AspectFill crops to the element bounds
     onMauiSourceChanged: {
@@ -148,6 +154,7 @@ Item {
                 root.mauiNaturalWidth = sourceSize.width;
                 root.mauiNaturalHeight = sourceSize.height;
                 root.mauiLoadError = "";
+                root.__reportNatural(sourceSize.width, sourceSize.height);
             }
         }
     }
@@ -173,6 +180,7 @@ Item {
                         root.mauiNaturalWidth = implicitWidth;
                         root.mauiNaturalHeight = implicitHeight;
                         root.mauiLoadError = "";
+                        root.__reportNatural(implicitWidth, implicitHeight);
                     } else if (status === AnimatedImage.Error) {
                         root.mauiLoaded = false;
                         root.mauiLoadError = "QtQuick AnimatedImage error for " + String(root.mauiSource);

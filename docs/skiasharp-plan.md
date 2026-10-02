@@ -1,6 +1,6 @@
 # SkiaSharp on Sailfish OS — execution and test plan
 
-Status: **in progress** (2026-10-02). Answers the open question in
+Status: **done** (2026-10-02, P1–P5; commit `bc63d1e`). Answers the open question in
 [`app-test-campaign.md`](app-test-campaign.md#open-questions): SkiaSharp views get Sailfish support as thin platform
 handlers. Nothing of Skia itself is written here.
 
@@ -45,7 +45,7 @@ spec, read from the 3.119 packages. The glue does what they do, no more.
   know those types, so they show nothing.
 - Adapter events reach C# asynchronously; the input router forwards the first touch point only. Android's `Handled`
   needs a synchronous path, hence the touch primitive.
-- **Done (2026-10-02, uncommitted):** P1–P5. Matrix 29/29 PASS after P1; the new legs `skia` (11 checks) and
+- **Done (2026-10-02, `bc63d1e`):** P1–P5. Matrix 29/29 PASS after P1; the new legs `skia` (11 checks) and
   `skiainput` (5) PASS on `samples/SkiaSharpProbe`. A-1 Profitocracy: the LiveCharts charts draw, the pie charts
   with data. A-2 WeightTracker: the Microcharts graph draws. All device runs used the default trimmed + R2R payload,
   so the registrar survives trimming. Docs from §6 are updated.

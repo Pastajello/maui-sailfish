@@ -81,6 +81,7 @@ public sealed partial class QtHostPageRenderer
 	private string _renderedTitle = string.Empty;
 	private string _renderedBusy = string.Empty;           // Page.IsBusy + pulley presence last pushed
 	private string _renderedBack = string.Empty;           // back navigation allowed, last pushed
+	private string _renderedOrientations = string.Empty;   // SailfishPage.AllowedOrientations, last pushed
 	private string _renderedScheme = string.Empty;         // palette color scheme, last pushed
 	private string _renderedBackground = string.Empty;
 
@@ -139,8 +140,13 @@ public sealed partial class QtHostPageRenderer
 	private Page? _pullPage;
 	private Page? _pushPage;
 	private Page? _ctxPage;
+	// Interaction hosts (docked panel, drawer) declared by the app: the declaration (id → adapter uri) outlives the
+	// page it was first rendered on; the NativeElementHost is page-scoped and recreated by the next reconcile when
+	// a push dropped it (RetainOutgoingPage) or its QML object died.
+	private readonly Dictionary<string, string> _interactionUris = new();
 	private readonly Dictionary<string, NativeElementHost> _interactionHosts = new();
 	private readonly Dictionary<string, Dictionary<string, object?>> _interactionProps = new();
+	private int _interactionSeq;
 	private TaskCompletionSource<object?>? _dialogTcs;   // alert(bool) / prompt(string?) / sheet(string)
 	private string _sheetCancel = string.Empty;          // action-sheet dismiss → cancel text
 
@@ -738,15 +744,18 @@ public sealed partial class QtHostPageRenderer
 			LogBridgeFailure(host, "batch", failed);
 			return false;
 		}
-		foreach (var (name, json) in changed)
-			host.AppliedProperties[name] = json;
-		BridgeApplied += changed.Count;
 		if (failed > 0)
 		{
+			// The shim reports only the count, not which properties it rejected: record nothing as applied so the
+			// whole batch is diffed again on the next push (as FlushGeometry does for a partial geometry failure).
 			BridgeFailed += failed;
 			LogBridgeFailure(host, "batch", failed);
 			HealIfDead(host);   // dead handle → recreate
+			return true;
 		}
+		foreach (var (name, json) in changed)
+			host.AppliedProperties[name] = json;
+		BridgeApplied += changed.Count;
 		return true;
 	}
 
@@ -856,7 +865,8 @@ public sealed partial class QtHostPageRenderer
 			_strayScanPending = false;
 			// Parked hosts are known too: a Shell's other tab pages wait hidden on this same model page (Profitocracy's
 			// Home lost all 78 hosts here after a back gesture on Settings, and the next tab switch reset the page).
-			var known = BridgeValue.Serialize(_byId.Keys.Concat(_parkedHosts.Select(h => h.Id)).Distinct().ToList());
+			var known = BridgeValue.Serialize(_byId.Keys.Concat(_parkedHosts.Select(h => h.Id))
+				.Concat(_collection.PooledHostIds).Distinct().ToList());
 			QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "__destroyHostsNotIn", BridgeValue.Quote(known)));
 		}
 		// Page-level pull-to-refresh, unless a hosted list or scroll view consumes it or a page pulley owns the overscroll.
@@ -887,6 +897,7 @@ public sealed partial class QtHostPageRenderer
 			_renderedTitle = string.Empty;
 			_renderedBusy = string.Empty;
 			_renderedBack = string.Empty;
+			_renderedOrientations = string.Empty;
 			_renderedScheme = string.Empty;
 			_renderedBackground = string.Empty;
 			_renderedTabs = string.Empty;
@@ -963,6 +974,13 @@ public sealed partial class QtHostPageRenderer
 		{
 			_renderedBack = back;
 			ops.Add(BridgeOps.Back(back == "1"));
+		}
+		var orientations = (int)SailfishPage.Effective(page);
+		var orientationsKey = orientations.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		if (orientationsKey != _renderedOrientations)
+		{
+			_renderedOrientations = orientationsKey;
+			ops.Add(BridgeOps.Orientations(orientations));
 		}
 
 		// The tab bar (Shell tabs / TabbedPage) belongs to the model page instance; pushed when it changes.
@@ -1259,6 +1277,8 @@ public sealed partial class QtHostPageRenderer
 	{
 		if (ImageTrace)
 			QtHostRuntime.Eval("window.mauiImageTrace=true");
+		if (SailfishEnv.Flag("MAUI_SAILFISH_OPS_TIMING"))
+			QtHostRuntime.Eval("window.mauiOpsTiming=true");
 		if (SailfishEnv.Get("MAUI_SAILFISH_LIST_PREFETCH") is { Length: > 0 } prefetch &&
 		    double.TryParse(prefetch, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var viewports) &&
 		    viewports > 0)
@@ -1436,6 +1456,46 @@ public sealed partial class QtHostPageRenderer
 	private static void ReleaseHost(NativeElementHost host)
 	{
 		DetachNative(host);
+	}
+
+	/// <summary>A row host whose QML object moves to the row pool: the managed side forgets it, the object lives on.</summary>
+	internal void ReleaseToPool(NativeElementHost host)
+	{
+		host.NativeHandle = 0;
+		host.AppliedProperties.Clear();
+		host.AppliedGeometrySet = false;
+		_byId.Remove(host.Id);
+	}
+
+	/// <summary>
+	/// A pooled QML object takes <paramref name="host"/>'s place: the old property state seeds the diff, so only what
+	/// differs from the previous row is pushed. An image whose source changes is emptied first, so the previous row's
+	/// picture never shows while the new one loads (as RecyclerView image loaders clear a recycled view).
+	/// </summary>
+	internal void AdoptPooledHost(NativeElementHost host, long handle, Dictionary<string, string> applied,
+	                              Dictionary<string, object?> props)
+	{
+		host.NativeHandle = handle;
+		host.AppliedProperties.Clear();
+		foreach (var kv in applied)
+			host.AppliedProperties[kv.Key] = kv.Value;
+		host.AppliedGeometrySet = false;   // the new delegate: place it again
+		host.AppliedVisible = true;
+		if (host.QmlUri == "image" && props.TryGetValue("mauiSource", out var source) &&
+		    !host.IsApplied("mauiSource", BridgeValue.Serialize(source)))
+			ApplyUpdates(host, new Dictionary<string, object?> { ["mauiSource"] = string.Empty });
+		ApplyUpdates(host, props);
+		host.RaiseAttached();
+	}
+
+	/// <summary>Destroys pooled row hosts by id and handle (they have no managed host any more).</summary>
+	internal void DestroyPooledHosts(IReadOnlyList<(string Id, long Handle)> hosts, string? pageJs)
+	{
+		if (hosts.Count == 0)
+			return;
+		ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), pageJs);
+		foreach (var (_, handle) in hosts)
+			QtHostRuntime.DestroyObject(handle);
 	}
 
 	/// <summary>Frees the slot field a synthetic host (pulley, push-up menu, context menu, interaction) sat in.</summary>
@@ -1700,7 +1760,12 @@ public sealed partial class QtHostPageRenderer
 					AddPlaceholder(child, string.Empty, desired, props);
 				}
 				else if (child.Parent is IView container)
-					QtHostImages.WhenReady(image.Source as ImageSource, container, () => RequestSubtree(container));
+					// Read, the stream has a size: the image re-measures from 0 × 0 and the container gains its host.
+					QtHostImages.WhenReady(image.Source as ImageSource, child, () =>
+					{
+						image.InvalidateMeasure();
+						RequestSubtree(container);
+					});
 				return true;
 			}
 			case Microsoft.Maui.Controls.Shapes.Shape or BoxView when HostingOf((View)child) is { State: null }:

@@ -6,7 +6,8 @@ using Microsoft.Maui.SailfishOS.Platform.QtHost;
 namespace Microsoft.Maui.SailfishOS.Handlers;
 
 /// <summary>Application handler: Application.Quit() → Terminate ends the Qt/Silica loop (the app exits as from the
-/// window's close). The platform application is the SailfishMauiApplication.</summary>
+/// window's close), CloseWindow on the app's window does the same, OpenWindow is dropped (one window per app). The
+/// platform application is the SailfishMauiApplication.</summary>
 public class SailfishApplicationHandler : ElementHandler<IApplication, object>
 {
 	public static readonly PropertyMapper<IApplication, SailfishApplicationHandler> Mapper = new(ElementMapper);
@@ -14,6 +15,8 @@ public class SailfishApplicationHandler : ElementHandler<IApplication, object>
 	public static readonly CommandMapper<IApplication, SailfishApplicationHandler> CommandMapper = new(ElementCommandMapper)
 	{
 		["Terminate"] = MapTerminate,   // ApplicationHandler.TerminateCommandKey (internal): Application.Quit()
+		["OpenWindow"] = MapOpenWindow,
+		["CloseWindow"] = MapCloseWindow,
 	};
 
 	public SailfishApplicationHandler() : base(Mapper, CommandMapper)
@@ -26,6 +29,20 @@ public class SailfishApplicationHandler : ElementHandler<IApplication, object>
 	/// <summary>Quits on the Qt thread, after the current loop turn.</summary>
 	public static void MapTerminate(SailfishApplicationHandler handler, IApplication application, object? args) =>
 		QtHostRuntime.Post(QtHostRuntime.Quit);
+
+	/// <summary>A Sailfish app has one window, the Silica ApplicationWindow (lipstick shows one per app), so a second one
+	/// is not opened: as on iOS without multiple scenes, the request is dropped, with a warning.</summary>
+	public static void MapOpenWindow(SailfishApplicationHandler handler, IApplication application, object? args) =>
+		QtHostDiag.Warn(QtHostDiagChannel.Navigation,
+			"Application.OpenWindow: a Sailfish OS app has a single window; the new window is not opened");
+
+	/// <summary>Closing the app's window ends the app, as finishing the last activity does on Android.</summary>
+	public static void MapCloseWindow(SailfishApplicationHandler handler, IApplication application, object? args)
+	{
+		if (args is IWindow window && !ReferenceEquals(window, application.Windows.FirstOrDefault()))
+			return;   // not a window this app shows
+		QtHostRuntime.Post(QtHostRuntime.Quit);
+	}
 }
 
 /// <summary>Window handler: the Silica ApplicationWindow is the platform window (one per app); content changes follow

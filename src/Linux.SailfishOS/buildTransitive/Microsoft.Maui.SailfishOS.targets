@@ -162,11 +162,25 @@
                       Images="@(_SailfishImageInput)">
       <Output TaskParameter="CopiedResources" ItemName="_SailfishProcessedImage" />
     </ResizetizeImages>
+    <!-- The rasterized images (an SVG, or a bitmap with BaseSize or Resize="true") are 4x their dp size; the rest were copied
+         as they are (Android's drawable/, one dp per pixel). The resizetizer's own rule, so Image measures as on Android. -->
+    <ItemGroup>
+      <_SailfishResizedImage Include="@(_SailfishImageInput)" Condition="'%(_SailfishImageInput.IsAppIcon)' != 'true' And ('%(_SailfishImageInput.Resize)' == 'true' Or ('%(_SailfishImageInput.Resize)' == '' And ('%(_SailfishImageInput.BaseSize)' != '' Or '%(_SailfishImageInput.Extension)' == '.svg')))" />
+      <_SailfishResizedName Include="$([System.IO.Path]::GetFileNameWithoutExtension('%(_SailfishResizedImage.Link)'))" Condition="'%(_SailfishResizedImage.Link)' != ''" />
+      <_SailfishResizedName Include="%(_SailfishResizedImage.Filename)" Condition="'%(_SailfishResizedImage.Link)' == ''" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" Lines="@(_SailfishResizedName)"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <Content Include="@(_SailfishProcessedImage)" Condition="'%(Filename)' != 'sailfish-appicon'"
                Link="images/%(Filename)%(Extension)"
                CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <Content Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" Link="images/maui-resized.txt"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
       <FileWrites Include="@(_SailfishProcessedImage)" />
+      <FileWrites Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" />
+      <_SailfishResizedImage Remove="@(_SailfishResizedImage)" />
+      <_SailfishResizedName Remove="@(_SailfishResizedName)" />
     </ItemGroup>
   </Target>
 

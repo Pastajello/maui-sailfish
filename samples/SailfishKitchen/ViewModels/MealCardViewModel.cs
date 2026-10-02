@@ -19,6 +19,7 @@ public partial class MealCardViewModel : ObservableObject, IEquatable<MealCardVi
 	private readonly IDispatcher _dispatcher;
 	private readonly ImageSource _placeholder;
 	private CancellationTokenSource? _thumbCts;
+	private bool _thumbSettled;   // the thumb (or the deliberate placeholder) is in; a cancelled load leaves it false
 
 	public MealCardViewModel(Meal meal, IImageCache images, IFavoritesService favorites, IDispatcher dispatcher)
 	{
@@ -51,6 +52,10 @@ public partial class MealCardViewModel : ObservableObject, IEquatable<MealCardVi
 
 	public string ThumbnailUrl => Meal.ThumbnailUrl;
 
+	/// <summary>Whether the thumb still has to load: never started, or cancelled (page covered, cell recycled).
+	/// <see cref="Thumbnail"/> cannot tell, since it holds the placeholder from the start.</summary>
+	public bool NeedsThumbnail => !_thumbSettled;
+
 	/// <summary>Bundled art shown while the thumb is in flight, or if it never arrives.</summary>
 	public ImageSource Placeholder => _placeholder;
 
@@ -73,7 +78,7 @@ public partial class MealCardViewModel : ObservableObject, IEquatable<MealCardVi
 	/// </summary>
 	public async Task LoadThumbnailAsync(bool allowNetwork, CancellationToken external = default)
 	{
-		if (!IsImageLoading && Thumbnail is not null)
+		if (_thumbSettled)
 			return;
 
 		_thumbCts?.Cancel();
@@ -87,11 +92,13 @@ public partial class MealCardViewModel : ObservableObject, IEquatable<MealCardVi
 			if (string.IsNullOrWhiteSpace(ThumbnailUrl)
 				|| (!allowNetwork && !_images.HasCached(ThumbnailUrl)))
 			{
+				_thumbSettled = true;
 				_dispatcher.RunOnUi(() => Thumbnail = _placeholder);
 				return;
 			}
 
 			var resolved = await _images.ResolveAsync(ThumbnailUrl, cts.Token).ConfigureAwait(false);
+			_thumbSettled = true;
 			_dispatcher.RunOnUi(() => Thumbnail = resolved);
 		}
 		catch (OperationCanceledException)

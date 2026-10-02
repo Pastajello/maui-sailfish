@@ -10,8 +10,9 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// Routes Qt pointer events (observed by the shim after Qt/Silica got them) to MAUI gesture recognizers.
 /// Over a native adapter QML consumes the input and the router never synthesizes a second activation;
 /// over an element with Tap/Pan/Swipe recognizers it captures the whole sequence; anything else stays
-/// with Silica's page gestures. Touch wins over Qt's synthesized mouse events; only the first touch point
-/// is forwarded, wheel is not routed, and gestures are dispatched to the MAUI main thread.
+/// with Silica's page gestures. Touch wins over Qt's synthesized mouse events; the first touch point drives
+/// taps, pans and swipes, the second one a pinch; wheel is not routed (Silica's flickables take it natively), and
+/// gestures are dispatched to the MAUI main thread.
 /// </summary>
 public sealed class QtHostInputRouter
 {
@@ -23,6 +24,7 @@ public sealed class QtHostInputRouter
 	private const int TouchBegin = 4;
 	private const int TouchUpdate = 5;
 	private const int TouchEnd = 6;
+	private const int SecondPoint = 7;   // the second finger, right after its touch event (extra = fingers down)
 
 	/// <summary>Adapters that consume pointer input natively; their semantic events arrive over the bridge.</summary>
 	private static readonly HashSet<string> QmlConsumedUris = new(StringComparer.Ordinal)
@@ -78,6 +80,11 @@ public sealed class QtHostInputRouter
 	private List<SwipeGestureRecognizer>? _swipes;
 	private List<LongPressGestureRecognizer>? _longPresses;
 	private List<PointerGestureRecognizer>? _pointers;
+	private List<PinchGestureRecognizer>? _pinches;
+	private Rect _ownerDp;                     // the owner's root-space rect at the press (pinch scale origins)
+	private bool _pinching;                    // two fingers down on a pinch owner
+	private bool _pinched;                     // this sequence pinched: its release is no tap or pan
+	private double _pinchDistance;             // finger distance at the last pinch update (dp)
 	private bool _longPressFired;              // release after a fired long press = no tap
 	private int _longPressSeq;                 // invalidates a pending long-press timer
 	private double _pressDpX, _pressDpY;
@@ -95,6 +102,7 @@ public sealed class QtHostInputRouter
 
 	// Page swipe between tabs, tracked independently of MAUI capture.
 	private bool _tabSwipeArmed;
+	private bool _tabDragging;                 // the page follows the finger
 	private double _tabSwipeX, _tabSwipeY;
 
 	/* --- Counters (diagnostics) --- */
@@ -113,6 +121,9 @@ public sealed class QtHostInputRouter
 
 	/// <summary>LongPressGestureRecognizer presses that reached MinimumPressDuration.</summary>
 	public long LongPressGesturesFired { get; private set; }
+
+	/// <summary>PinchGestureRecognizer updates sent (started/running/completed).</summary>
+	public long PinchUpdatesFired { get; private set; }
 
 	/// <summary>PointerGestureRecognizer events sent (entered/pressed/moved/released/exited).</summary>
 	public long PointerEventsFired { get; private set; }
@@ -202,6 +213,9 @@ public sealed class QtHostInputRouter
 			case TouchEnd:
 				OnRelease(kind, x, y);
 				break;
+			case SecondPoint:
+				OnSecondPoint(x, y, extra);
+				break;
 			case Wheel:
 				// Observed only; wheel is not routed yet.
 				if (_trace)
@@ -268,7 +282,7 @@ public sealed class QtHostInputRouter
 		}
 
 		// MAUI gestures bubble: the nearest element carrying recognizers owns the sequence.
-		if (!TryFindRecognizers(ve, out var owner, out _taps, out _pans, out _swipes, out _longPresses, out _pointers))
+		if (!TryFindRecognizers(ve, out var owner, out _taps, out _pans, out _swipes, out _longPresses, out _pointers, out _pinches))
 		{
 			Ignored++;
 			if (_trace)
@@ -283,13 +297,16 @@ public sealed class QtHostInputRouter
 		_totalDpX = 0;
 		_totalDpY = 0;
 		_dragging = false;
+		_pinching = false;
+		_pinched = false;
+		_ownerDp = OwnerRect(ve, owner, host.MauiLogicalBounds);
 		_gestureId++;
 		MauiCaptured++;
 		_longPressFired = false;
 		if (_trace)
 			Trace(kind, x, y, $"{host} → gesture target {owner.GetType().Name} CAPTURED " +
 				$"(tap={_taps is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
-				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0})");
+				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0} pinch={_pinches?.Count ?? 0})");
 		DispatchPointer(PointerPhase.Entered);
 		DispatchPointer(PointerPhase.Pressed);
 		ArmLongPress();
@@ -300,6 +317,7 @@ public sealed class QtHostInputRouter
 	private void ArmTabSwipe(double dpX, double dpY, NativeElementHost? host)
 	{
 		_tabSwipeArmed = false;
+		_tabDragging = false;
 		if (!_renderer.HasTabBar)
 			return;
 		var width = _renderer.WindowWidthDp;
@@ -309,8 +327,8 @@ public sealed class QtHostInputRouter
 		{
 			if (QmlConsumedUris.Contains(host.QmlUri) || host.QmlUri == "scroll-view")
 				return;
-			if (host.Element is VisualElement target && TryFindRecognizers(target, out _, out _, out var pans, out var swipes, out _, out _)
-			    && (pans is not null || swipes is not null))
+			if (host.Element is VisualElement target && TryFindRecognizers(target, out _, out _, out var pans, out var swipes, out _, out _, out var pinches)
+			    && (pans is not null || swipes is not null || pinches is not null))
 				return;
 			// A press inside content that scrolls sideways: the drag is that content's (WeatherTwentyOne's hourly row, a
 			// horizontal ScrollView, switched the tab instead of scrolling).
@@ -347,19 +365,45 @@ public sealed class QtHostInputRouter
 		};
 	}
 
-	/// <summary>A dominant horizontal travel past the threshold switches tab (left swipe = next).</summary>
+	/// <summary>Once the travel is clearly horizontal the page follows the finger; a vertical start leaves the drag to
+	/// the page's scrolling.</summary>
+	private void TrackTabDrag(double x, double y)
+	{
+		var dx = QtHostUnits.ToLogical(x) - _tabSwipeX;
+		var dy = QtHostUnits.ToLogical(y) - _tabSwipeY;
+		if (!_tabDragging)
+		{
+			if (Math.Abs(dy) > 2 * TapSlopDp && Math.Abs(dy) >= Math.Abs(dx))
+			{
+				_tabSwipeArmed = false;   // a scroll
+				return;
+			}
+			if (Math.Abs(dx) <= 2 * TapSlopDp || Math.Abs(dx) < 2 * Math.Abs(dy))
+				return;
+			_tabDragging = true;
+		}
+		_renderer.SetTabDrag(dx);
+	}
+
+	/// <summary>A dominant horizontal travel past the threshold switches tab (left swipe = next); a followed drag that
+	/// falls short springs back.</summary>
 	private void FinishTabSwipe(double x, double y)
 	{
 		if (!_tabSwipeArmed)
 			return;
 		_tabSwipeArmed = false;
+		var dragging = _tabDragging;
+		_tabDragging = false;
 		var dx = QtHostUnits.ToLogical(x) - _tabSwipeX;
 		var dy = QtHostUnits.ToLogical(y) - _tabSwipeY;
-		if (Math.Abs(dx) < TabSwipeMinDp || Math.Abs(dx) < 2 * Math.Abs(dy))
-			return;
+		var commit = Math.Abs(dx) >= TabSwipeMinDp && Math.Abs(dx) >= 2 * Math.Abs(dy);
 		var delta = dx < 0 ? 1 : -1;
-		TabSwipes++;
-		_dispatcher.Dispatch(() => _renderer.SwipeTab(delta));
+		if (commit)
+			TabSwipes++;
+		if (dragging)
+			_renderer.EndTabDrag(commit ? delta : 0);   // the tab switches once the page slid out
+		else if (commit)
+			_dispatcher.Dispatch(() => _renderer.SwipeTab(delta));
 	}
 
 	/// <summary>Page swipes that switched a tab.</summary>
@@ -367,6 +411,9 @@ public sealed class QtHostInputRouter
 
 	private void OnMove(int kind, double x, double y)
 	{
+		if (_tabSwipeArmed)
+			TrackTabDrag(x, y);
+
 		// Travel beyond the tap slop cancels the armed hold.
 		if (_holdFlyout is not null && !_holdFired)
 		{
@@ -383,6 +430,8 @@ public sealed class QtHostInputRouter
 		var dpY = QtHostUnits.ToLogical(y);
 		_totalDpX = dpX - _pressDpX;
 		_totalDpY = dpY - _pressDpY;
+		if (_pinched)
+			return;   // two fingers: the pinch owns the sequence (updated from the second point)
 
 		if (!_dragging && Math.Max(Math.Abs(_totalDpX), Math.Abs(_totalDpY)) > TapSlopDp)
 		{
@@ -410,6 +459,15 @@ public sealed class QtHostInputRouter
 		_longPressSeq++;   // a pending long-press timer no longer fires
 		DispatchPointer(PointerPhase.Released);
 		DispatchPointer(PointerPhase.Exited);
+		if (_pinched)
+		{
+			if (_pinching)
+				DispatchPinch(GestureStatus.Completed, 1, default);
+			ClearCapture();
+			if (_trace)
+				Trace(kind, x, y, "release after a pinch — no tap or pan");
+			return;
+		}
 		if (_longPressFired)
 		{
 			ClearCapture();
@@ -549,6 +607,95 @@ public sealed class QtHostInputRouter
 		}
 	}
 
+	/// <summary>
+	/// The second finger. With two down on an owner that has a PinchGestureRecognizer the pinch starts (cancelling a
+	/// pan in progress, as Android's ScaleGestureDetector takes over), each update reports the change of the finger
+	/// distance since the last one and the midpoint relative to the owner, and lifting a finger completes it.
+	/// </summary>
+	private void OnSecondPoint(double x, double y, int fingersDown)
+	{
+		if (_captured is null || _pinches is null)
+			return;
+		var p1X = _pressDpX + _totalDpX;
+		var p1Y = _pressDpY + _totalDpY;
+		var p2X = QtHostUnits.ToLogical(x);
+		var p2Y = QtHostUnits.ToLogical(y);
+		var distance = Math.Sqrt((p2X - p1X) * (p2X - p1X) + (p2Y - p1Y) * (p2Y - p1Y));
+		var origin = new Point(
+			_ownerDp.Width > 0 ? ((p1X + p2X) / 2 - _ownerDp.X) / _ownerDp.Width : 0.5,
+			_ownerDp.Height > 0 ? ((p1Y + p2Y) / 2 - _ownerDp.Y) / _ownerDp.Height : 0.5);
+		if (fingersDown >= 2 && !_pinching)
+		{
+			if (distance < 1)
+				return;
+			if (_dragging)
+				DispatchPan(GestureStatus.Canceled);
+			_dragging = false;
+			_longPressSeq++;
+			_holdFlyout = null;
+			_pinching = true;
+			_pinched = true;
+			_pinchDistance = distance;
+			DispatchPinch(GestureStatus.Started, 1, origin);
+		}
+		else if (fingersDown >= 2 && _pinching)
+		{
+			if (distance < 1 || Math.Abs(distance - _pinchDistance) < 0.01)
+				return;
+			var scale = distance / _pinchDistance;
+			_pinchDistance = distance;
+			DispatchPinch(GestureStatus.Running, scale, origin);
+		}
+		else if (_pinching)
+		{
+			_pinching = false;
+			DispatchPinch(GestureStatus.Completed, 1, origin);
+		}
+	}
+
+	private void DispatchPinch(GestureStatus status, double scale, Point origin)
+	{
+		var pinches = _pinches;
+		var owner = _captured;
+		if (pinches is null || owner is null)
+			return;
+		PinchUpdatesFired++;
+		_dispatcher.Dispatch(() =>
+		{
+			foreach (var pinch in pinches)
+			{
+				try
+				{
+					var controller = (IPinchGestureController)pinch;
+					switch (status)
+					{
+						case GestureStatus.Started: controller.SendPinchStarted(owner, origin); break;
+						case GestureStatus.Running: controller.SendPinch(owner, scale, origin); break;
+						case GestureStatus.Completed: controller.SendPinchEnded(owner); break;
+						case GestureStatus.Canceled: controller.SendPinchCanceled(owner); break;
+					}
+				}
+				catch (Exception ex)
+				{
+					QtHostDiag.Error(QtHostDiagChannel.Input, $"pinch {status} handler failed: {ex.Message}");
+				}
+			}
+		});
+	}
+
+	/// <summary>The recognizer owner's root-space rect: the hit host's rect moved by the hit element's offset inside the
+	/// owner (layout offsets; transforms in between are ignored).</summary>
+	private static Rect OwnerRect(VisualElement hit, View owner, Rect hitDp)
+	{
+		double dx = 0, dy = 0;
+		for (var v = hit; v is not null && !ReferenceEquals(v, owner); v = v.Parent as VisualElement)
+		{
+			dx += v.Bounds.X;
+			dy += v.Bounds.Y;
+		}
+		return new Rect(hitDp.X - dx, hitDp.Y - dy, owner.Bounds.Width, owner.Bounds.Height);
+	}
+
 	private void ClearCapture()
 	{
 		_captured = null;
@@ -557,19 +704,23 @@ public sealed class QtHostInputRouter
 		_swipes = null;
 		_longPresses = null;
 		_pointers = null;
+		_pinches = null;
+		_pinching = false;
+		_pinched = false;
 		_longPressFired = false;
 		_dragging = false;
 		_totalDpX = 0;
 		_totalDpY = 0;
 	}
 
-	/// <summary>Finds the nearest View (element or ancestor) carrying Tap/Pan/Swipe/LongPress/Pointer recognizers.</summary>
+	/// <summary>Finds the nearest View (element or ancestor) carrying Tap/Pan/Swipe/LongPress/Pointer/Pinch recognizers.</summary>
 	private static bool TryFindRecognizers(VisualElement element, out View owner,
 	                                       out List<TapGestureRecognizer>? taps,
 	                                       out List<PanGestureRecognizer>? pans,
 	                                       out List<SwipeGestureRecognizer>? swipes,
 	                                       out List<LongPressGestureRecognizer>? longPresses,
-	                                       out List<PointerGestureRecognizer>? pointers)
+	                                       out List<PointerGestureRecognizer>? pointers,
+	                                       out List<PinchGestureRecognizer>? pinches)
 	{
 		for (var v = element as View; v is not null; v = v.Parent as View)
 		{
@@ -578,6 +729,7 @@ public sealed class QtHostInputRouter
 			swipes = null;
 			longPresses = null;
 			pointers = null;
+			pinches = null;
 			foreach (var recognizer in v.GestureRecognizers)
 			{
 				switch (recognizer)
@@ -587,9 +739,11 @@ public sealed class QtHostInputRouter
 					case SwipeGestureRecognizer s: (swipes ??= new List<SwipeGestureRecognizer>()).Add(s); break;
 					case LongPressGestureRecognizer l: (longPresses ??= new List<LongPressGestureRecognizer>()).Add(l); break;
 					case PointerGestureRecognizer p: (pointers ??= new List<PointerGestureRecognizer>()).Add(p); break;
+					case PinchGestureRecognizer p: (pinches ??= new List<PinchGestureRecognizer>()).Add(p); break;
 				}
 			}
-			if (taps is not null || pans is not null || swipes is not null || longPresses is not null || pointers is not null)
+			if (taps is not null || pans is not null || swipes is not null || longPresses is not null || pointers is not null ||
+			    pinches is not null)
 			{
 				owner = v;
 				return true;
@@ -601,6 +755,7 @@ public sealed class QtHostInputRouter
 		swipes = null;
 		longPresses = null;
 		pointers = null;
+		pinches = null;
 		return false;
 	}
 
@@ -688,6 +843,7 @@ public sealed class QtHostInputRouter
 		TouchBegin => "touch-begin",
 		TouchUpdate => "touch-update",
 		TouchEnd => "touch-end",
+		SecondPoint => "second-point",
 		_ => kind.ToString(CultureInfo.InvariantCulture),
 	};
 }

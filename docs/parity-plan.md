@@ -177,13 +177,18 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
 
 ## What is left
 
-As of 2026-09-28, checked against the code and git history. Smaller defects and platform gaps
+As of 2026-09-28, checked against the code and git history; Navigation and Platform updated 2026-10-02. Smaller defects and platform gaps
 (`OpenUrl`, MCE, `OpenFileRequest`) are in
 [`../BUG_LIST.md`](../BUG_LIST.md).
 
 **Navigation**
-- Animation and preview of the next page on tab swipe (SlideshowView with several pages at once).
-- One window only: the renderer is a static `Current`; the window DI scope exists (A6), multi-window does not.
+- Tab swipe: since 2026-10-02 the page follows the finger with the next tab's title in the uncovered strip, and a
+  committed swipe slides the page out and the new tab in (leg `shell` F3, screenshot `shell-tab-drag`). Not done: the
+  next tab's real content during the drag (Silica's SlideshowView with several pages at once). Qt 5.6 `grabToImage`
+  cannot crop to the viewport, so not even a snapshot of it.
+- One window per app, as the platform has it (lipstick shows one Silica ApplicationWindow). Decided 2026-10-02:
+  `Application.OpenWindow` is dropped with a warning (iOS without multiple scenes does the same), and `CloseWindow`
+  on the app's window quits.
 
 **Performance** (page-load acceptance: push animation starts ≤ 150 ms after the tap with complete content,
 no empty frames, pop reveals a ready page even 2+ levels back; check with `tools/sf record … --keep DIR` +
@@ -203,11 +208,14 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   in the next frame)? Saves ~80–120 ms but the list is empty for 1–2 frames of the enter animation. Needs a decision.
 
 **Platform**
-- Per-page orientation (today only for the whole app, 769f2db).
-- Touch: first point only — no pinch/multi-touch or wheel.
-- 3D transforms (`RotationX/Y`) and non-uniform `ScaleX≠ScaleY` — warning only
-  (`QtHostVisualState.TransformLimit`); to check: hit-test of rotated/scaled hosts and Button colors
-  reverting to Silica defaults after setting `null`.
+- Per-page orientation: done 2026-10-02, `SailfishPage.AllowedOrientations` (Silica `Page.allowedOrientations`,
+  [`sailfish-apis.md`](sailfish-apis.md#sailfishpage)); host test only, not turned on the phone yet.
+- Touch: since 2026-10-02 the second finger reaches the router (shim pointer kind 7) and drives
+  `PinchGestureRecognizer` (leg `visual` B2, two injected fingers, screenshot `visual-pinch`). Still first-point only
+  for pan/swipe/tap. Wheel is not routed: Silica's flickables take it natively and the phone has none.
+- 3D transforms and non-uniform scale: since 2026-10-02 a QML Matrix4x4 on the host (`QtHostVisualState.HostMatrix`,
+  Android's camera distance), exact for shear too (leg `visual` F, screenshot `visual-3d`). Left: hit-testing uses
+  the 2D footprint; Button colours reverting to Silica defaults after setting `null` is still unchecked.
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
   today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
 

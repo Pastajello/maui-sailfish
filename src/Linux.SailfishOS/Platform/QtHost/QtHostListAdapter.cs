@@ -16,7 +16,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// element tree as QML hosts inside the delegate the ListView binds (list-item-attached/rebind), so they scroll and
 /// die with it. <see cref="QtHostCollectionBridge"/> routes the QML events to it and schedules its deferred work.
 /// </summary>
-internal sealed class QtHostListAdapter
+internal sealed partial class QtHostListAdapter
 {
 	private readonly QtHostCollectionBridge _bridge;
 	private readonly QtHostPageRenderer _renderer;
@@ -1183,7 +1183,10 @@ internal sealed class QtHostListAdapter
 			_bridge.CollectHosts(cellView, dg.Children);
 			dg.Cells.Add((cellView, row.CellX[c]));
 		}
-		CreateAndAttachHosts(desired, props, dgObj, dg.Handle);
+		if (!TryAdoptPooledRow(dg, desired, props))
+			CreateAndAttachHosts(desired, props, dgObj, dg.Handle);
+		dg.Own.Clear();
+		dg.Own.AddRange(desired);
 		PageId = ListPageId();
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject,
 			$"Q14 row {rowIndex} dg '{dgObj}' materialized desired={desired.Count} children={dg.Children.Count} ids=[{string.Join(",", dg.Children.Select(h => h.Id))}]");
@@ -1222,6 +1225,7 @@ internal sealed class QtHostListAdapter
 	/// <summary>Drops a delegate's row content but keeps its registry entry; the QML delegate stays alive.</summary>
 	internal void ClearDg(DgState dg)
 	{
+		dg.Own.Clear();
 		_bridge.DestroyHosts(dg.Children, PageId);
 		dg.Cells.Clear();
 		if (dg.Row is not null && dg.Row.DgObj == dg.Obj)
@@ -1272,7 +1276,16 @@ internal sealed class QtHostListAdapter
 
 	internal void UnmaterializeDg(DgState dg)
 	{
-		ClearDg(dg);
+		// The delegate is gone; its row subtree lives on (canvas-owned) and waits in the pool, or is destroyed.
+		if (TryPoolRow(dg))
+		{
+			dg.Cells.Clear();
+			if (dg.Row is not null && dg.Row.DgObj == dg.Obj)
+				dg.Row.DgObj = null;
+			dg.Row = null;
+		}
+		else
+			ClearDg(dg);
 		if (Delegates.TryGetValue(dg.Obj, out var holder) && ReferenceEquals(holder, dg))
 			Delegates.Remove(dg.Obj);
 		ByHandle.Remove(dg.Handle);
@@ -1567,6 +1580,7 @@ internal sealed class QtHostListAdapter
 	{
 		foreach (var dg in ByHandle.Values.ToList())
 			ClearDg(dg);
+		DrainRowPool();
 		Delegates.Clear();
 		ByHandle.Clear();
 		foreach (var slot in Slots.Values)

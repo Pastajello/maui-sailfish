@@ -196,14 +196,18 @@ ApplicationWindow {
     // Foreground/background and window focus reach the lifecycle bridge when they change, not at a poll.
     Connections {
         target: Qt.application
-        onStateChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state }))
-        onActiveChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ active: Qt.application.active }))
+        // One payload shape for both signals: the C# side reads `state` (SailfishApplicationState) and treated a
+        // missing `state` as Active, so an `{ active: false }` payload used to report deactivation as activation.
+        onStateChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }))
+        onActiveChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }))
     }
     // Bumped on every pageStack depth change: the coordinator logs which native state an operation saw.
     property int mauiStackVersion: 0
 
     // MAUI_SAILFISH_IMAGE_TRACE=1: every image adapter logs "MAUI-IMG" per load (controls/Image.qml).
     property bool mauiImageTrace: false
+    // MAUI_SAILFISH_OPS_TIMING=1: each page logs where its host-creating op batches spend the time (OPS-TIMING).
+    property bool mauiOpsTiming: false
     // MAUI_SAILFISH_LIST_PREFETCH=N: list rows are built N viewports ahead once a list settled (default 2).
     property real mauiListPrefetch: 2
     property int mauiOpsBatches: 0

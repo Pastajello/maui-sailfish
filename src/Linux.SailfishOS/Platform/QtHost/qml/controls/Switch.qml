@@ -2,7 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../lib/silica.js" as SilicaWalk
 
-// Adapter: MAUI Switch / CheckBox -> Silica Switch. Events: toggled {id,checked}.
+// Adapter: MAUI Switch -> Silica Switch (CheckBox has its own adapter). Events: toggled {id,checked}.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
 Switch {
     id: root

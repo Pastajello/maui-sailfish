@@ -78,6 +78,16 @@
             <Button Text="Toggle app theme" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnThemeClicked" />
             <Label x:Name="ThemeLabel" FontSize="18" TextColor="#9FB4C7" Text="theme: dark" />
 
+            <Label Text="3D rotation / non-uniform scale / pinch" FontSize="16" TextColor="#4FC3F7" />
+            <Grid HeightRequest="130" ColumnDefinitions="*,*,*">
+                <BoxView x:Name="Tilted" Color="#FFAB40" WidthRequest="100" HeightRequest="100" RotationY="50" />
+                <BoxView x:Name="Stretched" Grid.Column="1" Color="#E040FB" WidthRequest="60" HeightRequest="100" ScaleX="1.6" ScaleY="0.6" />
+                <BoxView x:Name="Pinchable" Grid.Column="2" Color="#26A69A" WidthRequest="110" HeightRequest="110">
+                    <BoxView.GestureRecognizers>
+                        <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
+                    </BoxView.GestureRecognizers>
+                </BoxView>
+            </Grid>
         </VerticalStackLayout>
     </ScrollView>
 

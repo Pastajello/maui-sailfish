@@ -365,7 +365,29 @@ internal static class SailfishMeasure
 
 	public static Size Progress(IView view, double wc, double hc) => Constrain(200, 12, wc, hc);
 
-	public static Size Image(IView view, double wc, double hc) => Constrain(100, 100, wc, hc);
+	/// <summary>
+	/// The source's own size (<see cref="QtHostImages.IntrinsicSize"/>), as Android's ImageView with adjustViewBounds:
+	/// one requested side gives the other by the aspect ratio, and a constraint smaller than the image shrinks both.
+	/// Nothing to show yet (no source, a stream being read, a remote image loading) measures 0 × 0.
+	/// </summary>
+	public static Size Image(IView view, double wc, double hc)
+	{
+		if (view is not IImageSourcePart part || QtHostImages.IntrinsicSize(part.Source as ImageSource) is not { } own ||
+		    own.Width <= 0 || own.Height <= 0)
+			return Constrain(0, 0, wc, hc);
+		var pad = view is ImageButton button ? button.Padding : Thickness.Zero;
+		var (w, h) = (own.Width, own.Height);
+		var requestedW = RequestedSize(view, horizontal: true);
+		var requestedH = RequestedSize(view, horizontal: false);
+		if (IsFinite(requestedW) && !IsFinite(requestedH))
+			return new Size(requestedW, Math.Max(0, requestedW - pad.HorizontalThickness) * h / w + pad.VerticalThickness);
+		if (IsFinite(requestedH) && !IsFinite(requestedW))
+			return new Size(Math.Max(0, requestedH - pad.VerticalThickness) * w / h + pad.HorizontalThickness, requestedH);
+		var fit = Math.Min(1, Math.Min(
+			IsFinite(wc) ? Math.Max(0, wc - pad.HorizontalThickness) / w : 1,
+			IsFinite(hc) ? Math.Max(0, hc - pad.VerticalThickness) / h : 1));
+		return new Size(w * fit + pad.HorizontalThickness, h * fit + pad.VerticalThickness);
+	}
 
 	public static Size Box(IView view, double wc, double hc) => Constrain(40, 40, wc, hc);
 

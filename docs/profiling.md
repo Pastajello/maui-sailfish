@@ -263,6 +263,32 @@ The backend cannot speed these up:
 - `SailfishMetrics=false` (the Release default) removes MAUI's per-Measure/Arrange layout instrumentation;
   `SailfishMetrics=true` brings `System.Diagnostics.Metrics` back when you need them in `dotnet-counters`.
 
+## 6a. Measured numbers
+
+**SkiaSharp raster surface** (2026-10-02, Xperia, density 1.911, `QSGThreadedRenderLoop`, from `perf_stats`
+`surfaceCommitUs`/`surfaceUploadUs`, [`skiasharp-plan.md`](skiasharp-plan.md)):
+
+| What | Value |
+|---|---|
+| Pixels on screen vs the managed bitmap | identical (0 of 131 790 differ) |
+| A 993×764 px canvas invalidated every frame | ~88 fps |
+| Commit (staging copy), average | 1.1 ms |
+| Upload (`glTexSubImage2D`), average | 2.1 ms; 20 ms peak on the first upload of a size |
+
+**Kitchen detail push** (2026-10-02, `KITCHEN_TOUR=beef KITCHEN_OFFLINE=1`, `TOUR … ui-stall max`, 3 runs each):
+
+| Build | detail 6 | detail 12 |
+|---|---|---|
+| Offline seed without recipe lookups (the page showed "HTTP 503") | 162–174 ms | 101–118 ms |
+| Lookups seeded, ingredient row Grid + BoxView + Label | 182–191 ms | 126–145 ms |
+| Lookups seeded, ingredient row one Label with spans | 193–200 ms | 123–155 ms |
+| Lookups seeded, original row, the detail's load yields first (`await Task.Yield()`) | 160–167 ms | 112–123 ms |
+
+The ingredient rows are not where the stall goes. An EventPipe trace of the push block (~200 ms with the sampler):
+QML host creation (`sailfish_host_eval`) ~40%, `NavigationPage.PushAsync` ~23%, and the view model's load run
+synchronously from `SendAppearing` ~22% (the yield moved that part to the next turn). Until the seed had lookups, ~27 ms of it was the app logging the 503's
+stack trace.
+
 ## 7. Next steps
 
 1. `tools/sf qml-profile` together with the tunnel and waiting for the port as a single script (today

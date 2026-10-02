@@ -277,7 +277,7 @@ public partial class CatalogViewModel : ViewModelBase
 		ApplySettings(_settings.Current);
 		var allowNetwork = _settings.Current.AllowNetwork;
 		foreach (var card in Meals)
-			if (card.Thumbnail is null)
+			if (card.NeedsThumbnail)
 				_ = card.LoadThumbnailAsync(allowNetwork, Lifetime);
 	}
 

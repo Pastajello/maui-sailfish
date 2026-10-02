@@ -182,6 +182,8 @@ public sealed class HttpResponseCache
 				}
 			}
 
+			primed += PrimeLookupsFromSearches(seedDirectory);
+
 			if (primed > 0)
 				PersistIndex();
 		}
@@ -189,6 +191,47 @@ public sealed class HttpResponseCache
 		if (primed > 0)
 			_logger.LogInformation("http-cache: primed {Count} offline seed entries", primed);
 
+		return primed;
+	}
+
+	/// <summary>
+	/// The search seeds carry full recipe records, the same shape <c>lookup.php</c> returns, so each one also answers its
+	/// recipe's lookup: without these an offline detail page could only show "HTTP 503". Caller holds <c>_gate</c>.
+	/// </summary>
+	private int PrimeLookupsFromSearches(string seedDirectory)
+	{
+		var primed = 0;
+		foreach (var seedFile in System.IO.Directory.GetFiles(seedDirectory, "search.php_*.json"))
+		{
+			try
+			{
+				if (System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(seedFile))?["meals"] is not System.Text.Json.Nodes.JsonArray meals)
+					continue;
+				foreach (var meal in meals)
+				{
+					if (meal?["idMeal"]?.GetValue<string>() is not { Length: > 0 } id)
+						continue;
+					var key = MakeKey(new Uri("https://seed.invalid/lookup.php?i=" + Uri.EscapeDataString(id)));
+					if (_index.ContainsKey(key))
+						continue;
+					var body = "{\"meals\":[" + meal.ToJsonString() + "]}";
+					File.WriteAllText(Path.Combine(_directory, key), body);
+					_index[key] = new CacheIndexEntry
+					{
+						Key = key,
+						File = key,
+						Url = "seed://" + key,
+						CachedAtUtc = DateTimeOffset.UtcNow,
+						Bytes = body.Length,
+					};
+					primed++;
+				}
+			}
+			catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+			{
+				_logger.LogWarning(ex, "http-cache: could not derive lookups from {Seed}", Path.GetFileName(seedFile));
+			}
+		}
 		return primed;
 	}
 

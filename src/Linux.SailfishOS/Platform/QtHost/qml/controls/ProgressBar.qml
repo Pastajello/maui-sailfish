@@ -41,7 +41,8 @@ ProgressBar {
     implicitHeight: 0
     Binding {
         target: root.__glass.length > 0 ? root.__glass[0].parent : null; property: "y"
-        value: Math.round(root.height / 2 - root.__glass[0].y - root.__glass[0].height / 2)
+        // `value` is evaluated even while `when` is false: guard the index or every instance logs a TypeError.
+        value: root.__glass.length > 0 ? Math.round(root.height / 2 - root.__glass[0].y - root.__glass[0].height / 2) : 0
         when: root.__glass.length > 0
     }
 

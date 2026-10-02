@@ -124,6 +124,10 @@ public partial class MealDetailViewModel : ViewModelBase
 	[RelayCommand]
 	private async Task LoadAsync()
 	{
+		// The page appears first: a cached recipe answers synchronously, and building its ~40 rows in the push's own
+		// turn made one long stall (docs/profiling.md §6).
+		await Task.Yield();
+
 		if (string.IsNullOrWhiteSpace(MealId))
 		{
 			Ui(() => ApplyFailure(ResultFailure.NotFound("No recipe was selected.")));
@@ -132,7 +136,11 @@ public partial class MealDetailViewModel : ViewModelBase
 
 		var detail = await RunBusyAsync(ct => _repository.GetMealAsync(MealId, ct), Lifetime).ConfigureAwait(false);
 		if (detail is null)
+		{
+			// No recipe, so no hero to wait for: the spinner over the placeholder must stop with the error.
+			Ui(() => IsHeroLoading = false);
 			return;
+		}
 
 		_detail = detail;
 

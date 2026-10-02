@@ -1132,6 +1132,65 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		RunQtVisualEnabledLeg(renderer, dispatcher);
 	}
 
+	/// <summary>Visual leg B2: two injected fingers spread over the PinchGestureRecognizer box; it grows.</summary>
+	private void RunQtVisualPinchLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
+		var host = renderer.CurrentHosts.FirstOrDefault(h => h.IsAttached && h.Element is Microsoft.Maui.Controls.BoxView b &&
+			b.GestureRecognizers.OfType<PinchGestureRecognizer>().Any());
+		var box = host?.Element as Microsoft.Maui.Controls.BoxView;
+		if (host is null || box is null || !QtHost.QtHostRuntime.TryItemGeometry(host.NativeHandle, out var g))
+		{
+			_qtVisualChecks.Check("Pinch: the gallery's pinch box found", false);
+			FinishQtVisualDiagnostics();
+			return;
+		}
+		var log = FindPage(box) is { } page
+			? page.GetType().GetProperty("PinchLog")?.GetValue(page) as System.Collections.IList
+			: null;
+		var cx = g.X + g.Width / 2;
+		var cy = g.Y + g.Height / 2;
+		renderer.TryHitTest(QtHost.QtHostUnits.ToLogical(cx), QtHost.QtHostUnits.ToLogical(cy), out var hitHost);
+		Console.Error.WriteLine($"[Sailfish] Qt visual diag: pinch box native {g.X:F0},{g.Y:F0} {g.Width:F0}x{g.Height:F0}, " +
+			$"managed rect {host.MauiLogicalBounds} clip {host.HitClipDp?.ToString() ?? "-"}; hit at the centre: {hitHost}");
+		var ids = new[] { 1, 2 };
+		void Touch(double half, int state) =>
+			QtHost.QtHostRuntime.InjectTouch(ids, new[] { cx - half, cy, cx + half, cy }, new[] { state, state });
+		Touch(30, 1);
+		var step = 0;
+		void Spread()
+		{
+			step++;
+			Touch(30 + step * 10, 2);
+			if (step < 6)
+			{
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(30), Spread);
+				return;
+			}
+			Touch(90, 8);
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), () =>
+			{
+				var statuses = log is null ? "(no log)" : string.Join(",", log.Cast<object>());
+				_qtVisualChecks.Check($"Pinch: two fingers 60→180 px → {statuses}, box scale {box.Scale:F2} (~3, clamped)",
+					statuses.StartsWith("Started,Running", StringComparison.Ordinal) && statuses.EndsWith("Completed", StringComparison.Ordinal) &&
+					box.Scale > 2);
+				Shot(dispatcher, "visual-pinch", () =>
+				{
+					box.Scale = 1;
+					FinishQtVisualDiagnostics();
+				});
+			});
+		}
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(30), Spread);
+
+		static Page? FindPage(Element element)
+		{
+			for (var e = element; e is not null; e = e.Parent)
+				if (e is Page p)
+					return p;
+			return null;
+		}
+	}
+
 	/// <summary>Injects a real-Qt tap (press+release) at the center of a host's
 	/// native scene geometry.</summary>
 	private static void InjectQtTapAtHost(QtHost.NativeElementHost host)
@@ -1232,11 +1291,44 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			{
 				var vis2 = HostProp(label, "visible");
 				_qtVisualChecks.Check($"IsVisible=true -> native visible={vis2} (restored)", vis2 == "true");
-				FinishQtVisualDiagnostics();
+				RunQtVisual3DLeg(renderer, dispatcher);
 			});
 		});
 	}
 
+
+	/// <summary>Visual leg F: the gallery's last row, scrolled into view: RotationY and ScaleX≠ScaleY reach the item as a
+	/// Matrix4x4 (Qt maps the corners through it), then a pinch.</summary>
+	private void RunQtVisual3DLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
+		var tiltedBox = renderer.CurrentHosts.Select(h => h.Element).OfType<Microsoft.Maui.Controls.BoxView>().FirstOrDefault(b => b.RotationY == 50);
+		Element? scroller = tiltedBox;
+		while (scroller is not null and not ScrollView)
+			scroller = scroller.Parent;
+		if (tiltedBox?.Parent is View row && scroller is ScrollView scroll)
+			_ = scroll.ScrollToAsync(row, ScrollToPosition.Center, false);
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(700), () =>
+		{
+			var hosts = renderer.CurrentHosts.Where(h => h.IsAttached).ToList();
+			// RotationY and ScaleX≠ScaleY reach the item as a Matrix4x4: Qt maps the corners through it.
+			string Corners(QtHost.NativeElementHost? host) => host is null ? "" : QtHost.QtHostRuntime.Eval(
+				"(function(i){if(!i)return '';var w=i.width,h=i.height,p=[[0,0],[w,0],[0,h],[w,h]],o=[];" +
+				"for(var k=0;k<4;k++){var q=i.mapToItem(null,p[k][0],p[k][1]);o.push(q.x.toFixed(1),q.y.toFixed(1));}" +
+				"return o.join(',')+','+w.toFixed(1)+','+h.toFixed(1);})(" + DiagQml.ItemJs(host) + ")");
+			double[] Parse(string text) => text.Split(',').Select(v => DiagQml.Num(v)).ToArray();
+			var tilted = hosts.FirstOrDefault(h => h.Element is Microsoft.Maui.Controls.BoxView { RotationY: 50 });
+			var t = Parse(Corners(tilted));
+			var tiltOk = t.Length == 10 && Math.Abs(t[2] - t[0]) < 0.8 * t[8] &&      // foreshortened width
+			             Math.Abs((t[7] - t[3]) - (t[5] - t[1])) > 2;                  // the far edge is shorter: perspective
+			_qtVisualChecks.Check($"RotationY 50: corners {string.Join(",", t.Select(v => v.ToString("F0")))} — narrower and in perspective", tiltOk);
+			var stretched = hosts.FirstOrDefault(h => h.Element is Microsoft.Maui.Controls.BoxView { ScaleX: 1.6 });
+			var st = Parse(Corners(stretched));
+			var stretchOk = st.Length == 10 && Math.Abs((st[2] - st[0]) - 1.6 * st[8]) < 2 && Math.Abs((st[5] - st[1]) - 0.6 * st[9]) < 2;
+			_qtVisualChecks.Check($"ScaleX 1.6 / ScaleY 0.6: mapped {st.ElementAtOrDefault(2) - st.ElementAtOrDefault(0):F0}×{st.ElementAtOrDefault(5) - st.ElementAtOrDefault(1):F0} " +
+				$"of {st.ElementAtOrDefault(8):F0}×{st.ElementAtOrDefault(9):F0}", stretchOk);
+			Shot(dispatcher, "visual-3d", () => RunQtVisualPinchLeg(renderer, dispatcher));
+		});
+	}
 
 	private void FinishQtVisualDiagnostics()
 	{

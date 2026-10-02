@@ -207,7 +207,9 @@ failure once per handler type, logs `[QT_HOST][WARN] <handler> failed for <view>
 These follow Silica conventions. Port authors should expect them; none needs app changes.
 
 - `ToolbarItems` become the page's pull-down menu. The line at the top of the page is its indicator.
-- Shell and TabbedPage tabs are a row under the page header. Long titles shrink before they fade.
+- Shell and TabbedPage tabs are a row under the page header. Long titles shrink before they fade. A horizontal
+  swipe across the page drags it with the finger, the next tab's title beside it; released past the threshold it
+  slides on to that tab, otherwise back.
 - A page without a `Title` shows the app's name (`ApplicationTitle`) in its header.
 - `Shell.BackButtonBehavior` `IsVisible`/`IsEnabled` false and `NavigationPage.HasBackButton` false turn off the
   back gesture and indicator. A first-run modal page cannot be swiped away.
@@ -232,6 +234,17 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - Pulling the pull-down menu all the way and releasing past its items leaves it open; tap an item then (Silica).
 - The page header is always there. A page whose own `BackgroundColor` is unset shows the theme behind the header
   even when its root layout has a colour; set the page's `BackgroundColor` to colour the whole screen.
+- An `Image` without a size request takes its source's size, as Android's ImageView does: a `MauiImage` its
+  `BaseSize` (an SVG its own size), a bitmap packaged without `BaseSize` one dp per pixel, any other bitmap (a file, a
+  stream, a download, a SkiaSharp image) its pixels ÷ density. One requested side gives the other by the aspect
+  ratio. A remote image is 0 × 0 until it has loaded, then the layout grows to it.
+- `PinchGestureRecognizer` works with two fingers (`Scale` is the change since the last update, `ScaleOrigin` the
+  midpoint relative to the view, as on Android); the pinch takes over a pan in progress and the sequence is no tap.
+- `RotationX`/`RotationY` turn the view in 3D with Android's default perspective (camera at 1280 dp), and
+  `ScaleX`≠`ScaleY` or a rotation inside a scaled layout are drawn exactly. Taps on a 3D-turned view hit its
+  unturned rectangle.
+- `Application.OpenWindow` does nothing (a Sailfish app has one window, as an iOS app without multiple scenes) and
+  logs a warning; `Application.CloseWindow` on the app's window quits the app.
 - A missing image file shows nothing, as on Android, and logs
   `[Sailfish][QML_OBJECT][WARN] image source not found, nothing shown: File: …` once per file.
 - An `Image` filling a `Border` with a `RoundRectangle` or `Ellipse` `StrokeShape` (round avatars) is masked to the

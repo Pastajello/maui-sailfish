@@ -22,6 +22,17 @@ public partial class VisualPage : ContentPage
 		StateButton.Text = _disabled ? "state: disabled" : "state: normal";
 	}
 
+	/// <summary>The pinch log the visual leg reads ("Started,Running,…,Completed").</summary>
+	public List<GestureStatus> PinchLog { get; } = new();
+
+	// Two fingers resize the box, as a photo viewer zooms.
+	private void OnPinchUpdated(object? sender, PinchGestureUpdatedEventArgs e)
+	{
+		PinchLog.Add(e.Status);
+		if (e.Status == GestureStatus.Running)
+			Pinchable.Scale = Math.Clamp(Pinchable.Scale * e.Scale, 0.5, 3);
+	}
+
 	private void OnThemeClicked(object? sender, EventArgs e)
 	{
 		var app = Application.Current;

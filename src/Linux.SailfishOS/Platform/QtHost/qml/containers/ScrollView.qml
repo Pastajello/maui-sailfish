@@ -49,8 +49,12 @@ SilicaFlickable {
     function __clampY(v) { return Math.max(0, Math.min(v, Math.max(0, contentHeight - height))); }
     property real __pendingX: -1
     property real __pendingY: -1
-    function __scrollToX(v) { var x = __clampX(v); __pendingX = x < v - 0.5 ? v : -1; if (Math.abs(contentX - x) > 0.5) contentX = x; }
-    function __scrollToY(v) { var y = __clampY(v); __pendingY = y < v - 0.5 ? v : -1; if (Math.abs(contentY - y) > 0.5) contentY = y; }
+    function __scrollToX(v) { var x = __clampX(v); __pendingX = x < v - 0.5 ? v : -1; if (Math.abs(contentX - x) > 0.5) contentX = x; if (Math.abs(x - v) > 0.5) __clampReport.restart(); }
+    function __scrollToY(v) { var y = __clampY(v); __pendingY = y < v - 0.5 ? v : -1; if (Math.abs(contentY - y) > 0.5) contentY = y; if (Math.abs(y - v) > 0.5) __clampReport.restart(); }
+    // A clamped managed scroll (a ScrollTo past the end) reports where the content stopped once the push is applied,
+    // as the native views write the clamped position back on Android: ScrollX/ScrollY and the content's hit rects
+    // then match what is drawn. During the push the report would be taken for an echo.
+    Timer { id: __clampReport; interval: 0; onTriggered: root.__report() }
     onMauiScrollXChanged: __scrollToX(mauiScrollX)
     onMauiScrollYChanged: __scrollToY(mauiScrollY)
     onContentWidthChanged: if (__pendingX >= 0) __scrollToX(__pendingX)

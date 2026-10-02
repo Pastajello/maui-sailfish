@@ -451,6 +451,28 @@ public class SampleAppRegressionTests
 		Assert.Equal(expected, back.GetProperty("on").GetBoolean());
 	}
 
+	// SailfishPage.AllowedOrientations reaches the model page as Silica's allowedOrientations; a container's setting
+	// covers its pages, and clearing it hands the page back to the app's (0).
+	[Fact]
+	public void Allowed_orientations_follow_the_page_or_its_container()
+	{
+		var page = new ContentPage { Title = "Player", Content = new Label { Text = "x" } };
+		var nav = new NavigationPage(page);
+		SailfishPage.SetAllowedOrientations(nav, SailfishOrientations.PortraitMask);
+		using var h = new RendererHarness(nav);
+		int Mask() => h.Shim.Ops.Last(op => op.GetProperty("op").GetString() == "orientations").GetProperty("mask").GetInt32();
+		Assert.Equal(5, Mask());
+
+		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.LandscapeMask);
+		h.Poll();
+		Assert.Equal(10, Mask());
+
+		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.Default);
+		SailfishPage.SetAllowedOrientations(nav, SailfishOrientations.Default);
+		h.Poll();
+		Assert.Equal(0, Mask());
+	}
+
 	// Profitocracy Profiles/Categories: delete/edit are SwipeItemViews (an icon in a coloured circle); they were
 	// dropped, leaving the rows without actions.
 	[Fact]
@@ -552,6 +574,26 @@ public class SampleAppRegressionTests
 		Assert.True(hit is not null, $"hit {host.Element?.GetType().Name} outside the Metric row");
 	}
 
+	// The visual leg's pinch box inside a nested ScrollView: the ScrollView's host came after the box's in the host list,
+	// won the equal-ZIndex tie and swallowed the touch as "QML consumes". An ancestor never beats its descendant.
+	[Fact]
+	public void The_hit_test_prefers_a_descendant_over_an_ancestor_hosted_after_it()
+	{
+		var box = new BoxView { HeightRequest = 80, WidthRequest = 80, Color = Colors.Blue };
+		box.GestureRecognizers.Add(new PinchGestureRecognizer());
+		var grid = new Grid { HeightRequest = 120, Children = { box } };
+		using var h = new RendererHarness(Page(grid));
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		grid.BackgroundColor = Colors.DarkBlue;   // the grid now needs a host, created after the box's
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var boxHost = h.Renderer.CurrentHosts.Single(x => ReferenceEquals(x.Element, box));
+		var c = boxHost.MauiLogicalBounds.Center;
+		Assert.True(h.Renderer.TryHitTest(c.X, c.Y, out var hit));
+		Assert.Same(box, hit!.Element);
+	}
+
 	// BugSweeper: a tile flags on a tap and reveals on a double tap (NumberOfTapsRequired 1 and 2); every tap fired the
 	// single recognizer, so a double tap flagged and unflagged the tile and nothing was ever revealed.
 	[Fact]
@@ -591,6 +633,51 @@ public class SampleAppRegressionTests
 		SailfishRuntime.TickDueTimers(DateTime.UtcNow);   // the app loop's timer pump
 		loop.DrainQueue();
 		Assert.Equal((1, 1), (singles, doubles));   // a lone tap fires once the double-tap window has passed
+	}
+
+	// Two fingers on a PinchGestureRecognizer owner: Started at the midpoint, Running with the change of the finger
+	// distance since the last update, Completed when a finger lifts; the sequence is no tap and no pan.
+	[Fact]
+	public void Two_fingers_pinch_and_neither_tap_nor_pan()
+	{
+		var updates = new List<(GestureStatus Status, double Scale, Point Origin)>();
+		var taps = 0;
+		var pans = 0;
+		var photo = new BoxView { HeightRequest = 200, WidthRequest = 200, Color = Colors.Blue };
+		var pinch = new PinchGestureRecognizer();
+		pinch.PinchUpdated += (_, e) => updates.Add((e.Status, e.Scale, e.ScaleOrigin));
+		var tap = new TapGestureRecognizer();
+		tap.Tapped += (_, _) => taps++;
+		var pan = new PanGestureRecognizer();
+		pan.PanUpdated += (_, _) => pans++;
+		photo.GestureRecognizers.Add(pinch);
+		photo.GestureRecognizers.Add(tap);
+		photo.GestureRecognizers.Add(pan);
+		using var h = new RendererHarness(Page(photo));
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var loop = SailfishDispatcherProvider.BindLoopThread();
+		var router = new QtHostInputRouter(h.Renderer, loop);
+		Assert.True(h.Renderer.TryFindTapTarget(out _, out var b));
+		double Qx(double dp) => QtHostUnits.ToQtUnits(b.X + dp);
+		double Qy(double dp) => QtHostUnits.ToQtUnits(b.Y + dp);
+
+		router.OnPointer(4, Qx(80), Qy(100), 0, 1);      // first finger down
+		router.OnPointer(5, Qx(80), Qy(100), 0, 2);      // second finger joins, 40 dp apart
+		router.OnPointer(7, Qx(120), Qy(100), 0, 2);
+		router.OnPointer(5, Qx(60), Qy(100), 0, 2);      // spread to 80 dp apart: ×2
+		router.OnPointer(7, Qx(140), Qy(100), 0, 2);
+		router.OnPointer(5, Qx(60), Qy(100), 0, 2);      // second finger lifts
+		router.OnPointer(7, Qx(140), Qy(100), 0, 1);
+		router.OnPointer(6, Qx(60), Qy(100), 0, 1);      // first finger lifts
+		loop.DrainQueue();
+
+		Assert.Equal(new[] { GestureStatus.Started, GestureStatus.Running, GestureStatus.Completed },
+			updates.Select(u => u.Status).ToArray());
+		Assert.Equal(2, updates[1].Scale, 3);
+		Assert.Equal(0.5, updates[1].Origin.X, 2);   // the midpoint, relative to the 200 dp box
+		Assert.Equal(0.5, updates[1].Origin.Y, 2);
+		Assert.Equal((0, 0), (taps, pans));
 	}
 
 	// WhatToEat: category tiles (MinimumWidthRequest=150) were as narrow as their text ("Lunch" ~120 dp).

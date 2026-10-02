@@ -331,6 +331,21 @@ internal sealed partial class QtHostDiagnosticsRunner
 		info = DeviceDisplay.Current.MainDisplayInfo;
 		_qtSilicaChecks.Check($"G back to portrait: window {QtHost.QtHostRuntime.Eval("String(window.orientation)")}==1, DeviceDisplay {info.Orientation}, page {page.Width:F0}x{page.Height:F0} (height > width)",
 			QtHost.QtHostRuntime.Eval("String(window.orientation)") == "1" && info.Orientation == DisplayOrientation.Portrait && page.Height > page.Width);
+		// Per page: the window allows every orientation, the page only landscape (SailfishPage.AllowedOrientations), and
+		// Silica turns that page; Default hands it back to the window's default and it turns back.
+		QtHost.QtHostRuntime.Eval("window.mauiOrientations = Orientation.All");
+		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.LandscapeMask);
+		await SilicaWait(dispatcher, 2500);
+		var pageMask = QtHost.QtHostRuntime.Eval("String(pageStack.currentPage.allowedOrientations)");
+		var turned = QtHost.QtHostRuntime.Eval("String(window.orientation)");
+		_qtSilicaChecks.Check($"G per page: SailfishPage.AllowedOrientations=LandscapeMask → page allowedOrientations {pageMask}==10, window {turned} is landscape, page {page.Width:F0}x{page.Height:F0}",
+			pageMask == "10" && turned is "2" or "8" && page.Width > page.Height);
+		await SilicaShot(dispatcher, "silica-g-page-landscape");
+		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.Default);
+		QtHost.QtHostRuntime.Eval("window.mauiOrientations = Orientation.Portrait");
+		await SilicaWait(dispatcher, 2500);
+		_qtSilicaChecks.Check($"G per page reset: window {QtHost.QtHostRuntime.Eval("String(window.orientation)")}==1, page {page.Width:F0}x{page.Height:F0} (height > width)",
+			QtHost.QtHostRuntime.Eval("String(window.orientation)") == "1" && page.Height > page.Width);
 		await nav.PopAsync();
 		await SilicaWait(dispatcher, 900);
 	}

@@ -66,6 +66,13 @@ internal sealed class QtHostCollectionBridge
 	/// <summary>Rows rebuilt for the very row they already held (dead hosts, or a host set that only looked dead).
 	/// A steady list keeps it near zero; a loop shows as thousands.</summary>
 	public long SameRowRebuilds { get; internal set; }
+
+	/// <summary>Detached rows kept for reuse, and rows that took a pooled subtree instead of creating hosts.</summary>
+	public long RowsPooled { get; internal set; }
+	public long RowsAdopted { get; internal set; }
+
+	/// <summary>Ids of pooled row hosts (alive in QML, unknown to the reconcile).</summary>
+	internal IEnumerable<string> PooledHostIds => _byElement.Values.SelectMany(s => s.PooledHostIds);
 	public long ListEvents { get; private set; }
 	public long SelectionsApplied { get; internal set; }
 
@@ -201,6 +208,9 @@ internal sealed class QtHostCollectionBridge
 		public long Handle;                 // shim handle (lazy FindObject)
 		public Row? Row;
 		public readonly List<NativeElementHost> Children = new();
+		// The hosts made for this row (created or adopted), in pre-order. Children can also list a host the row only
+		// shows, such as a Style's shared Border.StrokeShape, which no row may hand on.
+		public readonly List<NativeElementHost> Own = new();
 		public readonly List<(View Root, double CellX)> Cells = new();   // laid out delegate-relative
 	}
 

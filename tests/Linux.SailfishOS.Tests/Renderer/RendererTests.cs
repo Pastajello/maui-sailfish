@@ -202,6 +202,56 @@ public class RendererTests
 		Assert.Equal(1.6, row.Geometry.X / row.Geometry.Y, 3);
 	}
 
+	// Qt 5.6 destroys a delegate that scrolls out; the row's subtree waits in the pool and the next row of the same
+	// template takes it over (new ids, only the differences pushed) instead of creating every host again.
+	[Fact]
+	public void A_row_that_scrolls_in_takes_over_a_detached_rows_hosts()
+	{
+		var items = Enumerable.Range(0, 20).Select(i => $"item {i}").ToArray();
+		// Kitchen's cards: a Style shares one RoundRectangle as every Border's StrokeShape, so each row also lists that
+		// shape's host; it belongs to no row and must not travel with one.
+		var card = new Style(typeof(Border))
+		{
+			Setters = { new Setter { Property = Border.StrokeShapeProperty, Value = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 12 } } },
+		};
+		var list = new CollectionView
+		{
+			ItemsSource = items,
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var label = new Label();
+				label.SetBinding(Label.TextProperty, ".");
+				return new Border { Padding = 8, Style = card, Content = label };
+			}),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(Page(list));
+		var native = h.Shim.ByUri("list-view").Single();
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		void Attach(int row, string dg)
+		{
+			h.Shim.AddNative(dg);
+			h.Renderer.HandleNativeEvent("list-item-attached", $"{{\"id\":\"{native.Id}\",\"row\":{row},\"dg\":\"{dg}\"}}");
+		}
+
+		var dg1 = $"maui_{native.Id}__r1";
+		Attach(1, dg1);
+		var label1 = h.Shim.ByUri("label").Single(o => !o.Destroyed && o.Text("text") == "item 1");
+		var creates = h.Shim.Ops.Count(op => op.GetProperty("op").GetString() == "create");
+
+		h.Renderer.HandleNativeEvent("list-item-detached", $"{{\"id\":\"{native.Id}\",\"dg\":\"{dg1}\"}}");
+		Assert.False(label1.Destroyed);   // pooled, not destroyed
+		Attach(15, $"maui_{native.Id}__r15");
+
+		Assert.Equal(creates, h.Shim.Ops.Count(op => op.GetProperty("op").GetString() == "create"));
+		Assert.Equal(2, h.Shim.Rekeys);   // the border and its label
+		Assert.False(label1.Destroyed);
+		Assert.Equal("item 15", label1.Text("text"));   // the same QML label, now row 15's
+		var bridge = h.Renderer.Collection;
+		Assert.Equal((1L, 1L), (bridge.RowsPooled, bridge.RowsAdopted));
+	}
+
 	[Fact]
 	public void Grid_tap_selects_the_touched_cell_not_the_row()
 	{

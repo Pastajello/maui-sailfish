@@ -38,7 +38,8 @@ enum sfhost_err {
 /* Called on the Qt loop every tick_ms milliseconds. */
 typedef void (*sfhost_tick_fn)(void *user_data);
 
-/* kind: 0 press, 1 release, 2 move, 3 wheel, 4 touch begin, 5 touch update, 6 touch end.
+/* kind: 0 press, 1 release, 2 move, 3 wheel, 4 touch begin, 5 touch update, 6 touch end,
+ * 7 second touch point (follows a 4/5/6 event that has two or more points; extra = fingers still down).
  * x/y in window pixels; delta = angleDelta.y(); extra = Qt button (mouse) or touch point count. */
 typedef void (*sfhost_pointer_fn)(int kind, double x, double y, double delta,
                                   int extra, void *user_data);

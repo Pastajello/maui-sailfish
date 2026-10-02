@@ -9,28 +9,20 @@ breaks the app's intent (properties/styles set explicitly); native Silica chrome
 (back, page header, pulley instead of toolbars, button theme)
 stays native and is not a defect.
 
-## Open (as of 2026-09-30)
+## Open (as of 2026-10-02)
 
 Collected from the old "To do" list, from `BUG_LIST_S1.md` (analysis of the 2026-09-20 recording, removed
 2026-09-28) and from code review. Bigger work items (navigation, performance, AOT) are in
 [`docs/parity-plan.md`](docs/parity-plan.md).
 
 **Navigation and page loading (Kitchen)**
-- [ ] **Entering a Kitchen detail** still stalls one tour step ~181 ms (iOS 80–150 ms). The host side is done
-      (2026-09-30): hosts are created in chunks (first 96, then 24 per pass; `MAUI_SAILFISH_CREATE_FIRST_CHUNK` /
-      `MAUI_SAILFISH_CREATE_CHUNK`), shapes the layout waits for first, which took the longest poll from 144 to
-      97 ms. About 70–80 ms of the rest is MAUI's `BindableLayout` building the ingredient rows (managed); next step
-      is a lighter ingredient row.
-
-**Controls**
-- [ ] **Kitchen: card thumbnails interrupted by `Shutdown` stay placeholders after returning.** Fix in place
-      (2026-09-30: `CatalogViewModel.OnActivated` resumes cards without a thumbnail); not yet reproduced on the
-      phone, where a warm image cache finishes before the push.
-- [ ] **An `Image` without a size request measures 100×100 dp whatever its source** (`SailfishMeasure.Image`). On
-      Android it takes the image's own size: a resizetizer `MauiImage` at its `BaseSize`, a bitmap (SkiaSharp's
-      `SKBitmapImageSource`, a stream) at its pixels ÷ density. The Sailfish head packs resizetizer images as one 4×
-      raster (`_SailfishProcessMauiImages`), so the intrinsic size needs the source's kind, not just the PNG size.
-      Found 2026-10-02 while adding SkiaSharp's image sources.
+- [ ] **Entering a Kitchen detail** still stalls one tour step 160–167 ms (detail 12: 112–123 ms; iOS 80–150 ms).
+      2026-10-02: the offline tour had measured an error page (the seed had no `lookup.php`, so "HTTP 503" plus a
+      logged stack trace); the seed now answers lookups from its search records. The ingredient rows are not the
+      cost (one Label per row was 193–200 ms against 182–191 ms). The detail's load now yields first
+      (`MealDetailViewModel.LoadAsync`, −20 ms). What is left is the push itself: QML host creation (~40% of the
+      block in an EventPipe trace) and `NavigationPage.PushAsync` (~23%), the idle adapter preload in
+      [`docs/parity-plan.md`](docs/parity-plan.md) is the next step. Numbers: [`docs/profiling.md`](docs/profiling.md) §6a.
 
 **Phone state, not code**
 - Leg f4: Sailfish Secrets collection locked ("requires device lock authentication") — unlock with the code.
