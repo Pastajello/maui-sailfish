@@ -15,8 +15,9 @@
             <Label x:Name="ClipboardLabel" FontSize="18" TextColor="White" Text="clipboard: …" />
             <Label x:Name="FilesLabel" FontSize="18" TextColor="White" Text="files: …" />
             <Label x:Name="StateLabel" FontSize="18" TextColor="White" Text="state: …" />
+            <Label x:Name="SecureLabel" FontSize="18" TextColor="White" Text="secure: …" LineBreakMode="WordWrap" />
 
-            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="10">
                 <Button Grid.Column="0" Text="Write prefs" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnWritePrefsClicked" />
                 <Button Grid.Column="1" Text="Read prefs" BackgroundColor="#37474F" TextColor="White" Clicked="OnReadPrefsClicked" />
                 <Button Grid.Row="1" Grid.Column="0" Text="Copy to clipboard" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnCopyClicked" />
@@ -25,6 +26,9 @@
                 <Button Grid.Row="2" Grid.Column="1" Text="Vibrate" BackgroundColor="#37474F" TextColor="White" Clicked="OnVibrateClicked" />
                 <Button Grid.Row="3" Grid.Column="0" Text="Location" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnLocationClicked" />
                 <Button Grid.Row="3" Grid.Column="1" Text="Open browser" BackgroundColor="#37474F" TextColor="White" Clicked="OnBrowserClicked" />
+                <Button Grid.Row="4" Grid.Column="0" Text="Secure: save" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnSecureSaveClicked" />
+                <Button Grid.Row="4" Grid.Column="1" Text="Secure: read" BackgroundColor="#37474F" TextColor="White" Clicked="OnSecureReadClicked" />
+                <Button Grid.Row="5" Grid.Column="0" Text="Secure: remove" BackgroundColor="#2E6BB0" TextColor="White" Clicked="OnSecureRemoveClicked" />
             </Grid>
 
         </VerticalStackLayout>

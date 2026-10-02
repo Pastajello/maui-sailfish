@@ -101,6 +101,22 @@ public partial class EssentialsPage : ContentPage
 			return "state: browser opened";
 		});
 
+	// SecureStorage by hand: save a timestamped value, read it back (also after restarting the app), remove it.
+	private async void OnSecureSaveClicked(object? sender, EventArgs e) =>
+		SecureLabel.Text = await SafeAsync(async () =>
+		{
+			var value = $"saved {DateTime.Now:HH:mm:ss}";
+			await SecureStorage.Default.SetAsync("sample_secret", value);
+			return $"secure: '{value}' saved";
+		});
+
+	private async void OnSecureReadClicked(object? sender, EventArgs e) =>
+		SecureLabel.Text = await SafeAsync(async () =>
+			$"secure: read '{await SecureStorage.Default.GetAsync("sample_secret") ?? "(none)"}'");
+
+	private void OnSecureRemoveClicked(object? sender, EventArgs e) =>
+		SecureLabel.Text = Safe(() => $"secure: removed={SecureStorage.Default.Remove("sample_secret")}");
+
 	private static async Task<string> SafeAsync(Func<Task<string>> probe)
 	{
 		try

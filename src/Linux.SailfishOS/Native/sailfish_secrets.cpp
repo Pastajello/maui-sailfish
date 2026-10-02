@@ -5,7 +5,10 @@
  * so the host shim must load without it; managed code dlopen()s this and falls back to a file store.
  *
  * One owner-only, device-lock collection per app (readable after first unlock, never prompts),
- * stored with the sqlcipher plugin. Secret names are "k" + 30 hex of SHA-256(key), because the
+ * stored with the sqlcipher plugin. A device-lock collection opens only once the daemon has the
+ * device lock code, which needs Jolla's device-lock integration plugin; without it (and the system
+ * password agent refuses third-party apps) the collection stays locked, so sfsec_open probes it and
+ * reports a locked collection instead of letting every request fail. Secret names are "k" + 30 hex of SHA-256(key), because the
  * plugin only takes short alphanumeric names.
  *
  * Qt thread only (QtDBus needs the host's QCoreApplication); requests block in waitForFinished().
@@ -65,6 +68,14 @@ QString secretName(const char *key)
 Secret::Identifier identifier(const char *key)
 {
     return Secret::Identifier(secretName(key), g_collection, SecretManager::DefaultEncryptedStoragePluginName);
+}
+
+bool isLocked(const Result &r)
+{
+    return r.errorCode() == Result::CollectionIsLockedError
+           || r.errorCode() == Result::SecretsPluginIsLockedError
+           || r.errorCode() == Result::IncorrectAuthenticationCodeError
+           || r.errorCode() == Result::OperationRequiresUserInteraction;
 }
 
 bool isMissing(const Result &r)
@@ -143,7 +154,20 @@ SFSEC_API int sfsec_open(const char *collection)
     }
     g_collection = QString::fromUtf8(collection);
     g_collectionReady = false;
-    return ensureCollection();
+    const int rc = ensureCollection();
+    if (rc != SFSEC_OK)
+        return rc;
+    // An existing collection answers CollectionAlreadyExists even while locked: read a key to know it is usable.
+    StoredSecretRequest probe;
+    probe.setManager(g_manager);
+    probe.setIdentifier(identifier("maui-sailfish-probe"));
+    probe.setUserInteractionMode(SecretManager::PreventInteraction);
+    probe.startRequest();
+    probe.waitForFinished();
+    const Result r = probe.result();
+    if (r.code() != Result::Succeeded && !isMissing(r))
+        return fail(r, isLocked(r) ? "collection locked (the daemon has no device lock code)" : "probe");
+    return SFSEC_OK;
 }
 
 // Runs a request for one key without user interaction and waits for it (the bridge API is synchronous).

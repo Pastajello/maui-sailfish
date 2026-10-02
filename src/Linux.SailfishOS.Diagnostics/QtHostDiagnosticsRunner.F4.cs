@@ -73,15 +73,17 @@ internal sealed partial class QtHostDiagnosticsRunner
 		var gone = await SecureStorage.Default.GetAsync(oddKey);
 		_qtF4Checks.Check($"A SecureStorage overwrite '{overwritten}'=='s3cr3t-2', odd key '{odd}'=='zażółć', Remove {removed}/{removedAgain} (true/false), then {(gone is null ? "null" : "'" + gone + "'")}",
 			overwritten == "s3cr3t-2" && odd == "zażółć" && removed && !removedAgain && gone is null);
-		// With the Secrets daemon no key/data file may exist; otherwise the file store is used.
+		// With the Secrets daemon no key/data file may exist; otherwise (no daemon, or the app's device-lock collection
+		// locked because the daemon never got the device lock code) the file store is used, with the reason.
 		var daemonInstalled = File.Exists("/usr/bin/sailfishsecretsd");
 		var storage = SecureStorage.Default as SailfishSecureStorage;
 		var filesLeft = File.Exists(SailfishFileSecureStore.DataPath) || File.Exists(SailfishFileSecureStore.KeyPath);
 		_qtF4Checks.Check($"A SecureStorage backend '{storage?.Backend}' (daemon installed: {daemonInstalled}; collection '{SailfishSecureStorage.CollectionName}'; " +
 		        $"file store on disk: {filesLeft}; fallback: {storage?.FallbackReason ?? "-"})",
-			storage is not null && (daemonInstalled
-				? storage.Backend == "secrets" && !filesLeft
-				: storage.Backend == "file" && !string.IsNullOrEmpty(storage.FallbackReason)));
+			storage is not null && (daemonInstalled && storage.Backend == "secrets"
+				? !filesLeft
+				: storage.Backend == "file" && !string.IsNullOrEmpty(storage.FallbackReason) &&
+				  (!daemonInstalled || storage.FallbackReason.Contains("locked", StringComparison.Ordinal))));
 
 		await Clipboard.Default.SetTextAsync("f4-clip-" + stamp);
 		var clip = await Clipboard.Default.GetTextAsync();
