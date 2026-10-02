@@ -4,15 +4,47 @@
 happened when real open-source apps got a `net11.0-sailfish` head on a Jolla phone (Sailfish OS 5.2, aarch64):
 the build and startup errors, what the app had to change, and what does not work yet.
 
-| App | Stack | Result |
-|---|---|---|
-| dotnet/maui-samples `10.0/Apps` (Calculator, Weather, TipCalc, RpnCalculator, SolitaireEncryption, GameOfLife, BugSweeper, WordPuzzle, WeatherTwentyOne, EmployeeDirectory, WhatToEat) | net10, plain MAUI | run without app changes |
-| DeveloperBalance (maui-samples) | net10, Syncfusion Toolkit | runs; the Syncfusion views are empty |
-| MoneyFox | net8, MSAL, Sharpnado tabs, LiveCharts, CommunityToolkit | runs; charts empty |
-| Profitocracy | net9, Shell, LiveCharts, Plugin.LocalNotification, CommunityToolkit 12 | runs; charts empty, no notifications |
-| WeightTracker | net8, UraniumUI Material, Microcharts, AiForms.SettingsView, CommunityToolkit 7 | onboarding and home run; chart, settings page and the add-weight popup do not |
-| GameSpur | net8, Firebase, private API config | builds; needs the authors' private configuration to start |
-| GitTrends | net9, C# Markup, central package management, Shiny, Sentry, Syncfusion Charts | starts with app changes, then stops at the first page: CommunityToolkit.Maui.Markup typed bindings do not work on MAUI 11 rc1 (see below) |
+| App | Stack | App changes | Result |
+|---|---|---|---|
+| dotnet/maui-samples `10.0/Apps`: Calculator, Weather, TipCalc, RpnCalculator, SolitaireEncryption, GameOfLife | net10, plain MAUI | the TFM and the MAUI 11 pin only | run |
+| WhatToEat, EmployeeDirectory, BugSweeper, WordPuzzle, WeatherTwentyOne (maui-samples) | net10, plain MAUI | a few lines each | run |
+| DeveloperBalance (maui-samples) | net10, Syncfusion Toolkit | the TFM and the MAUI 11 pin only | runs; Syncfusion text inputs draw no outline, the chart is empty |
+| MoneyFox | net8, MSAL, Sharpnado tabs, LiveCharts, CommunityToolkit | csproj, MSAL in `SailfishApplication`, a tab effect | runs; charts empty |
+| Profitocracy | net9, Shell, LiveCharts, Plugin.LocalNotification, CommunityToolkit 12 | csproj, notifications skipped, `OnPlatform` defaults | runs; charts empty, no notifications |
+| WeightTracker | net8, UraniumUI Material, Microcharts, AiForms.SettingsView, CommunityToolkit 7 | csproj, one picker reset | onboarding and home run; chart, settings page and the add-weight popup do not |
+| GameSpur | net10, Firebase, private API config | csproj, stand-ins for three Android/iOS-only libraries, 13 converters | builds; needs the authors' private configuration to start |
+| GitTrends | net9, C# Markup, central package management, Shiny, Sentry, Syncfusion Charts | csproj, Shiny and StoreReview stand-ins | starts, then stops at the first page: CommunityToolkit.Maui.Markup typed bindings do not work on MAUI 11 rc1 (see below) |
+
+Every change is listed with its code in [What each port changed](#what-each-port-changed).
+
+The first screen of each app on the phone (2026-10-02). Each app was installed from the port's RPM, started by
+`tools/sf run`, and shot after it settled. Profitocracy shows Serbian, the language left from a language-switch
+test. Its progress bars glow because they are Silica's glass bars. DeveloperBalance's empty "Task Categories" box
+is the Syncfusion chart, which does not draw yet. GitTrends and GameSpur are not shown: neither gets past startup.
+
+<table>
+<tr>
+<td align="center"><img src="screenshots/apps/calculator.jpg" width="150" alt="Calculator"><br>Calculator</td>
+<td align="center"><img src="screenshots/apps/weather.jpg" width="150" alt="Weather"><br>Weather</td>
+<td align="center"><img src="screenshots/apps/tipcalc.jpg" width="150" alt="TipCalc"><br>TipCalc</td>
+<td align="center"><img src="screenshots/apps/rpncalculator.jpg" width="150" alt="RpnCalculator"><br>RpnCalculator</td>
+<td align="center"><img src="screenshots/apps/solitaireencryption.jpg" width="150" alt="SolitaireEncryption"><br>SolitaireEncryption</td>
+</tr>
+<tr>
+<td align="center"><img src="screenshots/apps/gameoflife.jpg" width="150" alt="GameOfLife"><br>GameOfLife</td>
+<td align="center"><img src="screenshots/apps/bugsweeper.jpg" width="150" alt="BugSweeper"><br>BugSweeper</td>
+<td align="center"><img src="screenshots/apps/wordpuzzle.jpg" width="150" alt="WordPuzzle"><br>WordPuzzle</td>
+<td align="center"><img src="screenshots/apps/weathertwentyone.jpg" width="150" alt="WeatherTwentyOne"><br>WeatherTwentyOne</td>
+<td align="center"><img src="screenshots/apps/employeedirectory.jpg" width="150" alt="EmployeeDirectory"><br>EmployeeDirectory</td>
+</tr>
+<tr>
+<td align="center"><img src="screenshots/apps/whattoeat.jpg" width="150" alt="WhatToEat"><br>WhatToEat</td>
+<td align="center"><img src="screenshots/apps/developerbalance.jpg" width="150" alt="DeveloperBalance"><br>DeveloperBalance</td>
+<td align="center"><img src="screenshots/apps/moneyfox.jpg" width="150" alt="MoneyFox"><br>MoneyFox</td>
+<td align="center"><img src="screenshots/apps/profitocracy.jpg" width="150" alt="Profitocracy"><br>Profitocracy</td>
+<td align="center"><img src="screenshots/apps/weighttracker.jpg" width="150" alt="WeightTracker"><br>WeightTracker</td>
+</tr>
+</table>
 
 ## Build and restore
 
@@ -193,6 +225,7 @@ These follow Silica conventions. Port authors should expect them; none needs app
   shape in the colour behind the Border, with the Border's solid stroke on top. The mask is exact on a solid
   background only.
 - Flicking a list against its end dims the list content for a moment: Silica's end-of-list feedback.
+- A `ProgressBar` is Silica's glass bar: the filled part glows in `ProgressColor`, which stands out on a light page.
 - `Flashlight` drives the system torch (the Top menu's toggle). Sailjail has no permission for it, so in a sandboxed
   app (the default) it throws `FeatureNotSupportedException`; it works with `<SailfishSandboxing>false</SailfishSandboxing>`.
 - `Contacts` cannot reach the user's address book: a platform limit, not a missing feature. Sailfish OS keeps it in
@@ -253,6 +286,215 @@ Android/iOS with the same MAUI version too.
   `MethodAccessException` when a page is built, with Markup 6.0.1 and 7.0.1 alike. An app built on C# Markup
   (GitTrends) cannot open its first page on MAUI 11 rc1 until the toolkit and MAUI agree again. Bindings by path
   (`.Bind(Label.TextProperty, nameof(VM.Name))`) do not go through that type.
+
+## What each port changed
+
+Every port adds `net11.0-sailfish` to `TargetFrameworks` and pins `MauiVersion` 11 for that head (see
+[add-sailfish-to-existing-app.md](add-sailfish-to-existing-app.md#2-add-the-target-framework)). The net8/net9 apps also
+gate their mobile heads behind `SailfishOnly`, as shown there. Everything beyond that is listed below. Apps not named
+needed nothing more: Calculator, Weather, TipCalc, RpnCalculator, SolitaireEncryption, GameOfLife and DeveloperBalance.
+
+### maui-samples (net10)
+
+- **WhatToEat:** `Microsoft.Maui.Controls.Compatibility` conditioned out (`… != 'sailfish'`).
+- **EmployeeDirectory:** its class library `EmployeeDirectory.Core` (`net10.0`, MAUI 10) gets a `net11.0` target.
+  Without it, the head's project reference brings MAUI 10 back (NU1605):
+
+  ```xml
+  <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+      <MauiVersion>11.0.0-rc.1.26451.6</MauiVersion>
+  </PropertyGroup>
+  ```
+
+- **BugSweeper** (`Tile.cs`): the double-tap recognizer that reveals a tile was compiled for the mobile platforms only.
+
+  ```csharp
+  #if ANDROID || IOS || MACCATALYST || SAILFISH
+      TapGestureRecognizer doubleTap = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+  ```
+
+- **WordPuzzle:** two `#if ANDROID || IOS` blocks leave a variable unassigned on any other head, so the shared code
+  does not compile. `GameSquare.cs` sets the font size and `MainPage.xaml.cs` the layout multiplier. Both get
+  `|| SAILFISH`.
+- **WeatherTwentyOne:** the `App` constructor navigates through `Shell.Current`, which MAUI 11 leaves null until a
+  window exists. The service locator also had no branch for this head:
+
+  ```csharp
+  // App.xaml.cs
+  if (DeviceInfo.Idiom == DeviceIdiom.Phone)
+      ((Shell)MainPage).CurrentItem = PhoneTabs;     // was Shell.Current.CurrentItem
+
+  // Services/ServiceExtensions.cs
+  #elif SAILFISH
+      IPlatformApplication.Current!.Services;
+  ```
+
+### Profitocracy (net9)
+
+- csproj: the `SailfishOnly` gate, Compatibility conditioned out, and in the Sailfish item group:
+
+  ```xml
+  <PackageReference Update="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+  <PackageReference Update="CommunityToolkit.Maui" Version="12.3.0" />          <!-- 12.1 caps MAUI below 10 -->
+  <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" /> <!-- LiveCharts -->
+  ```
+
+- `MauiProgram.cs`: `UseLocalNotification()` under `#if !SAILFISH`. The plugin's `Current` is null on plain `net`.
+  `NotificationService` reads it through a null-safe property and reports `NotificationResult.NotSupported`:
+
+  ```csharp
+  private static INotificationService? Center => LocalNotificationCenter.Current;
+
+  public static async Task<bool> AreNotificationsEnabled() =>
+      Center is { IsSupported: true } center && await center.AreNotificationsEnabled();
+  ```
+
+- XAML: `Default=Ionicons` added to all seven `{OnPlatform iOS=Ionicons, Android=Ionicons.ttf#}` font families.
+- `Platforms/SailfishOS/` from `dotnet new maui-sailfish-platform`, unchanged.
+
+### MoneyFox (net8)
+
+- csproj: the gate, Compatibility conditioned out, `Microsoft.Maui.Controls` updated to `$(MauiVersion)`, and
+  `SkiaSharp.NativeAssets.Linux` 2.88.6 (LiveCharts).
+- `Platforms/SailfishOS/SailfishApplication.cs` registers the OneDrive backup's MSAL client, as `MainApplication`
+  and `AppDelegate` do. The redirect is the desktop loopback, which the system browser returns to:
+
+  ```csharp
+  protected override MauiApp CreateMauiApp()
+  {
+      MauiProgram.AddPlatformServicesAction = services =>
+          services.AddSingleton(PublicClientApplicationBuilder.Create(MSAL_APPLICATION_ID)
+              .WithRedirectUri("http://localhost").Build());
+      return MauiProgram.CreateMauiApp();
+  }
+  ```
+
+- Sharpnado.Tabs taps its tabs through a routing effect whose plain-`net` asset has no platform effect, so tabs
+  never switched. A Sailfish `PlatformEffect` turns the tap into a gesture recognizer:
+
+  ```csharp
+  // MauiProgram.cs
+  #if SAILFISH
+      .ConfigureEffects(effects => effects
+          .Add<Sharpnado.Tabs.Effects.CommandsRoutingEffect, SharpnadoTapEffect>()
+          .Add<Sharpnado.Tabs.Effects.TouchRoutingEffect, SharpnadoTouchEffect>())   // ripple only: empty
+  #endif
+
+  // Platforms/SailfishOS/SharpnadoTapEffect.cs
+  internal sealed class SharpnadoTapEffect : PlatformEffect
+  {
+      private TapGestureRecognizer? _tap;
+
+      protected override void OnAttached()
+      {
+          if (Element is not View view)
+              return;
+          _tap = new TapGestureRecognizer();
+          _tap.Tapped += (_, _) =>
+          {
+              var command = Commands.GetTap(view);
+              var parameter = Commands.GetTapParameter(view);
+              if (command?.CanExecute(parameter) == true)
+                  command.Execute(parameter);
+          };
+          view.GestureRecognizers.Add(_tap);
+      }
+
+      protected override void OnDetached()
+      {
+          if (Element is View view && _tap is not null)
+              view.GestureRecognizers.Remove(_tap);
+          _tap = null;
+      }
+  }
+  ```
+
+### WeightTracker (net8)
+
+- csproj: the gate, Compatibility conditioned out, and in the Sailfish item group:
+
+  ```xml
+  <PackageReference Update="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+  <PackageReference Update="Microcharts.Maui" Version="2.0.0.3" />   <!-- 1.x: platform TFMs only (NU1202) -->
+  <PackageReference Update="SkiaSharp" Version="3.119.4" />
+  <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+  ```
+
+- `WelcomeModelView.cs`: `SelectedItem = null!;` instead of `""`. A UraniumUI `PickerField` loops forever on a value
+  that is not in its items (see below).
+
+### GitTrends (net9, central package management)
+
+- csproj, Sailfish groups (`VersionOverride`, since `Directory.Packages.props` owns the versions):
+
+  ```xml
+  <NoWarn>$(NoWarn);CS0618</NoWarn>   <!-- CS0618 is in the repo's WarningsAsErrors -->
+
+  <PackageReference Update="Microsoft.Maui.Controls" VersionOverride="$(MauiVersion)" />
+  <PackageReference Include="Microsoft.Maui.Essentials" VersionOverride="$(MauiVersion)" />   <!-- NU1109 -->
+  <PackageReference Update="CommunityToolkit.Maui.Markup" VersionOverride="7.0.1" />
+  <PackageReference Include="SkiaSharp.NativeAssets.Linux" VersionOverride="3.119.1" />
+  ```
+
+  and, for every head, `<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />`.
+- `MauiProgram.cs`: `ConfigureSyncfusionCore()` under `#if !SAILFISH`. The app registers Shiny's managers under
+  `#if ANDROID || IOS` only, so the Sailfish head registers its own, and Plugin.StoreReview's `Current` throws:
+
+  ```csharp
+  #if SAILFISH
+      builder.Services.AddSingleton<Shiny.Notifications.INotificationManager, SailfishNotificationManager>();
+      builder.Services.AddSingleton<Shiny.Jobs.IJobManager, SailfishJobManager>();
+  #endif
+  …
+  #if SAILFISH
+      services.AddSingleton<IStoreReview>(new SailfishStoreReview());   // no-op: no in-app review here
+  #else
+      services.AddSingleton<IStoreReview>(CrossStoreReview.Current);
+  #endif
+  ```
+
+  `SailfishNotificationManager` posts at once through `SailfishNotifications.Show`/`Close`, and keeps channels,
+  badges and schedules in memory. `SailfishJobManager` keeps jobs and runs them only on request (the app's unit-test
+  mock), since there is no background scheduler.
+- `SailfishApplication.CreateMauiApp() => MauiProgram.CreateMauiApp(AppInfo.Current)`, as on the other heads.
+- `Program.Main` without `private`: the repo enforces IDE0040.
+
+### GameSpur (net10)
+
+- csproj: `Microsoft.Maui.Controls`, `.Controls.Core`, `.Core` and `.Essentials` updated to `$(MauiVersion)` (the app
+  references them explicitly). `Sharpnado.Maui.Nuke` and `Vapolia.StrokedLabel` are conditioned out: they ship
+  Android/iOS/Windows assets only.
+- `Platforms/SailfishOS/LibraryShims.cs` keeps the shared code and XAML compiling without them. It provides a no-op
+  `UseNuke()` and `UseStrokedLabelBehavior()`, and `StrokedLabel`'s attached properties under the library's XAML
+  namespace (`[assembly: XmlnsDefinition("https://vapolia.eu/Vapolia.StrokedLabel", …)]`). It also defines the
+  Android-only `HtmlLabel` type, because the XAML compiler keeps every `OnPlatform` branch for this head. Images then
+  load uncached, and labels draw without a stroke.
+- `MauiProgram.cs`: `AddHandler<Shell, TabbarBadgeRenderer>()` under `#if ANDROID || IOS`. Two stand-ins, registered
+  under `#if SAILFISH`: Firebase push (the plugin's plain-`net` asset is reference-only, and its `Current` throws) and
+  CommunityToolkit's `IBadge` (its plain-`net` default throws):
+
+  ```csharp
+  #if SAILFISH
+      NoPushNotification.Install(builder);   // IFirebasePushNotification + permissions: denied, no token
+      NoBadge.Install();                     // IBadge.SetCount does nothing; set through Badge's internal SetDefault
+  #endif
+  ```
+
+  `AppShell.OnAppearing` skips `RegisterNotificationCategories` under `#if !SAILFISH`.
+- 13 converters threw `NotImplementedException` from `ConvertBack`. MAUI 11 calls it on TwoWay bindings while the
+  binding context propagates, so they return `Binding.DoNothing`.
+- `Services/Fetcher.cs`: the instance id is an Android id or an iOS vendor id. The Sailfish head stores a random one:
+
+  ```csharp
+  #elif SAILFISH
+      Preferences.Default.Get(AppConstant.InstanceIdKey, string.Empty) is { Length: > 0 } saved
+          ? saved : Guid.NewGuid().ToString("N")[..30];
+      Preferences.Default.Set(AppConstant.InstanceIdKey, InstanceID);
+      return InstanceID;
+  ```
+
+- `ArticlePage.xaml`: `<On Platform="iOS,SailfishOS">` reuses the iOS branch (a plain `Label`).
 
 ## Driving a port on the phone
 

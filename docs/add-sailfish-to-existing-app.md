@@ -33,7 +33,7 @@ That is all a build needs. The TFM brings the rest, the way an in-box workload b
 - a self-contained, trimmed ReadyToRun payload and the harbour RPM on `dotnet publish -f net11.0-sailfish`,
 - the `SAILFISH` compilation symbol for `#if SAILFISH` in shared code.
 
-`MauiProgram.cs` stays as it is. `UseMaui=true` can stay too; the template turns it off on the Sailfish head
+`MauiProgram.cs` stays as it is, unless it registers platform-only plugins (step 5). `UseMaui=true` can stay too; the template turns it off on the Sailfish head
 only so that head builds on machines without the MAUI workloads (then pin `MauiVersion`, or restore fails
 with NU1015).
 
@@ -52,6 +52,32 @@ and MAUI 11:
 
 - a shared class library with its own `Microsoft.Maui.Controls` reference pinned to 10.x hits the same NU1605
   through the project reference; give it the same pin (or a `net11.0` target).
+
+An app on .NET 8 or 9 needs more, because SDK 11 refuses the out-of-support net8/net9 Android and iOS workloads
+(NETSDK1202). This block worked for MoneyFox (net8), WeightTracker (net8) and Profitocracy (net9):
+
+```xml
+<!-- SailfishOnly=true builds the Sailfish head alone; the other heads still build with their own SDK -->
+<TargetFrameworks Condition="'$(SailfishOnly)' != 'true'">net8.0-android;net8.0-ios</TargetFrameworks>
+<TargetFrameworks>$(TargetFrameworks);net11.0-sailfish</TargetFrameworks>
+
+<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+	<MauiVersion>11.0.0-rc.1.26451.6</MauiVersion>
+</PropertyGroup>
+<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
+	<!-- the app's own pinned MAUI reference (8.0.14, 9.0.90, …) moves to MAUI 11 on this head only -->
+	<PackageReference Update="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+</ItemGroup>
+
+<!-- no MAUI 11 counterpart: keep it on the other heads -->
+<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="8.0.14"
+                  Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'sailfish'" />
+```
+
+Build with `dotnet build -f net11.0-sailfish -p:SailfishOnly=true`. Do not override `TargetFrameworks` on the
+command line: a global property also reaches project references and breaks them (NETSDK1005). Library version caps,
+central package management, SkiaSharp's native library and warnings-as-errors are in
+[porting-existing-apps.md](porting-existing-apps.md#build-and-restore).
 
 ## 3. Platforms/SailfishOS (optional, recommended)
 
@@ -116,13 +142,42 @@ Packaging and store properties (`SailfishPermissions`, `SailfishHarbour`, `Sailf
 the `net11.0-sailfish` project by itself), or copy `.vscode/launch.json` and `tasks.json` from
 `dotnet new maui-sailfish` (their debug-attach entries need `SF_TOOLS_DIR` pointing at the repo's `tools/`).
 
+## 5. Check the shared code
+
+Shared code written for Android and iOS assumes one of them in a few places. On the Sailfish head these places fail
+to compile, throw at startup, or turn a feature off without any message. The checklist below comes from porting
+real apps (dotnet/maui-samples, MoneyFox, Profitocracy, WeightTracker, GitTrends, GameSpur). Each row names an app
+that hit the problem. [porting-existing-apps.md](porting-existing-apps.md#what-each-port-changed) has each port's
+code.
+
+| Look for | Seen in | Change |
+|---|---|---|
+| `#if ANDROID \|\| IOS` around a feature or a value | BugSweeper (double-tap recognizer: tiles never opened), WordPuzzle (font size, layout multiplier: did not compile) | add `\|\| SAILFISH` where the feature works here |
+| `MauiApplication.Current.Services`, `MauiUIApplicationDelegate.Current.Services` | WeatherTwentyOne | `IPlatformApplication.Current.Services` (any head) |
+| Services set up in `Platforms/Android/MainApplication.cs` or `Platforms/iOS/AppDelegate.cs` | MoneyFox (MSAL client), GitTrends (`CreateMauiApp(AppInfo.Current)`) | the same in `Platforms/SailfishOS/SailfishApplication.cs` (step 3) |
+| `{OnPlatform iOS=…, Android=…}` without `Default` | Profitocracy (icon font: glyphs in the wrong font) | add `Default=…`; in the element form, `<On Platform="iOS,SailfishOS">` (GameSpur) |
+| `Shell.Current` in `App`'s constructor | WeatherTwentyOne (NullReferenceException at start) | use the Shell instance itself (`(Shell)MainPage`); MAUI 11 sets `Shell.Current` once the window exists |
+| Converters whose `ConvertBack` throws `NotImplementedException` | GameSpur (13 converters) | return `Binding.DoNothing`; MAUI 11 calls `ConvertBack` on TwoWay bindings while the context propagates |
+| Plugins with Android/iOS implementations only (`*.Current`, `Use…()` registrations) | Profitocracy (`UseLocalNotification`), GitTrends (Plugin.StoreReview, Shiny notifications and jobs), GameSpur (Firebase push) | skip the registration under `#if !SAILFISH`, or register a Sailfish implementation of the plugin's interface |
+| Handlers or effects registered per platform | GameSpur (`AddHandler<Shell, TabbarBadgeRenderer>`), GitTrends (`ConfigureSyncfusionCore()`), MoneyFox (Sharpnado tab effects) | keep platform handlers under `#if ANDROID \|\| IOS`; skip `ConfigureSyncfusionCore` on Sailfish; give routing effects a Sailfish `PlatformEffect` |
+| Packages with Android/iOS assets only (NU1202) | WeightTracker (Microcharts.Maui 1.x), GameSpur (Sharpnado.Maui.Nuke, Vapolia.StrokedLabel) | a release with a plain `net` asset (Microcharts 2.0), or condition the package out and define the types the code and XAML use |
+| SkiaSharp anywhere in the app, charts included | MoneyFox, Profitocracy, WeightTracker, GitTrends (`DllNotFoundException: libSkiaSharp`) | `SkiaSharp.NativeAssets.Linux` in the app's SkiaSharp version |
+| A UraniumUI `PickerField` reset with `SelectedItem = ""` | WeightTracker (100 % CPU, app hangs) | reset with `null`; this happens on every MAUI 10+ head |
+
+Android and iOS show the same MAUI 10/11 problems (`Shell.Current`, `ConvertBack`, UraniumUI) once the app moves
+to that MAUI version. The Sailfish head is just the first MAUI 11 head an older app gets.
+
 ## Caveats
 
 - Third-party MAUI libraries without a Sailfish build restore their `net11.0` assets. They build (CA1416
   warnings name the calls), but platform-specific parts may not work on the phone. A library handler built on a
-  stock one (UraniumUI's `Button`) falls back to the Sailfish handler of that control. Any other control whose
-  plain-`net` handler throws when it creates its platform view (Syncfusion's `SfView` controls) renders as an
-  empty container. Each case logs one `[QT_HOST][WARN] … failed for …` line per handler type.
+  stock one (UraniumUI's `Button`) falls back to the Sailfish handler of that control. A control whose
+  plain-`net` handler throws when it creates its platform view renders its own drawing if it has one (Syncfusion's
+  `SfView` controls), otherwise an empty container. Each case logs one `[QT_HOST][WARN] … failed for …` line per
+  handler type.
+- Some Essentials are limited by the platform: the user's address book is closed to third-party apps (`Contacts`
+  returns nothing), and there is no speech engine, geocoder or passkey authenticator. See
+  [porting-existing-apps.md](porting-existing-apps.md#platform-behaviour-that-differs-from-androidios).
 - [porting-existing-apps.md](porting-existing-apps.md) lists what broke in real apps (net8/net9 heads, version
   caps, SkiaSharp, plugins, MAUI 10/11 changes) and how each was fixed.
 - Every machine that builds the project, CI included, needs the workload manifest from step 1 (on CI:
