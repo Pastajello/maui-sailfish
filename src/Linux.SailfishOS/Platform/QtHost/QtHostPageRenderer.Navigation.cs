@@ -260,10 +260,15 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			return;
 		}
 		// Poll skips the reconcile mid-transition: the dying page's hosts would fail the geometry probe and arm
-		// the dead-host net against the revealed page.
+		// the dead-host net against the revealed page. A push has no dying page: the incoming one is the top and
+		// alive, so it keeps reconciling and laying out while it slides in (see PushTransitionRenders).
 		_navStackBusy = busy;
+		_pushTransition = busy && PushTransitionRenders && _idleNativeDepth >= 0 && ids.Count > _idleNativeDepth;
 		if (!busy)
+		{
+			_idleNativeDepth = ids.Count;
 			FlushDeferredNativeDestroys();   // a popped page's hosts, once its slide-out ended
+		}
 
 		// --- activation bridge (window focus + application foreground) ---
 		if (_lastWindowActive is null)

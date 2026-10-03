@@ -18,6 +18,7 @@ internal sealed partial class QtHostListAdapter
 		if (HoldsFirstBuild(widthDp))
 		{
 			RowsDirty = true;   // built on the pending pass after the page's first frame
+			BuildHeldSlots();   // the header and footer are page content: they paint in the first frame
 			return;
 		}
 		_everBuilt = true;
@@ -91,13 +92,14 @@ internal sealed partial class QtHostListAdapter
 				TotalItems += row.CellItems.Count;
 
 		// Slot views are measured later by MaterializeSlots; placeholders may not exist yet.
-		if (view is StructuredItemsView siv)
+		if (view is StructuredItemsView siv && !_slotsBuiltWhileHeld)
 		{
 			HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate);
 			FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate);
 			InheritOwnerContext(siv, HeaderView);
 			InheritOwnerContext(siv, FooterView);
 		}
+		_slotsBuiltWhileHeld = false;
 		// A plain-text EmptyView on a vertical list is Silica's ViewPlaceholder (the native empty-state text);
 		// views, templates and other layouts keep the MAUI content in the empty slot.
 		var placeholder = view.EmptyView is string text && view.EmptyViewTemplate is null && !Horizontal && !Carousel ? text : null;

@@ -133,7 +133,7 @@ by environment (all prefixed `MAUI_SAILFISH_QT_HOST`):
 | `…_SHAPES_DIAG=1` / `…_VISUAL_DIAG=1` | shapes/images and visual-state legs |
 | `…_RECONCILE_DIAG=1` (+ `…_BRIDGE/…_TEXT/…_INPUT/…_GEOMETRY_DIAG=1`) | reconcile/bridge/text/input/geometry contract legs |
 | `…_STRESS_DIAG=1` / `…_PERF_DIAG=1` / `…_ERROR_DIAG=1` | lifecycle stress, performance, error-path legs |
-| `…_F3_DIAG=1` | F3 controls leg (carousel, indicator, stepper, check box, swipe view, images/fonts, web view) |
+| `…_F3_DIAG=1` | F3 controls leg (carousel, indicator, stepper, check box, swipe view, images/fonts, web view); with `MAUI_SAILFISH_DIAG_STALL_URL=<url of a server that accepts and never answers>` and `MAUI_SAILFISH_HTTP_STALL_S=3` it also checks the hung-image abort and retries |
 | `…_F4_DIAG=1` | F4 platform-services leg (Essentials statics, device, theme, battery, sensors, pickers, share) |
 | `…_AUTO_SHUTDOWN=1` | quit when the cycle finishes (unattended runs) |
 | `MAUI_SAILFISH_TRACE=1` | verbose trace log (`/tmp/maui_trace.log`) |
@@ -144,6 +144,9 @@ Runtime knobs and probes for any app (full names):
 |---|---|
 | `MAUI_SAILFISH_LIST_PREFETCH=N` | CollectionView rows (and their images) are built N viewports ahead once a list settles (default 2) |
 | `MAUI_SAILFISH_HTTP_CACHE_MB=N` | disk cache for http(s) sources QML loads itself, e.g. image thumbnails (default 64, `0` disables) |
+| `MAUI_SAILFISH_HTTP_STALL_S=N` | aborts such a request after N seconds without data (default 20, `0` = off); the image loads again twice (1 s, 3 s later) before it counts as failed |
+| `MAUI_SAILFISH_LIST_FIRST_FRAME=0` | A/B switch: a long list builds its first rows in the page's own turn (default: after the page's first frame; header and footer paint at once) |
+| `MAUI_SAILFISH_PUSH_LAYOUT=0` | A/B switch: a pushed page waits for the end of its slide-in before it lays out and reconciles (old behaviour) |
 | `MAUI_SAILFISH_IMAGE_TRACE=1` | logs every image load: ms to Ready, decode size, whether the tile was already visible (`MAUI-IMG`) |
 | `MAUI_SAILFISH_SLOW_WORK_MS=N` | logs every UI-thread work item (dispatch, timer, renderer poll breakdown) that ran N ms or longer (`[SLOW]`) |
 | `MAUI_SAILFISH_NAV_IDLE_KICK=0` | A/B switch: leave the end of a pageStack transition and native depth events to the next poll (old behaviour) |

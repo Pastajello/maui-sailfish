@@ -67,7 +67,7 @@ public class App : Application
 		created.Created -= OnWindowCreated;
 		var window = created;
 
-		if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "beef" or "home" or "layout")
+		if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "beef" or "home" or "layout" or "all" or "dialog-alert" or "dialog-confirm" or "dialog-prompt" or "dialog-sheet")
 		{
 			var tourNavigation = _services.GetRequiredService<INavigationService>();
 			_services.GetRequiredService<IDispatcher>().Dispatch(async () =>
@@ -77,6 +77,10 @@ public class App : Application
 					await Helpers.DemoTour.RunHomeAsync(window);
 				else if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "layout")
 					await Helpers.DemoTour.RunLayoutAsync(tourNavigation, window);
+				else if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is "all")
+					await Helpers.DemoTour.RunAllAsync(tourNavigation, window);
+				else if (Environment.GetEnvironmentVariable("KITCHEN_TOUR") is { } tour && tour.StartsWith("dialog-", StringComparison.Ordinal))
+					await Helpers.DemoTour.RunDialogAsync(window, tour);
 				else
 					await Helpers.DemoTour.RunAsync(tourNavigation, window);
 			});

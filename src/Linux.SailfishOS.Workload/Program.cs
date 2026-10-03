@@ -119,6 +119,7 @@ public static class Program
 		if (target.CustomRoot)
 			Console.WriteLine($"  builds need DOTNETSDK_WORKLOAD_MANIFEST_ROOTS={Path.GetDirectoryName(Path.GetDirectoryName(target.Directory))}");
 		Console.WriteLine("  net11.0-sailfish is now a known TFM; `sailfish-workload uninstall` removes it");
+		Console.WriteLine("  optional: `dotnet workload install sailfish --source <feed>` adds the package to the SDK (docs/add-sailfish-to-existing-app.md)");
 		return 0;
 	}
 

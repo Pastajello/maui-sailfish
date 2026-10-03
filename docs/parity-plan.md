@@ -240,7 +240,9 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   the SDK only knows IDs from manifests on disk or from a workload set. Two manifest defects found there are fixed:
   the manifest version was the number 1 (workload-set mode uninstalled the manifest right after installing it), and
   restore on a clean machine failed with NETSDK1112 (`SelfContained` now defaults to true in the manifest targets).
-  A workload set of our own would replace Microsoft's for the band and has to be re-cut with each of theirs.
+  A workload set of our own would replace Microsoft's for the band and has to be re-cut with each of theirs; the owner
+  chose (a): the tool stays the install path, `dotnet workload install sailfish` is documented as an optional second
+  step (`add-sailfish-to-existing-app.md` §1).
 
 **Deliberately open** (not touched without a new decision; confirmed by the owner 2026-10-03)
 - Camera photos (Sailfish has no in-app capture API); Geocoding and TextToSpeech (no provider on the platform).

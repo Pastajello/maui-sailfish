@@ -84,8 +84,22 @@ Item {
             mauiEvent("image-natural", JSON.stringify({ id: mauiId, source: String(mauiSource), width: w, height: h }));
     }
 
+    // A remote load that failed (a dropped connection, a request the shim's stall watchdog aborted) loads again twice,
+    // 1 s and then 3 s later, before it counts as failed; Qt keeps no failed pixmap, so a reload fetches anew.
+    property int __retries: 0
+    property bool __reloading: false
+    Timer {
+        id: retryTimer
+        onTriggered: {
+            root.__reloading = true;    // source "" then back: a new request
+            root.__reloading = false;
+        }
+    }
+
     clip: true                       // AspectFill crops to the element bounds
     onMauiSourceChanged: {
+        __retries = 0;
+        retryTimer.stop();
         mauiLoadError = "";
         __loadStart = Date.now();
         __startedOnScreen = __onScreen();
@@ -132,7 +146,7 @@ Item {
         fillMode: root.mauiAspect === 0 ? Image.Stretch
                   : root.mauiAspect === 2 ? Image.PreserveAspectCrop
                   : Image.PreserveAspectFit    // AspectFit (and Center, which sizes itself)
-        source: root.__gif ? "" : root.mauiSource
+        source: root.__gif || root.__reloading ? "" : root.mauiSource
         visible: !root.__gif
         asynchronous: true
         smooth: true
@@ -142,7 +156,12 @@ Item {
         onStatusChanged: {
             if (status === Image.Loading)
                 root.__decode = root.__decode;   // freeze: a relayout must not refetch
-            if (status === Image.Error) {
+            if (status === Image.Error && root.__retries < 2 && /^https?:/i.test(String(root.mauiSource))) {
+                root.__retries++;
+                console.warn("MAUI-IMG retry " + root.__retries + " " + String(root.mauiSource));
+                retryTimer.interval = root.__retries === 1 ? 1000 : 3000;
+                retryTimer.restart();
+            } else if (status === Image.Error) {
                 root.mauiLoaded = false;
                 root.mauiLoadError = "QtQuick Image error for " + String(root.mauiSource);
                 if (!root.mauiApplying)

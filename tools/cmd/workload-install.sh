@@ -1,8 +1,8 @@
 #!/bin/bash
 # Installs the Sailfish workload manifest into the local SDK so net11.0-sailfish is
 # recognized before restore (the SDK's TFM check runs before any NuGet import).
-# `dotnet workload install` would also need the aggregate workloads package, which
-# is not shipped yet; copying into sdk-manifests/<band>/ is what the installer does.
+# `dotnet workload install sailfish` works only once this manifest is there (no
+# workload set is shipped); copying into sdk-manifests/<band>/ is what the installer does.
 # Remove that folder to uninstall. Without a checkout the sailfish-workload tool does
 # the same: dnx Microsoft.Maui.SailfishOS.Workload install (tools/sf pack-local packs it).
 #

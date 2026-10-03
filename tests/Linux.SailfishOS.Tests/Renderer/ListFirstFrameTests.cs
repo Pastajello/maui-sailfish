@@ -42,6 +42,26 @@ public sealed class ListFirstFrameTests
 		Assert.StartsWith("[{", Rows(h));
 	}
 
+	// Kitchen's home is one CollectionView whose Header holds the page: held with the rows, the app opened on an empty
+	// page for the wait. The header paints with the page; only the rows wait.
+	[Fact]
+	public void A_long_lists_header_paints_with_the_page()
+	{
+		var page = Page(100);
+		((CollectionView)page.Content).Header = new Label { Text = "Sailfish Kitchen header" };
+		using var h = new RendererHarness(page, firstBuildWaitsFrame: true);
+		h.Shim.AddNative($"maui_{h.Shim.ByUri("list-view").Single().Id}__header");   // the ListView's header placeholder
+		for (var i = 0; i < 3; i++)
+			h.Renderer.KickedPoll();   // list work runs on kicked polls
+		Assert.Equal(string.Empty, Rows(h));
+		Assert.Contains(h.Shim.ByUri("label"), l => l.Text("text") == "Sailfish Kitchen header" && !l.Destroyed);
+
+		QtHostSurface.RunFrame();
+		h.Renderer.KickedPoll();   // list work runs on kicked polls
+		Assert.StartsWith("[{", Rows(h));
+		Assert.Single(h.Shim.ByUri("label"), l => l.Text("text") == "Sailfish Kitchen header" && !l.Destroyed);
+	}
+
 	[Fact]
 	public void A_list_that_fits_builds_its_rows_with_the_page()
 	{

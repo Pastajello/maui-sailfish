@@ -49,6 +49,20 @@ internal sealed partial class QtHostPageRenderer
 	private readonly Dictionary<string, NativeElementHost> _byId = new(); // event routing
 
 	private bool _navStackBusy;                          // pageStack.busy at the last nav snapshot
+	private bool _pushTransition;                        // that transition is a push (the native depth grew)
+	private int _idleNativeDepth = -1;                   // native model pages at the last idle snapshot
+
+	/// <summary>
+	/// A pushed page reconciles and lays out during its slide-in instead of after it. Data an app sets once the page
+	/// is up (OnAppearing, a view model's first load) otherwise reached QML as property pushes while measure and
+	/// arrange waited for the transition's end: Kitchen's recipe title drew on one overflowing line under the photo
+	/// for 0.4 s, then the page jumped into place. <c>MAUI_SAILFISH_PUSH_LAYOUT=0</c> holds it as before (A/B).
+	/// </summary>
+	internal static bool PushTransitionRenders { get; set; } = SailfishEnv.Get("MAUI_SAILFISH_PUSH_LAYOUT") != "0";
+
+	/// <summary>A transition that holds the page's passes: any pop (its outgoing page's hosts are dying), and a push
+	/// when <see cref="PushTransitionRenders"/> is off.</summary>
+	private bool TransitionHolds => _navStackBusy && !_pushTransition;
 	private bool _strayScanPending;                      // a native pop asked for a stray sweep of the returned-to page
 	private readonly QtHostCollectionBridge _collection;                  // CollectionView ⇄ ListView bridge
 	private readonly HashSet<string> _bridgeFailLogged = new();            // error-report rate limit
@@ -630,7 +644,7 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>The one condition every reconcile outside a pass of its own waits for: no animated transition (its
 	/// geometry flush would count the dying page's hosts dead), no native pop MAUI has not followed (it would flash
 	/// the old page), and a page to render.</summary>
-	private bool CanReconcile => !_navStackBusy && !_stack.PopUnsynced && ResolveReconcilePage() is not null;
+	private bool CanReconcile => !TransitionHolds && !_stack.PopUnsynced && ResolveReconcilePage() is not null;
 
 	// --- Layout requests ---
 	// As a native view requests a layout pass, a handler asks for one: MAUI's InvalidateMeasure reaches it through
@@ -655,7 +669,7 @@ internal sealed partial class QtHostPageRenderer
 	private void RunRequestedLayout()
 	{
 		// The reconcile lays out itself; during a transition or before the first frame the next poll does.
-		if (!_layoutDirty || _navStackBusy || _rendered is not { } page || CreationDeferred)
+		if (!_layoutDirty || TransitionHolds || _rendered is not { } page || CreationDeferred)
 			return;
 		RunLayoutPass(page);
 	}
@@ -675,7 +689,7 @@ internal sealed partial class QtHostPageRenderer
 
 	private void RunRequestedGeometry()
 	{
-		if (!_geometryDirty || _navStackBusy || _rendered is not { } page || CreationDeferred || !_windowGeometryKnown)
+		if (!_geometryDirty || TransitionHolds || _rendered is not { } page || CreationDeferred || !_windowGeometryKnown)
 			return;
 		if (_layoutDirty)
 		{

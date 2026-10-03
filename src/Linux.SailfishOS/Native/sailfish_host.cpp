@@ -50,6 +50,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QTimer>
 #include <QStandardPaths>
 #include <QQmlError>
 #include <QQmlExpression>
@@ -1050,6 +1052,35 @@ public:
     }
 };
 
+// Qt 5.6 has no transfer timeout (QNetworkRequest::setTransferTimeout came in 5.15): a request on a dead keep-alive
+// connection (after a network change or a suspend) hangs for minutes, and with six connections per host the next
+// thumbnails queue behind it, so images stop loading. A reply that receives nothing for MAUI_SAILFISH_HTTP_STALL_S
+// seconds (default 20, 0 = off) is aborted; the Image adapter then loads it again (qml/controls/Image.qml).
+// Runs on the thread that issued the request (QML's pixmap reader): stderr, not log_line's managed callback.
+static void arm_stall_watchdog(QNetworkReply *reply)
+{
+    static const int seconds = [] {
+        bool ok = false;
+        const int value = qEnvironmentVariableIntValue("MAUI_SAILFISH_HTTP_STALL_S", &ok);
+        return ok ? value : 20;
+    }();
+    if (seconds <= 0 || !reply || reply->isFinished())
+        return;
+    auto *timer = new QTimer(reply);
+    timer->setSingleShot(true);
+    timer->setInterval(seconds * 1000);
+    QObject::connect(timer, &QTimer::timeout, reply, [reply]() {
+        if (reply->isFinished())
+            return;
+        std::fprintf(stderr, "[sfhost] http stall: no data for %d s, aborting %s\n", seconds,
+                     reply->url().toString(QUrl::RemoveFragment).toUtf8().constData());
+        reply->abort();
+    });
+    QObject::connect(reply, &QNetworkReply::downloadProgress, timer, [timer](qint64, qint64) { timer->start(); });
+    QObject::connect(reply, &QNetworkReply::finished, timer, &QTimer::stop);
+    timer->start();
+}
+
 // The per-request policy comes from UriImageSource (QtHostImages: "#maui-cache=N" in the URL, never sent):
 // 0 = CachingEnabled false (network, store nothing), N = a copy younger than N seconds (else refresh). Without
 // it GETs prefer the cached copy (QML only fetches images; app data goes through .NET's HttpClient).
@@ -1078,7 +1109,9 @@ protected:
         } else {
             shaped.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
         }
-        return QNetworkAccessManager::createRequest(op, shaped, data);
+        QNetworkReply *reply = QNetworkAccessManager::createRequest(op, shaped, data);
+        arm_stall_watchdog(reply);
+        return reply;
     }
 
 private:
@@ -1179,6 +1212,9 @@ int load_common(const char *qml_path, const char *props_json, bool silica_window
 
     g.root = view->rootObject();
     g.window = view;
+    // A frame asked for before the window existed (an animation started while the app was still being built) is
+    // delivered now; without this the request waited for the next one, and MAUI's animation ticker never got one.
+    hook_frame_signal(view);
     if (!g.input_filter)
         g.input_filter = new InputFilter();
     view->installEventFilter(g.input_filter);
@@ -1455,8 +1491,9 @@ int sailfish_host_show(void)
         return -1;
     }
     g.window = w;
-    // Window mode goes through g.view and never calls attach_window, so hook perf here too.
+    // Window mode goes through g.view and never calls attach_window, so hook perf and frames here too.
     hook_perf_signals(w);
+    hook_frame_signal(w);
 
     // Silica already shows the window via "visible: true"; view mode shows it itself.
     if (g.view || !w->isVisible())

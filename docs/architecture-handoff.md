@@ -34,11 +34,20 @@ Work done on top of `ab808cd` in a separate session; nothing in the packages bel
 | Change | Files | Evidence |
 | --- | --- | --- |
 | MAUI animations tick on Qt's frame clock (`SailfishFrameTicker`; the service overlay answers `IAnimationManager` unless the app registered its own) | `Platform/QtHost/SailfishFrameTicker.cs`, `SailfishServiceOverlay.cs` | test `An_animation_advances_one_tick_per_Qt_frame_and_then_stops`; leg `visual` G: RotateTo 600 ms = 55 ticks in 644 ms (~85 Hz panel), 0 layout passes |
-| Dialogs laid out as Jolla's own (header buttons, large highlight title, message under it, ambience behind, scrolling; prompt Enter accepts; action sheet as full-width rows, destructive in `palette.errorColor`) | `qml/dialogs/*.qml` | leg `popup` 15/15 with a new "rows span the page and show their text" check; `tools/sf shots` popup-alert/prompt/sheet |
+| Dialogs as Sailfish system dialogs (owner, 2026-10-03): a panel across the top over the page, page dimmed below and blurred under the panel, text buttons, tap outside cancels, back held while open; nothing on the pageStack | `qml/dialogs/DialogPanel.qml`, `DialogButton.qml`, the three dialogs, `MauiModelPage.__pushDialog` | legs `popup` 15/15, `controls`, `stress`; `tools/sf shots` popup-alert/prompt/sheet |
+| W10 answers 1b, 3c, 13a (see W10) | `SailfishMeasure.LabelFontSize`, `QtHostListAdapter.FirstFrame.cs`, workload manifest | tests; legs; `profiling.md` §6a |
+| A pushed page lays out during its slide-in (`MAUI_SAILFISH_PUSH_LAYOUT`): Kitchen's recipe title drew on one overflowing line for 0.4 s, then the page jumped | `QtHostPageRenderer.cs` (`TransitionHolds`), `.Navigation.cs` | test `A_pushed_page_lays_out_while_it_slides_in` (both settings); recording |
+| Animations never started when the first one began before the QML window existed (the frame request found no window and nothing hooked it later): Kitchen's home list stayed at Opacity 0. The 3c hold hid it, and itself held the list's Header (Kitchen's whole home page): a 216 ms black frame at startup | `sailfish_host.cpp` (`hook_frame_signal` on load/show), `QtHostListAdapter.FirstFrame.cs` (`BuildHeldSlots`) | test `A_long_lists_header_paints_with_the_page`; startup recordings without the black frame |
+| Remote images that stopped loading: Qt 5.6 has no transfer timeout, a hung connection blocked the host's six; the shim aborts a reply without data for 20 s (`MAUI_SAILFISH_HTTP_STALL_S`), `Image.qml` loads it again twice | `sailfish_host.cpp` (`arm_stall_watchdog`), `qml/controls/Image.qml` | leg `f3` with a never-answering server: abort, 2 retries, failed after 14 s |
 | W1.7 `ReportNaturalSize` and a bigger defect behind it: a remote `Image` without a size in a **list row** stayed 0 × 0, because `IView.InvalidateMeasure()` raises no `MeasureInvalidated` and the row watcher listens to that event. Fixed with `QtHostImages.InvalidateIntrinsicSize` (the Controls path), used for remote and stream sizes | `QtHostImages.cs`, `SailfishControlHandlers.cs` (image handler), `QtHostPageRenderer.Walk.cs` | test `Every_row_image_of_a_shared_remote_url_takes_the_size_once_it_loaded` fails without either half |
 | Bench: one composite QML component per DataTemplate vs five createObject calls (dropped, −5%) | `QtHostDiagnosticsRunner.AdapterBench.cs` | leg `adapterbench` "bench card" line |
 
-State: 354 host tests; full matrix 31/31 PASS 2026-10-03 17:41 (`/tmp/sf-matrix-summary-20261003-174115.txt`), then
+State at 21:33: 359 host tests; full matrix 31/31 PASS (`/tmp/sf-matrix-summary-20261003-213337.txt`). Kitchen
+tours for this work: `KITCHEN_TOUR=all` (startup → All recipes → two details, online) and `dialog-alert|confirm|prompt|sheet`
+(one dialog, an SF-SHOT, quit; works in landscape). Open: a prompt in landscape with the keyboard up shows the field
+and buttons but its title is panned off the top (≈410 px above the keyboard, the panel needs ≈490).
+
+Earlier: 354 host tests; full matrix 31/31 PASS 2026-10-03 17:41 (`/tmp/sf-matrix-summary-20261003-174115.txt`), then
 `f3 collection collection100 controls visual` 5/5 after the image fix (`…-175223.txt`). Kitchen tour: detail stall
 150–177 ms, catalog 440–450 ms.
 
@@ -497,7 +506,7 @@ The owner's answers, then the questions as they were put (options and recommenda
 | 10 | (b) Syncfusion text gap documented, no add-on | done: `docs/porting-existing-apps.md` "Not supported yet" |
 | 11 | no CommunityToolkit add-on package: the work stays in `Microsoft.Maui.SailfishOS`; gap documented | done: same section |
 | 12 | camera capture, Geocoding, TextToSpeech, BlazorWebView, `MauiSplashScreen` stay out | confirmed in `parity-plan.md` and the porting guide |
-| 13 | (a) `dotnet workload install` tried in an isolated SDK (nothing global) | done: works after the tool's manifest install; two manifest defects fixed (`parity-plan.md`); a workload set of our own is a new decision |
+| 13 | (a) `dotnet workload install` tried in an isolated SDK (nothing global) | done: works after the tool's manifest install; two manifest defects fixed (`parity-plan.md`); owner chose (a): tool first, `dotnet workload install sailfish` documented as optional step two |
 | 14 | NativeAOT stays frozen | closed |
 | 15 | armv7hl labelled untested | done: README, `sailfishos-packaging.md` |
 | 16 | `docs/media` | open (no recommendation given) |

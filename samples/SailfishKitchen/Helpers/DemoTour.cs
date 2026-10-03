@@ -1,5 +1,6 @@
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Devices;
+using Microsoft.Maui.Dispatching;
 using SailfishKitchen.Models;
 using SailfishKitchen.Services;
 
@@ -11,6 +12,10 @@ namespace SailfishKitchen.Helpers;
 /// KITCHEN_TOUR=home: swipes the home page's categories and logs the scroll offset (any orientation).
 /// KITCHEN_TOUR=layout: opens Beef and flips the Grid / list pulley command twice, an SF-SHOT per state
 /// (tools/sf shots) with the resulting column count logged.
+/// KITCHEN_TOUR=dialog-alert|dialog-confirm|dialog-prompt|dialog-sheet: opens that dialog on the home page, an
+/// SF-SHOT of it (tools/sf shots), then quits (any orientation: MAUI_SAILFISH_ORIENTATION=Landscape).
+/// KITCHEN_TOUR=all: All recipes from the home page, then two recipe details, back after each; online, so a
+/// recording shows pages settling as they open and the images arriving.
 /// </summary>
 internal static class DemoTour
 {
@@ -18,10 +23,9 @@ internal static class DemoTour
 	private static long _lastTick;
 	private static long _maxGapMs;
 
-	public static async Task RunAsync(INavigationService navigation, Window window)
+	// UI-thread stall probe: a 16 ms timer; each step logs the longest gap between ticks since the last step.
+	private static IDispatcherTimer StartProbe()
 	{
-		Clock.Restart();
-		// UI-thread stall probe: a 16 ms timer; each step logs the longest gap between ticks since the last step.
 		_lastTick = 0;
 		var probe = Application.Current!.Dispatcher.CreateTimer();
 		probe.Interval = TimeSpan.FromMilliseconds(16);
@@ -33,6 +37,64 @@ internal static class DemoTour
 			_lastTick = now;
 		};
 		probe.Start();
+		return probe;
+	}
+
+	public static async Task RunDialogAsync(Window window, string kind)
+	{
+		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("KITCHEN_TOUR_DELAY_MS"), out var delay) ? delay : 2500);
+		if (TopPage(window) is not { } page)
+			return;
+		// Not awaited: the dialog stays open for the screenshot, the app quits under it.
+		_ = kind switch
+		{
+			"dialog-alert" => page.DisplayAlertAsync("Recipe saved", "Beef and Mustard Pie is in your favourites.", "OK"),
+			"dialog-confirm" => page.DisplayAlertAsync("Clear image cache?", "Thumbnails download again when shown.", "Clear", "Cancel"),
+			"dialog-prompt" => page.DisplayPromptAsync("Rename list", "A name for this shopping list", "Save", "Cancel", "Name"),
+			_ => page.DisplayActionSheetAsync("Share recipe", "Cancel", "Remove from favourites", "Copy link", "Send by e-mail"),
+		};
+		await Task.Delay(1500);
+		await ShotAsync(kind);
+#if SAILFISH
+		Application.Current?.Quit();
+#endif
+	}
+
+	public static async Task RunAllAsync(INavigationService navigation, Window window)
+	{
+		Clock.Restart();
+		var probe = StartProbe();
+		Log("start");
+		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("KITCHEN_TOUR_DELAY_MS"), out var delay) ? delay : 2500);
+		Log("ready");
+		await navigation.OpenCatalogAsync(MealQuery.WholeCatalog());
+		Log("all recipes opened");
+		await Task.Delay(4000);
+		var list = TopPage(window)?.GetVisualTreeDescendants().OfType<CollectionView>().FirstOrDefault();
+		if (list is null)
+		{
+			Log("no CollectionView — stopping");
+			return;
+		}
+		await OpenDetailAsync(window, list, index: DetailIndex(0, 0), scroll: false);
+		await navigation.GoBackAsync();
+		Log("back");
+		await Task.Delay(2500);
+		await OpenDetailAsync(window, list, index: DetailIndex(1, 5), scroll: true);
+		await navigation.GoBackAsync();
+		Log("back");
+		await Task.Delay(2500);
+		Log("done");
+		probe.Stop();
+#if SAILFISH
+		Application.Current?.Quit();
+#endif
+	}
+
+	public static async Task RunAsync(INavigationService navigation, Window window)
+	{
+		Clock.Restart();
+		var probe = StartProbe();
 		Log("start");
 		// KITCHEN_TOUR_DELAY_MS lets a slow-starting screen recorder catch the whole run.
 		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("KITCHEN_TOUR_DELAY_MS"), out var delay) ? delay : 2500);

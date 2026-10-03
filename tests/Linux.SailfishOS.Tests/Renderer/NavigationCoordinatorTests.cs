@@ -203,6 +203,41 @@ public class NavigationCoordinatorTests
 		Assert.Equal(transactions, shell.CurrentItem.CurrentItem);
 	}
 
+	// Kitchen recipe detail: the data set while the push slid in reached QML as text, but measure and arrange waited
+	// for the transition's end, so the title drew on one overflowing line for 0.4 s and then the page jumped.
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public void A_pushed_page_lays_out_while_it_slides_in(bool pushRenders)
+	{
+		var previous = QtHostPageRenderer.PushTransitionRenders;
+		QtHostPageRenderer.PushTransitionRenders = pushRenders;
+		try
+		{
+			var nav = new NavigationPage(Page("Home"));
+			using var h = new RendererHarness(nav);
+			var title = new Label { Text = "Detail" };
+			_ = nav.PushAsync(new ContentPage { Title = "Detail", Content = new VerticalStackLayout { WidthRequest = 300, Children = { title } } });
+			h.Poll();                                    // the native push and the page's first hosts
+			h.Shim.StackBusy = true;                     // its slide-in
+			h.Poll();
+			var host = h.Shim.ByUri("label").Single(o => o.Text("text") == "Detail");
+			var oneLine = host.Geometry.Height;
+
+			title.Text = string.Join(' ', Enumerable.Repeat("a long recipe name", 8));   // the view model's data
+			Settle(h, 3);
+			Assert.Equal(pushRenders, host.Geometry.Height > oneLine * 2);
+
+			h.Shim.StackBusy = false;
+			Settle(h, 3);
+			Assert.True(host.Geometry.Height > oneLine * 2);
+		}
+		finally
+		{
+			QtHostPageRenderer.PushTransitionRenders = previous;
+		}
+	}
+
 	// Profitocracy, Settings → Theme → back: the revealed Settings (with its taller tab header) sent a window report
 	// while the back transition still ran; that reconcile drew Theme onto its dying model page, the dead handles reset
 	// the whole page and Settings flashed empty under the "Theme" title.

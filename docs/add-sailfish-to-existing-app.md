@@ -17,6 +17,20 @@ installed, `uninstall` removes it. For an SDK you cannot write to (`/usr/share/d
 `install --manifest-root ~/.dotnet-sailfish` and set `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS=~/.dotnet-sailfish` for builds.
 In a clone, `./tools/sf workload-install` does the same from the sources.
 
+Optionally, once the manifest is installed, the SDK's own workload command works too:
+
+```bash
+dotnet workload install sailfish --source <feed> --source https://api.nuget.org/v3/index.json
+```
+
+It puts the `Microsoft.Maui.SailfishOS` package into the SDK's `library-packs`, so restore finds it without the
+NuGet source from above, and `dotnet workload list` shows `sailfish` (`dotnet workload uninstall sailfish` removes
+the package; the tool's `uninstall` removes the manifest). On an SDK in workload-set mode (the default) the command
+also brings the SDK's other workloads up to Microsoft's latest workload set for the band, as any
+`dotnet workload install` does. Without the first step it fails with "Workload ID sailfish is not recognized": the
+SDK only knows workload IDs from manifests it already has or from a workload set, and the project ships no workload
+set of its own (it would replace Microsoft's for the whole band).
+
 ## 2. Add the target framework
 
 In the `.csproj`, after the other `TargetFrameworks` lines:

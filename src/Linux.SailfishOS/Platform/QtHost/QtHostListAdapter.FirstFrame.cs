@@ -1,5 +1,6 @@
 using System.Collections;
 using Microsoft.Maui.Controls;
+using static Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostCollectionBridge;
 
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
@@ -52,6 +53,25 @@ internal sealed partial class QtHostListAdapter
 			return true;
 		_firstBuildHoldUntil = -1;   // no frame came in time (hidden window): build now
 		return false;
+	}
+
+	private bool _slotsBuiltWhileHeld;   // the first build keeps these header/footer views (no second templating)
+
+	/// <summary>
+	/// The header and footer while the rows wait: a list's header is often the page itself (Kitchen's home is one
+	/// CollectionView whose Header holds everything above the categories), and holding it painted an empty page for
+	/// the wait. The empty view stays unbuilt: with no rows yet it would flash "nothing here".
+	/// </summary>
+	private void BuildHeldSlots()
+	{
+		if (_slotsBuiltWhileHeld || View is not StructuredItemsView siv)
+			return;
+		HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate);
+		FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate);
+		InheritOwnerContext(siv, HeaderView);
+		InheritOwnerContext(siv, FooterView);
+		_slotsBuiltWhileHeld = true;
+		SlotsDirty = true;
 	}
 
 	private void ReleaseFirstBuild()

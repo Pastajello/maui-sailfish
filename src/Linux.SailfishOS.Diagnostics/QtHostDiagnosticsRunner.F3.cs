@@ -1135,11 +1135,20 @@ internal sealed partial class QtHostDiagnosticsRunner
 			ImageSource = new FontImageSource { Glyph = "✓", FontFamily = "DiagSymbols", Size = 24, Color = Colors.White },
 			HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
 		};
-		_ = nav!.PushAsync(new ContentPage
+		// MAUI_SAILFISH_DIAG_STALL_URL: a server that accepts the connection and never answers (a dead keep-alive
+		// connection). With MAUI_SAILFISH_HTTP_STALL_S the shim aborts the hung request, the adapter loads it twice
+		// more, then reports it failed (Kitchen's thumbnails stopped loading behind such requests).
+		var stallUrl = Environment.GetEnvironmentVariable("MAUI_SAILFISH_DIAG_STALL_URL");
+		var stallImage = string.IsNullOrEmpty(stallUrl) ? null : new Image
 		{
-			Title = "F3 images",
-			Content = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, naturalImage, naturalStream, glyphButton } },
-		});
+			Source = new UriImageSource { Uri = new Uri(stallUrl) },
+			WidthRequest = 64, HeightRequest = 64, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
+		};
+		var imagesPage = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, naturalImage, naturalStream, glyphButton } };
+		if (stallImage is not null)
+			imagesPage.Children.Add(stallImage);
+		var stallStart = System.Diagnostics.Stopwatch.StartNew();
+		_ = nav!.PushAsync(new ContentPage { Title = "F3 images", Content = imagesPage });
 		NativeElementHostOf(renderer, streamImage, out _);
 		WaitFor(dispatcher, () => PageTitle(renderer) == "F3 images" && NativeElementHostOf(renderer, streamImage, out var sh) && sh!.QmlUri == "image", 8000, () =>
 		{
@@ -1166,7 +1175,19 @@ internal sealed partial class QtHostDiagnosticsRunner
 				NativeElementHostOf(renderer, glyphButton, out var bh);
 				var icon = bh is null ? "" : QtHost.QtHostRuntime.GetProperty(bh.NativeHandle, "mauiIconSource");
 				_qtF3Checks.Check($"F Button ImageSource glyph → icon '{(icon.Length > 30 ? "…" + icon[^30..] : icon)}' is a rendered PNG", icon.EndsWith(".png", StringComparison.Ordinal));
-				Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+				if (stallImage is null)
+				{
+					Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+					return;
+				}
+				WaitFor(dispatcher, () => ImageState(stallImage).Contains("\"err\":\"Qt", StringComparison.Ordinal), 60000, () =>
+				{
+					var retries = QtHost.QtHostRuntime.Eval($"String({ItemJs(renderer, stallImage)}.__retries)");
+					var state = ImageState(stallImage);
+					_qtF3Checks.Check($"F hung remote image: aborted by the stall watchdog and loaded {retries}==2 more times, then failed after {stallStart.Elapsed.TotalSeconds:F0} s ({state})",
+						retries == "2" && state.Contains("\"loaded\":false", StringComparison.Ordinal));
+					Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+				});
 			});
 		});
 	}

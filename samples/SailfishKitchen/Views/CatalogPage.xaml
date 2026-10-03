@@ -24,9 +24,12 @@
 
         <VerticalStackLayout Grid.Row="0" Padding="20,14,20,6" Spacing="6">
             <Label Text="{Binding Subtitle}" Style="{StaticResource Caption}" />
-            <ProgressBar Progress="{Binding LoadProgress}"
-                         IsVisible="{Binding IsProgressKnown}"
-                         HeightRequest="4" />
+            <!-- The row keeps its 4 dp when the bar hides, so the list below does not jump up once loading ends. -->
+            <Grid HeightRequest="4">
+                <ProgressBar Progress="{Binding LoadProgress}"
+                             IsVisible="{Binding IsProgressKnown}"
+                             HeightRequest="4" />
+            </Grid>
         </VerticalStackLayout>
 
         <!-- RemainingItemsThreshold is evaluated by the Qt host on each native scroll report; the footer button is the manual fallback. -->
