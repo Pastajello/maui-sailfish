@@ -35,7 +35,7 @@ Both clips are recorded on a Jolla phone (Sailfish OS 5.2) with real touch input
 | Build machine | .NET SDK 11 RC1 (`11.0.100-rc.1.26425.128`, see `global.json`) |
 | Build machine | `ssh`, `python3` (RPM build) |
 | Build machine, only when working on this repo | `zig` (cross-compiles the native shim; no Sailfish SDK needed) |
-| Phone | Sailfish OS with developer mode and a Remote connection password (tested on SFOS 5.2, aarch64) |
+| Phone | Sailfish OS with developer mode and a Remote connection password (tested on SFOS 5.2, aarch64; armv7hl builds but has never run on a device) |
 
 On the phone: **Settings › Developer tools**, turn on **Developer mode** and set a password under **Remote
 connection**. The phone has to be on the same network as the build machine, or connected over USB

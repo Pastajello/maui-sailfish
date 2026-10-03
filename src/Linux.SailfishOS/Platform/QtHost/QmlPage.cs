@@ -6,7 +6,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 internal static class QmlPage
 {
-	/// <summary>The model page on top. While a Silica Dialog is on the pageStack, currentPage is the dialog,
+	/// <summary>The model page on top. While a Silica Dialog (the date/time wheels) is on the pageStack, currentPage is the dialog,
 	/// so the shell exposes the model page as mauiModelPage.</summary>
 	public const string Model =
 		"(typeof window!=='undefined'&&window.mauiModelPage?window.mauiModelPage:pageStack.currentPage)";

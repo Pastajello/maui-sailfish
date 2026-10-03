@@ -15,6 +15,12 @@ internal sealed partial class QtHostListAdapter
 {
 	internal void RebuildRows(double widthDp)
 	{
+		if (HoldsFirstBuild(widthDp))
+		{
+			RowsDirty = true;   // built on the pending pass after the page's first frame
+			return;
+		}
+		_everBuilt = true;
 		_inRebuild = true;
 		try
 		{

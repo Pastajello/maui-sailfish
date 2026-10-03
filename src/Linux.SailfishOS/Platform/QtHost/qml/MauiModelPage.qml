@@ -261,7 +261,7 @@ Page {
             var o = ops[i];
             if (o.op === "title") { pageTitle = o.text; continue; }
             if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
-            if (o.op === "back") { backNavigation = !!o.on; continue; }
+            if (o.op === "back") { if (__dialog) __dialogBack = !!o.on; else backNavigation = !!o.on; continue; }
             // SailfishPage.AllowedOrientations; 0 rebinds the page to the window's default (Silica's own binding), so it
             // keeps following a window that changes its orientations later.
             if (o.op === "orientations") {
@@ -774,33 +774,32 @@ Page {
         return true;
     }
 
-    // Pushes a dialog adapter on the pageStack (same window, so it is pointer-injectable).
-    // The dialog emits accept/reject through mauiNotify and Silica pops it itself.
+    // The open dialog panel (dialogs/DialogPanel.qml), or null.
+    property Item __dialog: null
+    property bool __dialogBack: true
+
+    // Opens a dialog adapter over this page (a system-dialog panel, not a pageStack push: the page stays put).
+    // The dialog emits accept/reject through mauiNotify and fades out and destroys itself. Back navigation is held
+    // while it is up, so the page cannot be swiped away from under it.
     function __pushDialog(src, propsJson) {
         var comp = __componentFor(src);
         if (!comp)
             return "no-comp";
-        if (pageStack.busy) {
-            // Silica refuses pushes mid-transition (e.g. DisplayAlert from OnAppearing); wait for it to settle.
-            var later = function() {
-                if (pageStack.busy)
-                    return;
-                pageStack.busyChanged.disconnect(later);
-                if (__pushDialogNow(comp, propsJson) !== "ok")
-                    Adapter.pageEmit(page, "dialog-failed");
-            };
-            pageStack.busyChanged.connect(later);
-            return "ok";
-        }
-        return __pushDialogNow(comp, propsJson);
-    }
-
-    function __pushDialogNow(comp, propsJson) {
-        var dlg = pageStack.push(comp, JSON.parse(propsJson), PageStackAction.Immediate);
+        if (__dialog)
+            return "busy";
+        var props = JSON.parse(propsJson);
+        props.__blurSource = flick;
+        var dlg = comp.createObject(page, props);
         if (!dlg)
-            return "no-push";
-        // Silica pops a Dialog itself on accept/reject; a manual pop would warn mid-transition.
+            return "no-create";
+        __dialog = dlg;
+        __dialogBack = backNavigation;
+        backNavigation = false;
         dlg.mauiEvent.connect(function(name, payload) {
+            if (__dialog === dlg) {
+                __dialog = null;
+                backNavigation = __dialogBack;
+            }
             page.mauiNotify(name, payload);
         });
         return "ok";
@@ -847,6 +846,9 @@ Page {
     }
 
     Component.onDestruction: {
+        // A dialog still up resolves as dismissed, so the awaiting MAUI task never hangs.
+        if (__dialog)
+            __dialog.reject();
         // Leave the registry; managed compares it with the MAUI stack to sync native pops back.
         if (page.__shell)
             page.__shell.unregisterMauiPage(page);

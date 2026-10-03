@@ -763,9 +763,14 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 	protected override void OnAdapterEvent(string name, JsonElement payload)
 	{
 		var url = payload.TryGetProperty("source", out var source) ? source.GetString() : null;
-		if (name == "image-natural" && url is not null &&
-		    QtHostImages.ReportNaturalSize(url, (int)BridgeJson.Num(payload, "width"), (int)BridgeJson.Num(payload, "height")))
-			ConnectedView?.InvalidateMeasure();
+		if (name == "image-natural" && url is not null)
+		{
+			// A new size re-measures the view; so does a view that measured 0 × 0 while the URL was loading, when another
+			// Image with the same URL reported it first (it found the size already known).
+			var changed = QtHostImages.ReportNaturalSize(url, (int)BridgeJson.Num(payload, "width"), (int)BridgeJson.Num(payload, "height"));
+			if (ConnectedView is { } view && (changed || view.DesiredSize.Width <= 0 || view.DesiredSize.Height <= 0))
+				QtHostImages.InvalidateIntrinsicSize(view);
+		}
 		else if (name == "image-failed" && url is not null && FailedSources.Add(url))
 			QtHostDiag.Warn(QtHostDiagChannel.QmlLoad, $"image failed to load: {url} ({VirtualView?.GetType().Name})");
 	}

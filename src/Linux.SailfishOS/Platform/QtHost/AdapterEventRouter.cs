@@ -226,9 +226,6 @@ internal sealed class AdapterEventRouter
 				case "action-cancelled":
 					_r.CompleteDialog(_r.SheetCancel);              // sheet dismissed → cancel text
 					break;
-				case "dialog-failed":
-					_r.CompleteDialog(null);                      // a push deferred past a transition failed
-					break;
 				default:
 					RouteAdapterEvent(name, payload);   // a library adapter's own event; "rendered" and friends end here too
 					break;

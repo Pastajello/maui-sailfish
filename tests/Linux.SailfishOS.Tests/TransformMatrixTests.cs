@@ -109,4 +109,33 @@ public class TransformMatrixTests
 		var native = h.Shim.ByUri("shape").Single(o => !o.Destroyed);
 		Assert.Equal(30, double.Parse(native.Text("rotation")!, System.Globalization.CultureInfo.InvariantCulture), 3);
 	}
+
+	// MAUI's animations tick on Qt's frame clock: each frame Qt draws runs one tick on the Qt thread, and the ticker
+	// stops asking for frames once the animation ended (it used to be a thread-pool timer every 16 ms).
+	[Fact]
+	public async Task An_animation_advances_one_tick_per_Qt_frame_and_then_stops()
+	{
+		var box = new BoxView { WidthRequest = 80, HeightRequest = 80, Color = Colors.Blue };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { box } } });
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var ticks = SailfishFrameTicker.Ticks;
+		var rotate = box.RotateToAsync(90, 120);
+		var frames = 0;
+		while (!rotate.IsCompleted && frames < 200)
+		{
+			await Task.Delay(10);
+			QtHostSurface.RunFrame();
+			frames++;
+		}
+
+		Assert.True(rotate.IsCompleted, $"not done after {frames} frames");
+		Assert.Equal(90, box.Rotation, 3);
+		Assert.InRange(SailfishFrameTicker.Ticks - ticks, 2, frames);
+		var after = SailfishFrameTicker.Ticks;
+		QtHostSurface.RunFrame();
+		QtHostSurface.RunFrame();
+		Assert.Equal(after, SailfishFrameTicker.Ticks);   // no frames asked for after the end
+	}
 }
+

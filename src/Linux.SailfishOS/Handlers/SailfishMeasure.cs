@@ -25,11 +25,12 @@ internal static class SailfishMeasure
 		element.IsSet(property) && size > 0 && Math.Abs(size - Platform.SailfishFontManager.DefaultSize) > 0.01 ? size : null;
 
 	/// <summary>
-	/// A Label's own rule, kept apart because it is device-visible: any positive FontSize paints, MAUI's default (the
-	/// font manager's 18) included, and only 0 (no size resolved yet) leaves Label.qml at Theme.fontSizeMedium. Every
-	/// other control treats 18 as unset (<see cref="AppFontSize"/>). Snapshot and measure both read it.
+	/// A Label's size: the app's, else null and Label.qml paints Theme.fontSizeMedium, as every Silica label and every
+	/// other control here (<see cref="AppFontSize"/>, owner decision 2026-10-03; until then an unset Label painted
+	/// MAUI's 18). Snapshot and measure both read it.
 	/// </summary>
-	public static double? LabelFontSize(Microsoft.Maui.Controls.Label label) => label.FontSize > 0 ? label.FontSize : null;
+	public static double? LabelFontSize(Microsoft.Maui.Controls.Label label) =>
+		AppFontSize(label, Microsoft.Maui.Controls.Label.FontSizeProperty, label.FontSize);
 
 	/// <summary>The size (dp) the adapter paints with: the app's, else the Silica theme size.</summary>
 	public static double PaintFontSizeDp(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>

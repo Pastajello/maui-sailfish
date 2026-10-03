@@ -19,13 +19,16 @@ internal sealed class RendererHarness : IDisposable
 	public Window Window { get; }
 
 	/// <param name="appServices">An app's services (handler registrations); none = an empty container.</param>
-	public RendererHarness(Page page, IServiceProvider? appServices = null)
+	/// <param name="firstBuildWaitsFrame">Long lists wait for a frame before their first rows, as on the device; off by
+	/// default because the harness runs frames only when a test calls <c>QtHostSurface.RunFrame</c>.</param>
+	public RendererHarness(Page page, IServiceProvider? appServices = null, bool firstBuildWaitsFrame = false)
 	{
 		_statics = new TestStatics();
 		QtHostRuntime.TestShim = Shim;
 		_loop = SailfishDispatcherProvider.BindLoopThread();   // this thread plays the Qt loop
 		QtHostTextMetrics.Enable();
 		QtHostPageRenderer.ActivationSettleMs = 0;   // the polls below run back to back
+		QtHostListAdapter.FirstBuildWaitsFrame = firstBuildWaitsFrame;
 		var services = new SailfishServiceOverlay(appServices ?? new ServiceCollection().BuildServiceProvider());
 		Window = new Window(page);
 		var context = new SailfishMauiContext(services);

@@ -9,7 +9,11 @@ the part that gets executed. Keep it current: tick a step when its acceptance ch
 Line numbers below are from HEAD `1cfd712` plus the uncommitted fixes of 2026-10-03 (see "Already fixed"); they
 drift as steps land, so grep for the named symbol when a number no longer matches.
 
-## Status at the end of 2026-10-03 (all uncommitted on top of `1cfd712`)
+## Status at the end of 2026-10-03 (committed as `ab808cd`)
+
+The second review of the code after this plan was executed, and the work that remains (defects, structure,
+docs, native, tools, owner questions), is in [`architecture-handoff.md`](architecture-handoff.md). Start there;
+this file is the record of what was done and why.
 
 | Step | State | What is left |
 | --- | --- | --- |
@@ -67,6 +71,10 @@ Host tests: 352. Closing full device matrix with every change above: 31/31 PASS 
 | Essentials threading | **HOP**: an off-thread call is marshalled onto the Qt loop and waits; inline on the Qt thread | one base class, no silent no-ops, no throws (B2) |
 | Collections | row pool landed first (`1cfd712`) | list steps build on `QtHostListAdapter.RowPool.cs` (C6+) |
 | Diagnostics | separate package later | core hooks go `internal` + InternalsVisibleTo now (D5) |
+| Dialogs (2026-10-03) | Sailfish system-dialog look: a top panel over the page, not a pageStack page | `dialogs/DialogPanel.qml`; legs find the panel as `pageStack.currentPage.__dialog` |
+| Label default size (2026-10-03) | unset `FontSize` paints `Theme.fontSizeMedium` | `SailfishMeasure.LabelFontSize` follows `AppFontSize` |
+| Add-on packages (2026-10-03) | none: no CommunityToolkit or Syncfusion add-ons, only `Microsoft.Maui.SailfishOS` | gaps documented in `porting-existing-apps.md` |
+| Other W10 answers (2026-10-03) | see `architecture-handoff.md` W10 | D5 deferred, AOT frozen, `Invoke` internal, encodings only when touched |
 
 ## Verification commands
 
@@ -82,7 +90,7 @@ tools/sf matrix <leg ...>                     # legs: page controls nav popup co
 tools/sf pack-local                           # local feed + template
 ```
 
-Feature flags that gate paths touched below (all `MAUI_SAILFISH_*`): `ROW_POOL`, `ADAPTER_PRELOAD`,
+Feature flags that gate paths touched below (all `MAUI_SAILFISH_*`): `ROW_POOL`, `LIST_FIRST_FRAME`, `ADAPTER_PRELOAD`,
 `HANDLER_TREE`, `PAGE_CACHE`, `CREATE_CHUNK`, `CREATE_FIRST_CHUNK`, `OPS_TIMING`, `QT_HOST_DIAG`, `SLOW_WORK_MS`.
 
 ## Already fixed during the review (uncommitted on 2026-10-03, verify they are in HEAD before starting)

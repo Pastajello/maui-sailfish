@@ -211,17 +211,23 @@ public class SampleAppRegressionTests
 	}
 
 	// Measure and paint share one Label rule (SailfishMeasure.LabelFontSize): a never-sized Label, one at MAUI's 18
-	// and one at 0 are each measured at the size their adapter paints. The device reads 18 for a never-sized Label
-	// and paints 18 dp; measuring it at the theme size pushed the controls page down by a screen's tail.
+	// and one at 0 are each measured at the size their adapter paints, and none of them names a size, so Label.qml
+	// paints Theme.fontSizeMedium (owner decision 2026-10-03). A sized Label keeps its size.
 	[Fact]
 	public void A_label_is_measured_at_the_size_it_paints()
 	{
 		var never = new Label { Text = "Y = 1234" };
 		var eighteen = new Label { Text = "Y = 1234", FontSize = 18 };
 		var zero = new Label { Text = "Y = 1234", FontSize = 0 };
-		using var h = new RendererHarness(Page(never, eighteen, zero));
+		var sized = new Label { Text = "Y = 1234", FontSize = 12 };
+		using var h = new RendererHarness(Page(never, eighteen, zero, sized));
 
-		foreach (var label in new[] { never, eighteen, zero })
+		string PixelSize(Label label) => h.Shim.ByUri("label").Single(o => h.Renderer.CurrentHosts.Any(x =>
+			ReferenceEquals(x.Element, label) && x.Id == o.Id)).Text("mauiPixelSize")!;
+		Assert.All(new[] { never, eighteen, zero }, label => Assert.Equal(0, double.Parse(PixelSize(label), System.Globalization.CultureInfo.InvariantCulture)));
+		Assert.Equal(12 * SailfishDisplay.Density, double.Parse(PixelSize(sized), System.Globalization.CultureInfo.InvariantCulture), 3);
+
+		foreach (var label in new[] { never, eighteen, zero, sized })
 		{
 			var native = h.Shim.ByUri("label").Single(o => h.Renderer.CurrentHosts.Any(x =>
 				ReferenceEquals(x.Element, label) && x.Id == o.Id));

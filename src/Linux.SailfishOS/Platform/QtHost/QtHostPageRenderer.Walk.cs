@@ -157,7 +157,7 @@ internal sealed partial class QtHostPageRenderer
 					// Read, the stream has a size: the image re-measures from 0 × 0 and the container gains its host.
 					QtHostImages.WhenReady(image.Source as ImageSource, child, () =>
 					{
-						image.InvalidateMeasure();
+						QtHostImages.InvalidateIntrinsicSize(image);
 						RequestSubtree(container);
 					});
 				return true;

@@ -2,21 +2,16 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../lib/adapter.js" as Adapter
 
-// Adapter: MAUI DisplayPromptAsync -> Silica Dialog + TextField (QtHostPageRenderer.PushPromptAsync).
+// Adapter: MAUI DisplayPromptAsync -> a system-dialog panel (DialogPanel.qml) with a Silica TextField under the
+// message (QtHostPageRenderer.PushPromptAsync). The field takes focus when the panel opens (Maliit follows); the
+// keyboard's Enter key accepts. The panel sits at the top, so the keyboard never covers it.
 // Events: "prompt-accepted" {id, text} / "prompt-rejected" (payload = mauiId).
-Dialog {
+DialogPanel {
     id: root
 
-    property string mauiId: ""
     // Diag: "<activeFocus>|<text>", proving native field focus and injected key taps.
-    property string mauiProbe: field.activeFocus + "|" + field.text
-    signal mauiEvent(string name, string payload)
+    mauiProbe: field.activeFocus + "|" + field.text
 
-    // Managed property pushes set this flag; events fired meanwhile are suppressed (no echo).
-    property bool mauiApplying: false
-
-    property string mauiTitle: ""
-    property string mauiMessage: ""
     property string mauiPlaceholder: ""
     property string mauiAccept: "OK"
     property string mauiCancel: "Cancel"
@@ -24,49 +19,32 @@ Dialog {
     property int mauiMaxLength: -1
     property bool mauiNumeric: false
 
-    // A pushed dialog page has no managed background and the palette is dark-ambience (white text),
-    // so paint black to avoid white-on-white over the pageStack's light default.
-    Rectangle {
-        anchors.fill: parent
-        z: -1
-        color: "#000000"
-    }
+    acceptText: mauiAccept
+    cancelText: mauiCancel
 
-    DialogHeader {
-        title: root.mauiTitle
-        acceptText: root.mauiAccept
-        cancelText: root.mauiCancel
-    }
-    Column {
-        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
-                  margins: Theme.paddingLarge }
-        spacing: Theme.paddingSmall
-        Label {
-            width: parent.width
-            text: root.mauiMessage
-            wrapMode: Text.Wrap
-            color: Theme.primaryColor
-            visible: text.length > 0
-        }
-        TextField {
-            id: field
-            width: parent.width
-            placeholderText: root.mauiPlaceholder
-            label: root.mauiPlaceholder
-            Component.onCompleted: {
-                text = root.mauiInitial
-                if (root.mauiMaxLength >= 0)
-                    maximumLength = root.mauiMaxLength
-                if (root.mauiNumeric)
-                    inputMethodHints = Qt.ImhDigitsOnly
-            }
+    TextField {
+        id: field
+        width: parent.width
+        placeholderText: root.mauiPlaceholder
+        label: root.mauiPlaceholder
+        EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+        EnterKey.onClicked: root.accept()
+        Component.onCompleted: {
+            text = root.mauiInitial
+            if (root.mauiMaxLength >= 0)
+                maximumLength = root.mauiMaxLength
+            if (root.mauiNumeric)
+                inputMethodHints = Qt.ImhDigitsOnly
+            forceActiveFocus()
         }
     }
 
-    // Focus once active; native focus opens the Maliit keyboard.
-    onStatusChanged: if (status === PageStatus.Active) field.forceActiveFocus()
-
-    onAccepted: mauiEvent("prompt-accepted",
-                          JSON.stringify({ id: mauiId, text: field.text }))
-    onRejected: Adapter.emit(root, "prompt-rejected")
+    onAccepted: {
+        field.focus = false
+        mauiEvent("prompt-accepted", JSON.stringify({ id: mauiId, text: field.text }))
+    }
+    onRejected: {
+        field.focus = false
+        Adapter.emit(root, "prompt-rejected")
+    }
 }

@@ -18,6 +18,7 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private SailfishSemanticScreenReader? _screenReader;
 	private QtHostAlertSubscription? _alertSubscription;
 	private SailfishModalNavigationPlatformFactory? _modalFactory;
+	private Microsoft.Maui.Animations.AnimationManager? _animationManager;
 
 	// The window's render session: the host cache handlers and the renderer share, the renderer once it runs, and the
 	// Shell route-page flag (SailfishShellHandler sets it between Navigating and Navigated).
@@ -78,6 +79,11 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 			return existing is not null && existing.GetType().Assembly != serviceType.Assembly
 				? existing
 				: _screenReader ??= new SailfishSemanticScreenReader();
+		// Animations tick on Qt's frame clock. MAUI's own manager (its plain-net timer ticker) gives way; an app's wins.
+		if (serviceType == typeof(Microsoft.Maui.Animations.IAnimationManager) &&
+		    (existing is null || existing.GetType() == typeof(Microsoft.Maui.Animations.AnimationManager) &&
+		     ((Microsoft.Maui.Animations.IAnimationManager)existing).Ticker.GetType() == typeof(Microsoft.Maui.Animations.PlatformTicker)))
+			return _animationManager ??= new Microsoft.Maui.Animations.AnimationManager(new QtHost.SailfishFrameTicker());
 		if (existing is not null)
 			return existing;
 

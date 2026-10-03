@@ -19,7 +19,7 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Tab swipe animation with the neighbouring page visible (`SlideshowView`) | — | open ([`parity-plan.md`](parity-plan.md)) | — |
 | `PageBusyIndicator` | `Page.IsBusy` on a page without a pulley | native | silica C |
 | `PullDownMenu.busy` (pulsing pulley bar) | `Page.IsBusy` on a page with a pulley | native | silica C |
-| `Dialog` + `DialogHeader` (accept/cancel) | `DisplayAlertAsync`, `DisplayPromptAsync`, `DisplayActionSheetAsync` | native | popup, controls |
+| System dialog look (`Sailfish.Lipstick` `SystemDialog`: top panel, centred title, text buttons, page dimmed below) | `DisplayAlertAsync`, `DisplayPromptAsync`, `DisplayActionSheetAsync` | native (an in-app panel; the blur is of the page, not the wallpaper) | popup, controls, stress |
 | Orientation change (`allowedOrientations`, rotation transition) | automatic, `DeviceDisplay` follows | native (app-wide; per page: open) | silica G |
 | Application cover (`CoverBackground`, `CoverActionList`) | — | Sailfish API `SailfishCover` | f4 H |
 | Page lifecycle (`PageStatus`), app background/foreground | `OnAppearing`/`OnDisappearing`, `Window` lifecycle | native | nav, stress D |

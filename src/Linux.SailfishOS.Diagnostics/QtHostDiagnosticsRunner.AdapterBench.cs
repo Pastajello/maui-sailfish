@@ -97,6 +97,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 				Console.Error.WriteLine($"[Sailfish] ADAPTERBENCH src={src} usPerInstance={us.ToString("F0", CultureInfo.InvariantCulture)}");
 				_qtAdapterBenchChecks.Check($"bench {src}: {us:F0} µs per createObject (median of {BenchRounds}×{BenchInstances})", us > 0);
 			}
+			BenchCompositeCard();
 			foreach (var (current, candidate, _) in BenchPairs)
 				if (results.TryGetValue(current, out var a) && results.TryGetValue(candidate, out var b))
 					Console.Error.WriteLine($"[Sailfish] ADAPTERBENCH pair {current} → {candidate}: {a:F0} → {b:F0} µs ({(a > 0 ? (b - a) * 100 / a : 0):+0;-0}%)");
@@ -169,6 +170,43 @@ internal sealed partial class QtHostDiagnosticsRunner
 				ImageBehaviour(dispatcher, index + 1, done);
 			});
 		});
+	}
+
+	/// <summary>
+	/// A Kitchen catalog card (Border holding Image, Button, two Labels) built as the renderer builds a row today, five
+	/// createObject calls with the children moved into the Border's mauiChildHost, against one composite component of
+	/// the same five adapters (the "one QML component per DataTemplate" idea), so its gain is measured before it is built.
+	/// </summary>
+	private void BenchCompositeCard()
+	{
+		const int cards = 24;
+		var js = "(function(){var p=pageStack.currentPage;" +
+		         "var cb=p.__componentFor('containers/Border.qml'),ci=p.__componentFor('controls/Image.qml')," +
+		         "cbt=p.__componentFor('controls/Button.qml'),cl=p.__componentFor('controls/Label.qml');" +
+		         "if(!cb||!ci||!cbt||!cl)return '-1';" +
+		         "var base=Qt.resolvedUrl('containers/Border.qml').toString().replace('containers/Border.qml','');" +
+		         "var comp=Qt.createQmlObject('import QtQuick 2.6\\nimport \"'+base+'containers\" as K\\nimport \"'+base+'controls\" as C\\n'+" +
+		         "'Component { K.Border { property var __parts: [i0,i1,i2,i3]; C.Image { id: i0 } C.Button { id: i1; text: \"☆\" } " +
+		         "C.Label { id: i2; text: \"Beef stew\" } C.Label { id: i3; text: \"Beef\" } } }',p,'composite');" +
+		         "var h=Qt.createQmlObject('import QtQuick 2.6; Item{visible:false;width:540;height:400}',p,'cardbench');" +
+		         "function separate(){var b=cb.createObject(h,{mauiId:'b'});var host=b.mauiChildHost||b;" +
+		         "ci.createObject(host,{mauiId:'i',mauiSource:" + BenchImage + "});cbt.createObject(host,{mauiId:'t',text:'☆'});" +
+		         "cl.createObject(host,{mauiId:'l1',text:'Beef stew'});cl.createObject(host,{mauiId:'l2',text:'Beef'});return b;}" +
+		         "function composite(){var b=comp.createObject(h,{mauiId:'b'});var host=b.mauiChildHost||b;" +
+		         "for(var k=0;k<b.__parts.length;++k){b.__parts[k].parent=host;b.__parts[k].mauiId='x'+k;}" +
+		         "b.__parts[0].mauiSource=" + BenchImage + ";return b;}" +
+		         "function run(f){var t=[];for(var r=0;r<" + BenchRounds + ";++r){var a=[];var s=Date.now();" +
+		         "for(var i=0;i<" + cards + ";++i)a.push(f());t.push(Date.now()-s);for(var j=0;j<a.length;++j)a[j].destroy();}" +
+		         "t.sort(function(x,y){return x-y;});return t[" + (BenchRounds / 2) + "]*1000/" + cards + ";}" +
+		         "separate().destroy();composite().destroy();" +   // warm-up
+		         "var r1=run(separate),r2=run(composite);h.destroy();comp.destroy();return r1+'|'+r2;})()";
+		var result = QtHost.QtHostRuntime.Eval(js);
+		var parts = result.Split('|');
+		var sep = parts.Length == 2 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var a) ? a : -1;
+		var com = parts.Length == 2 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var b) ? b : -1;
+		var ok = sep > 0 && com > 0;
+		Console.Error.WriteLine($"[Sailfish] ADAPTERBENCH card separate={sep:F0}us composite={com:F0}us ({(sep > 0 ? (com - sep) * 100 / sep : 0):+0;-0}%) raw='{result}'");
+		_qtAdapterBenchChecks.Check($"bench card: five createObject {sep:F0} µs vs one composite {com:F0} µs per card", ok);
 	}
 
 	/// <summary>Median µs per createObject of <paramref name="src"/> over <see cref="BenchRounds"/> rounds of

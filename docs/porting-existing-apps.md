@@ -243,6 +243,13 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - `RotationX`/`RotationY` turn the view in 3D with Android's default perspective (camera at 1280 dp), and
   `ScaleX`≠`ScaleY` or a rotation inside a scaled layout are drawn exactly. Taps on a 3D-turned view hit its
   unturned rectangle.
+- `DisplayAlertAsync`, `DisplayPromptAsync` and `DisplayActionSheetAsync` open a panel across the top of the screen,
+  laid out as Sailfish's system dialogs (the permission and USB mode prompts): the title and message centred in the
+  highlight colour, text buttons under them (cancel left, accept right), the page still visible, dimmed, below.
+  Nothing is pushed on the page stack, and back navigation waits until the panel closes. A tap on the dimmed page
+  cancels. A single-button alert shows its one button as the acknowledgement. A prompt's Enter key accepts, and the
+  panel stays above the keyboard. An action sheet lists its choices as full-width rows, the destructive one first in
+  the error colour.
 - A Button's `TextColor` or `BackgroundColor` set back to `null` (or a VisualState setter that ends) returns to
   Silica's theme colours, as clearing a colour returns the platform's own on Android.
 - `Application.OpenWindow` does nothing (a Sailfish app has one window, as an iOS app without multiple scenes) and
@@ -280,10 +287,10 @@ These follow Silica conventions. Port authors should expect them; none needs app
   Secrets once it opens.
 - A borderless `Entry` (`BackgroundColor` set) without a `Placeholder` has no Silica label line, and an Entry taller
   than its natural height centres its text (MAUI's default `VerticalTextAlignment`), as on Android.
-- A `Button`, `Entry`, `Editor`, `SearchBar`, picker or `RadioButton` without a `FontSize` uses Silica's theme size
-  (`Theme.fontSizeMedium`), larger than MAUI's 14 dp. For these controls a `FontSize` of exactly 18 counts as unset
-  too, because 18 is the default MAUI reports when the app sets none. Use 17.9 or 18.1 to pin a size near 18. A
-  `Label` without a `FontSize` paints at that default, 18 dp.
+- A `Label`, `Button`, `Entry`, `Editor`, `SearchBar`, picker or `RadioButton` without a `FontSize` uses Silica's
+  theme size (`Theme.fontSizeMedium`), larger than MAUI's 14 dp, so unstyled text reads like the rest of the phone.
+  A `FontSize` of exactly 18 counts as unset too, because 18 is the default MAUI reports when the app sets none.
+  Use 17.9 or 18.1 to pin a size near 18.
 
 ## Not supported yet
 
@@ -291,12 +298,19 @@ These follow Silica conventions. Port authors should expect them; none needs app
   plain-`net` platform code is a stub (LiveCharts: charts draw, touch does nothing).
 - **CommunityToolkit.Maui platform features.** The v1 `Popup` (CommunityToolkit ≤ 9, `ShowPopupAsync`) never
   opens. `Toast`, `Snackbar` and `Badge` have no Sailfish implementation; their plain-`net` services throw or do
-  nothing. (CommunityToolkit 12+ shows popups as modal pages; that path is not verified yet.)
+  nothing. (CommunityToolkit 12+ shows popups as modal pages; that path is not verified yet.) No Sailfish add-on
+  for the toolkit is planned: the backend covers MAUI itself. On Sailfish, show the message with
+  `DisplayAlertAsync`, or as a `Label` on the page.
+- **Syncfusion Toolkit text.** Syncfusion measures text with its own measurer, which exists only in its platform
+  builds; on plain .NET it throws. Text inputs draw without their outline and charts stay empty
+  (`IDrawable.Draw (…) failed` in the log). No add-on is planned: reaching the measurer means reflection into
+  Syncfusion's internals, which would break with each Syncfusion release.
 - **Native-only controls** with no cross-platform part, such as AiForms.SettingsView.
 - **Plugins** with Android/iOS implementations only: local notifications, biometrics, in-app rating.
 - **Essentials the platform lacks:** `TextToSpeech` (no speech engine), `Geocoding` (no geocoder) and `Passkeys` (no
   WebAuthn authenticator) throw `FeatureNotSupportedException`, as MAUI does on a device without the feature;
   `TextToSpeech.GetLocalesAsync` returns no locales. `MediaPicker.CapturePhotoAsync`/`CaptureVideoAsync` likewise.
+  These stay out on purpose, as do `BlazorWebView` and `MauiSplashScreen` (Sailfish apps have no splash screen).
 - **`FileResult.OpenReadAsync()`** throws: MAUI's plain-`net` `FileBase` has no platform reader and the method is
   internal to MAUI. Read `File.OpenRead(result.FullPath)` instead. `ContentType` and `FileName` work.
 

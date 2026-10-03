@@ -131,6 +131,21 @@ internal static class QtHostImages
 	/// <summary>Natural pixel sizes of remote images, as the adapter reported them once loaded.</summary>
 	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)> RemoteSizes = new(StringComparer.Ordinal);
 
+	/// <summary>
+	/// The view's own size changed (its remote image loaded, its stream was read): re-measured the way Controls does when
+	/// a property changes the measure, so MeasureInvalidated reaches a list row's watcher too. IView.InvalidateMeasure
+	/// only asks the handler for a page pass, and a list row is measured by its list, never by the page.
+	/// </summary>
+	internal static void InvalidateIntrinsicSize(IView view)
+	{
+		if (view is VisualElement element)
+#pragma warning disable CS0618 // the public entry to InvalidateMeasureInternal; InvalidateMeasure() raises no MeasureInvalidated
+			element.InvalidateMeasureNonVirtual(Microsoft.Maui.Controls.Internals.InvalidationTrigger.MeasureChanged);
+#pragma warning restore CS0618
+		else
+			view.InvalidateMeasure();
+	}
+
 	/// <summary>Records a loaded remote image's pixel size; true when it was not known yet (its views re-measure).</summary>
 	internal static bool ReportNaturalSize(string url, int width, int height)
 	{

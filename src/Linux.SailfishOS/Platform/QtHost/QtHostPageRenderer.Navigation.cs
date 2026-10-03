@@ -323,8 +323,8 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			ResetModelPageScopedState($"top model page → '{topId}'");
 		}
 
-		// Never race a pageStack transition or an open dialog/flyout: those adapters are transient entries on top
-		// of the model pages.
+		// Never race a pageStack transition or an open dialog/flyout: those adapters are transient layers over the
+		// model page.
 		if (busy || _dialogTcs is not null || _openFlyout is not null)
 		{
 			if (_navOp is not null && QtHostDiag.TraceEnabled)

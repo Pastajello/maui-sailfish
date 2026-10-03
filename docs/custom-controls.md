@@ -20,6 +20,17 @@ SailfishLabelHandler.Mapper.AppendToMapping("Trace", (handler, label) =>
 #endif
 ```
 
+The built-in mappers differ from Android's in one way: they are snapshot mappers. Every key of a control's family
+(for a Label: `Text`, `TextColor`, `FontSize`, `HorizontalTextAlignment`, …) runs the same action, which sends the
+family's complete state to the adapter in one batch. Two things follow:
+
+- Replacing or skipping a key with `ModifyMapping` does not keep that value from the adapter: the next change of any
+  key in the family sends it again with the rest.
+- A value an `AppendToMapping` action writes to the adapter by other means lasts only until that next send.
+
+Use `AppendToMapping` for side effects: tracing, reading the host, hooking events. To change what a control shows,
+set the MAUI property, or give the control an adapter of its own (below).
+
 A handler registered by the app wins over the Sailfish one, whether it replaces a built-in control or serves a
 new one:
 

@@ -169,4 +169,46 @@ public class ImageMeasureTests
 		Assert.False(QtHostImages.ReportNaturalSize(url, (int)(120 * density), (int)(60 * density)));   // no change
 		Assert.Equal(new Size(120, 60), QtHostImages.IntrinsicSize(source));
 	}
+
+	// Two list rows showing one remote URL both measure 0 × 0 while it loads. The first report records the size and
+	// re-measures its row; the second finds the size known, and its row must still grow (handoff W1.7).
+	[Fact]
+	public void Every_row_image_of_a_shared_remote_url_takes_the_size_once_it_loaded()
+	{
+		var url = "https://example.invalid/shared-" + Guid.NewGuid().ToString("N") + ".jpg";
+		var list = new CollectionView
+		{
+			ItemsSource = new[] { url, url, url },
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var image = new Image { HorizontalOptions = LayoutOptions.Start };
+				image.SetBinding(Image.SourceProperty, ".");
+				return image;
+			}),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = list });
+		var native = h.Shim.ByUri("list-view").Single();
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		foreach (var row in new[] { 0, 1 })
+		{
+			var dg = $"maui_{native.Id}__r{row}";
+			h.Shim.AddNative(dg);
+			h.Renderer.HandleNativeEvent("list-item-attached", $"{{\"id\":\"{native.Id}\",\"row\":{row},\"dg\":\"{dg}\"}}");
+		}
+		var hosts = h.Shim.ByUri("image").Where(o => !o.Destroyed).ToList();
+		Assert.Equal(2, hosts.Count);
+		var rows = new[] { (Image)h.Renderer.Collection.RowView(0)!, (Image)h.Renderer.Collection.RowView(1)! };
+		Assert.All(rows, image => Assert.Equal(0, image.Height));
+		var resolved = QtHostImages.Resolve(new UriImageSource { Uri = new Uri(url) })!;
+		var density = SailfishDisplay.Density;
+		foreach (var host in hosts)
+			h.Renderer.HandleNativeEvent("image-natural",
+				$"{{\"id\":\"{host.Id}\",\"source\":\"{resolved}\",\"width\":{(int)(120 * density)},\"height\":{(int)(60 * density)}}}");
+		for (var i = 0; i < 4; i++)
+			h.Renderer.KickedPoll();   // the rows re-measure in the list's own pending pass
+		Assert.All(rows, image => Assert.Equal(60, Math.Round(image.Height)));
+	}
 }
+

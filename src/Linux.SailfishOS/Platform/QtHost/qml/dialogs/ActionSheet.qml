@@ -2,86 +2,78 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../lib/adapter.js" as Adapter
 
-// Adapter: MAUI DisplayActionSheetAsync -> Silica Dialog with a value-button list.
+// Adapter: MAUI DisplayActionSheetAsync -> a system-dialog panel (DialogPanel.qml) listing the choices, as the
+// system's option dialogs (USB mode selector): one full-width row per choice, centred text, highlighted while
+// pressed; the cancel text as the panel's button.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
 // Events: action-selected {id,index,text} (index -1 = destructive entry),
-// action-cancelled (payload = mauiId) on any dismiss.
-Dialog {
+// action-cancelled (payload = mauiId) on the cancel button or a tap on the dimmed page.
+DialogPanel {
     id: root
 
-    property string mauiId: ""
-    property string mauiProbe: "sheet:" + root.mauiActions.length
-    signal mauiEvent(string name, string payload)
+    mauiProbe: "sheet:" + root.mauiActions.length
 
-    // Adapter events are suppressed while managed pushes are applied (no echo loop).
-    property bool mauiApplying: false
-
-    property string mauiTitle: ""
     property string mauiCancel: ""
     property string mauiDestruction: ""
     property var mauiActions: []
 
-    // Entry items, for mapping injected diagnostic taps.
+    // Entry items (each has `label`), for mapping injected diagnostic taps.
     property var __items: []
-    // Set before accept() so a selection is not also reported as a dismiss.
-    property bool __selected: false
 
-    // A dialog page has no managed background; without this the dark-ambience
-    // (white) labels would be white-on-white.
-    Rectangle {
-        anchors.fill: parent
-        z: -1
-        color: "#000000"
+    function __select(index, text) {
+        if (root.closing)
+            return
+        root.closing = true
+        mauiEvent("action-selected", JSON.stringify({ id: root.mauiId, index: index, text: text }))
     }
 
-    DialogHeader {
-        id: header
-        title: root.mauiTitle
-        acceptText: ""      // entries select — no accept decoration
-        cancelText: root.mauiCancel.length > 0 ? root.mauiCancel : "Cancel"
+    cancelText: mauiCancel
+
+    // Destructive entry first, in the palette's error colour (MAUI's red destruction button).
+    BackgroundItem {
+        id: destructive
+        property string label: root.mauiDestruction
+        visible: root.mauiDestruction.length > 0
+        width: parent.width
+        height: Theme.itemSizeSmall
+        onClicked: root.__select(-1, root.mauiDestruction)
+        Label {
+            x: Theme.horizontalPageMargin
+            width: parent.width - 2 * x
+            anchors.verticalCenter: parent.verticalCenter
+            // The label sits in the BackgroundItem's contentItem: address the row by id, not parent.
+            text: destructive.label
+            horizontalAlignment: Text.AlignHCenter
+            truncationMode: TruncationMode.Fade
+            color: destructive.highlighted ? Theme.highlightColor : palette.errorColor
+        }
+        Component.onCompleted: root.__items.push(this)
     }
-    SilicaFlickable {
-        anchors { left: parent.left; right: parent.right; bottom: parent.bottom
-                  top: header.bottom; topMargin: Theme.paddingMedium }
-        contentHeight: list.height + Theme.paddingLarge * 2
-        Column {
-            id: list
+    Repeater {
+        model: root.mauiActions
+        BackgroundItem {
+            id: entry
+            property string label: modelData
             width: parent.width
-            spacing: Theme.paddingSmall
-            // Destructive entry first, in red (Jolla convention; Silica has no public
-            // destructive color token).
-            ValueButton {
-                visible: root.mauiDestruction.length > 0
-                label: root.mauiDestruction
-                labelColor: "#ff4d4d"
-                onClicked: {
-                    root.__selected = true
-                    mauiEvent("action-selected",
-                              JSON.stringify({ id: root.mauiId, index: -1,
-                                               text: root.mauiDestruction }))
-                    root.accept()
-                }
-                Component.onCompleted: root.__items.push(this)
+            height: Theme.itemSizeSmall
+            onClicked: root.__select(index, modelData)
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * x
+                anchors.verticalCenter: parent.verticalCenter
+                text: entry.label
+                horizontalAlignment: Text.AlignHCenter
+                truncationMode: TruncationMode.Fade
+                color: entry.highlighted ? Theme.highlightColor : Theme.primaryColor
             }
-            Repeater {
-                model: root.mauiActions
-                ValueButton {
-                    label: modelData
-                    onClicked: {
-                        root.__selected = true
-                        mauiEvent("action-selected",
-                                  JSON.stringify({ id: root.mauiId, index: index,
-                                                   text: modelData }))
-                        root.accept()
-                    }
-                    Component.onCompleted: root.__items.push(this)
-                }
-            }
+            Component.onCompleted: root.__items.push(this)
         }
     }
+    // Room under the last entry when no cancel button follows.
+    Item {
+        width: parent.width
+        height: root.mauiCancel.length > 0 ? 0 : Theme.paddingLarge
+    }
 
-    // Header cancel / swipe-down / hardware back → the cancel text result.
     onRejected: Adapter.emit(root, "action-cancelled")
-    // A bare swipe-up accept is also a dismiss, so the managed task never hangs.
-    onAccepted: if (!__selected) Adapter.emit(root, "action-cancelled")
 }

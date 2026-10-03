@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": "@SAILFISH_VERSION@",
   "workloads": {
     "sailfish": {
       "description": ".NET MAUI on Sailfish OS (Qt/Silica host, linux-arm64)",

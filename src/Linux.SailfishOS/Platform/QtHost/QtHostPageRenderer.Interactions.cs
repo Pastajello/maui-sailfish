@@ -329,8 +329,8 @@ internal sealed partial class QtHostPageRenderer
 	private static void FireMenuItem(MenuItem item) =>
 		((IMenuItemController)item).Activate();
 
-	/// <summary>Pushes the AlertDialog adapter on the Silica pageStack and awaits accept/reject; the dialog pops
-	/// itself. A null accept means a single-button alert.</summary>
+	/// <summary>Opens the AlertDialog adapter over the page (a system-dialog panel) and awaits accept/reject; the
+	/// dialog closes itself. A null accept means a single-button alert (its one button accepts).</summary>
 	public async Task<bool> PushAlertAsync(string title, string message, string? accept, string cancel) =>
 		await PushDialogCore("alert-dialog", new Dictionary<string, object?>
 		{
@@ -341,7 +341,7 @@ internal sealed partial class QtHostPageRenderer
 			["mauiCancel"] = cancel,
 		}, "Alert") is true;
 
-	/// <summary>DisplayPromptAsync: pushes the PromptDialog adapter (Silica TextField; Maliit follows focus).
+	/// <summary>DisplayPromptAsync: opens the PromptDialog adapter (Silica TextField; Maliit follows focus).
 	/// Returns the entered text, or null when dismissed.</summary>
 	public async Task<string?> PushPromptAsync(string title, string message, string accept, string cancel,
 		string placeholder, string initialValue, int maxLength, bool numeric) =>
@@ -358,7 +358,7 @@ internal sealed partial class QtHostPageRenderer
 			["mauiNumeric"] = numeric,
 		}, "Prompt");
 
-	/// <summary>DisplayActionSheetAsync: pushes the ActionSheet adapter. Returns the picked entry text, or the
+	/// <summary>DisplayActionSheetAsync: opens the ActionSheet adapter. Returns the picked entry text, or the
 	/// cancel text when dismissed.</summary>
 	public async Task<string> PushActionSheetAsync(string title, string? cancel, string? destruction,
 		IReadOnlyList<string> buttons)
@@ -375,7 +375,7 @@ internal sealed partial class QtHostPageRenderer
 		return result ?? _sheetCancel;
 	}
 
-	/// <summary>Shared dialog push: one dialog at a time (the busy gate and navigation sync wait while one is
+	/// <summary>Shared dialog open: one dialog at a time (the busy gate and navigation sync wait while one is
 	/// pending). Push failures complete with null.</summary>
 	private Task<object?> PushDialogCore(string uri, object props, string label)
 	{
@@ -390,7 +390,7 @@ internal sealed partial class QtHostPageRenderer
 		DialogPushes++;
 		var json = BridgeValue.Serialize(props);
 		var rc = QtHostRuntime.Eval($"{QmlPage.Model}.__pushDialog('{src}',{BridgeValue.Quote(json)})");
-		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"Silica {label} dialog push rc={rc}");
+		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"{label} dialog open rc={rc}");
 		if (rc != "ok")
 		{
 			_dialogTcs = null;
@@ -404,7 +404,7 @@ internal sealed partial class QtHostPageRenderer
 		var tcs = _dialogTcs;
 		_dialogTcs = null;
 		DialogResults++;
-		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"Silica Dialog result={result?.ToString() ?? "<null>"}");
+		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"Dialog result={result?.ToString() ?? "<null>"}");
 		tcs?.TrySetResult(result);
 	}
 

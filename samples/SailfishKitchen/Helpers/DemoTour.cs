@@ -37,6 +37,8 @@ internal static class DemoTour
 		// KITCHEN_TOUR_DELAY_MS lets a slow-starting screen recorder catch the whole run.
 		await Task.Delay(int.TryParse(Environment.GetEnvironmentVariable("KITCHEN_TOUR_DELAY_MS"), out var delay) ? delay : 2500);
 
+		// Closes the startup window, so "catalog opened" measures the push alone.
+		Log("ready");
 		await navigation.OpenCatalogAsync(MealQuery.ByCategory("Beef"));
 		Log("catalog opened");
 		await Task.Delay(3000);

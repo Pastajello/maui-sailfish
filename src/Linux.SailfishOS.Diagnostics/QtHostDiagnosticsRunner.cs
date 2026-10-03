@@ -71,7 +71,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private Page? _qtNavStartPage;       // top-of-stack page at cycle start (Statistics)
 	private readonly DiagChecks _qtNavChecks = new("Qt nav diag");
 
-	// Popup diag (MAUI_SAILFISH_QT_HOST_POPUP_DIAG=1): alert, prompt and action sheet against native Silica dialogs, plus SailfishBottomSheet → DockedPanel.
+	// Popup diag (MAUI_SAILFISH_QT_HOST_POPUP_DIAG=1): alert, prompt and action sheet against the dialog panels, plus SailfishBottomSheet → DockedPanel.
 	private bool _qtPopupDiag;
 	private int _qtPopupBaseDepth;                  // native model-page depth at cycle start
 	private Task<bool>? _qtPopupAlert;              // leg A DisplayAlertAsync task
@@ -1176,7 +1176,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				Shot(dispatcher, "visual-pinch", () =>
 				{
 					box.Scale = 1;
-					FinishQtVisualDiagnostics();
+					RunQtVisualAnimationLeg(renderer, dispatcher);
 				});
 			});
 		}
@@ -1381,6 +1381,36 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				$"of {st.ElementAtOrDefault(8):F0}×{st.ElementAtOrDefault(9):F0}", stretchOk);
 			Shot(dispatcher, "visual-3d", () => RunQtVisualPinchLeg(renderer, dispatcher));
 		});
+	}
+
+	/// <summary>Visual leg G: a MAUI animation (RotateToAsync) ticks on Qt's frame clock: one tick per frame the panel
+	/// shows, on time, and a transform-only animation runs no layout pass.</summary>
+	private void RunQtVisualAnimationLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
+		var box = renderer.CurrentHosts.Select(h => h.Element).OfType<Microsoft.Maui.Controls.BoxView>()
+			.FirstOrDefault(b => b.GestureRecognizers.OfType<PinchGestureRecognizer>().Any());
+		if (box is null)
+		{
+			_qtVisualChecks.Check("animation: the gallery's pinch box found", false);
+			FinishQtVisualDiagnostics();
+			return;
+		}
+		var ticks = QtHost.SailfishFrameTicker.Ticks;
+		var layouts = renderer.LayoutPasses;
+		var clock = System.Diagnostics.Stopwatch.StartNew();
+		box.RotateToAsync(360, 600).ContinueWith(_ => dispatcher.Dispatch(() =>
+		{
+			clock.Stop();
+			var n = QtHost.SailfishFrameTicker.Ticks - ticks;
+			var passes = renderer.LayoutPasses - layouts;
+			// One tick per frame the panel shows: ~36 at 60 Hz, ~54 on the Jolla's ~90 Hz panel.
+			var hz = n * 1000.0 / Math.Max(1, clock.ElapsedMilliseconds);
+			_qtVisualChecks.Check($"animation: RotateTo 600 ms took {clock.ElapsedMilliseconds} ms in {n} frame ticks " +
+				$"({hz:F0} per second, the panel's rate), {passes} layout passes",
+				clock.ElapsedMilliseconds is >= 550 and <= 900 && hz is >= 40 and <= 125 && passes == 0);
+			box.Rotation = 0;
+			FinishQtVisualDiagnostics();
+		}), TaskScheduler.Default);
 	}
 
 	private void FinishQtVisualDiagnostics()
@@ -2215,7 +2245,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	}
 
 	// Legs F–I (Sailfish interaction surfaces): F long-press → ContextMenu → MenuFlyoutItem.Clicked, G/G2 pulley gestures → ToolbarItems,
-	// H DockedPanel + Drawer synthetic hosts, I PushAlertAsync dialog accepted by an injected tap (same window, so injectable).
+	// H DockedPanel + Drawer synthetic hosts, I PushAlertAsync dialog panel accepted by an injected tap (same window, so injectable).
 	private void RunQtCtlInteractionLegs(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
 		// Scroll the long-press target into view: Qt delivers no touch to content scrolled out of the viewport.
@@ -2436,33 +2466,22 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 
 	private void RunQtCtlDialogLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
-		// Stack depth here depends on the pages pushed before (root + startup nav + gallery), so measure it before the dialog push.
+		// Stack depth here depends on the pages pushed before (root + startup nav + gallery); the dialog must not change it.
 		var baseDepth = DiagQml.EvalNum("pageStack.depth");
-		var dialogTask = renderer.PushAlertAsync("Q11 Dialog", "Group E Silica Dialog surface", "Accept", "Cancel");
+		var dialogTask = renderer.PushAlertAsync("Q11 Dialog", "Group E dialog panel", "Accept", "Cancel");
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(800), () =>
 		{
 			var depth = DiagQml.EvalNum("pageStack.depth");
-			var title = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiTitle || ''");
-			_qtCtlChecks.Check($"Silica Dialog pushed on the pageStack: depth={depth:F0}=={baseDepth + 1:F0}, title='{title}'=='Q11 Dialog'",
-				depth == baseDepth + 1 && title == "Q11 Dialog");
-			// The dialog lives in the same window (unlike the wheel dialogs), so its DialogHeader Accept is pointer-injectable.
-			var pt = QtHost.QtHostRuntime.Eval(
-				"(function(){var d=pageStack.currentPage;function F(o){if(o.acceptText!==undefined)return o;for(var i=0;i<o.children.length;++i){var r=F(o.children[i]);if(r)return r;}return null;}var h=F(d);if(!h)return '-1,-1';var p=h.mapToItem(d,h.width-40,h.height/2);return p.x+','+p.y;})()");
-			if (CtlTryPoint(pt, out var ax, out var ay))
-			{
-				Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg I — injecting a tap on the DialogHeader Accept at {ax:F0},{ay:F0}");
-				DiagQml.Tap(ax, ay);
-			}
-			else
-			{
-				Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg I — accept header geometry unavailable ('{pt}'), tap skipped");
-			}
+			var title = OpenDialogEval("d.mauiTitle");
+			_qtCtlChecks.Check($"dialog panel opened over the page: depth={depth:F0}=={baseDepth:F0}, title='{title}'=='Q11 Dialog'",
+				depth == baseDepth && title == "Q11 Dialog");
+			InjectDialogAcceptTap("Qt controls diag: leg I");
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), () =>
 			{
-				var depth2 = DiagQml.EvalNum("pageStack.depth");
 				var accepted = dialogTask.IsCompletedSuccessfully && dialogTask.Result;
-				_qtCtlChecks.Check($"injected Accept tap → alert-accepted → task result={accepted}, dialog popped: depth={depth2:F0}=={baseDepth:F0}",
-					accepted && depth2 == baseDepth);
+				var open = OpenDialogEval("'open'");
+				_qtCtlChecks.Check($"injected Accept tap → alert-accepted → task result={accepted}, panel closed (open='{open}'=='')",
+					accepted && open.Length == 0);
 				FinishQtControlsDiagnostics(renderer, dispatcher);
 			});
 		});
@@ -2906,7 +2925,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
 	}
 
-	// Popup diag: MAUI popups surface as native Silica dialogs via the AlertManager bridge and results flow back into the awaited tasks.
+	// Popup diag: MAUI popups surface as system-dialog panels via the AlertManager bridge and results flow back into the awaited tasks.
 	// Legs: A alert + injected accept, B prompt (field focus, Maliit, injected keys), C action sheet (destructive first),
 	// D BottomSheet → DockedPanel (Show, in-place Update, native close write-back).
 
@@ -2921,14 +2940,14 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			return;
 		}
 		_qtPopupBaseDepth = renderer.NativePageIds.Count;
-		_qtPopupChecks.Check($"baseline: current page '{page.Title}' at native depth {_qtPopupBaseDepth}>=1 — dialogs push onto the same Silica pageStack",
+		_qtPopupChecks.Check($"baseline: current page '{page.Title}' at native depth {_qtPopupBaseDepth}>=1 — dialogs open over it as panels",
 			_qtPopupBaseDepth >= 1);
 		_qtPopupChecks.Check($"alert bridge armed: window handler attached={win?.Handler is not null}, page platform-enabled={page.IsPlatformEnabled} (AlertManager.Subscribe resolved the Qt-host IAlertManagerSubscription when the page handler attached)",
 			win?.Handler is not null && page.IsPlatformEnabled);
 
-		// Leg A: DisplayAlertAsync (the real MAUI API) → Silica AlertDialog.
-		Console.Error.WriteLine("[Sailfish] Qt popup diag: leg A — Page.DisplayAlertAsync → dialogs/AlertDialog (accept via injected DialogHeader tap)");
-		_qtPopupAlert = page.DisplayAlertAsync("Q13 Alert", "Silica Dialog surfaced through the MAUI AlertManager bridge", "Accept", "Cancel");
+		// Leg A: DisplayAlertAsync (the real MAUI API) → AlertDialog panel.
+		Console.Error.WriteLine("[Sailfish] Qt popup diag: leg A — Page.DisplayAlertAsync → dialogs/AlertDialog (accept via injected button tap)");
+		_qtPopupAlert = page.DisplayAlertAsync("Q13 Alert", "A system-dialog panel surfaced through the MAUI AlertManager bridge", "Accept", "Cancel");
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(900),
 			() => VerifyPopupLegA(renderer, dispatcher, page));
 	}
@@ -2936,19 +2955,20 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private void VerifyPopupLegA(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Page page)
 	{
 		var depth = DiagQml.EvalNum("pageStack.depth");
-		var title = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiTitle || ''");
-		_qtPopupChecks.Check($"leg A alert surface: pageStack depth {depth:F0}=={_qtPopupBaseDepth + 1}, top dialog title '{title}'=='Q13 Alert' (DisplayAlertAsync pushed a native Silica Dialog)",
-			depth == _qtPopupBaseDepth + 1 && title == "Q13 Alert");
+		var title = OpenDialogEval("d.mauiTitle");
+		var panel = OpenDialogEval("Math.round(d.__panel.height)+'/'+Math.round(d.height)");
+		_qtPopupChecks.Check($"leg A alert surface: pageStack depth {depth:F0}=={_qtPopupBaseDepth} (nothing pushed), panel title '{title}'=='Q13 Alert', panel height/page {panel} under half — the page stays visible below",
+			depth == _qtPopupBaseDepth && title == "Q13 Alert" && PanelUnderHalf(panel));
 		var grabRc = QtHost.QtHostRuntime.GrabPng("/tmp/q13-alert.png");
 		Console.Error.WriteLine($"[Sailfish] Qt popup diag: leg A screenshot rc={grabRc} -> /tmp/q13-alert.png");
-		PopupInjectDialogAccept("leg A", dispatcher, () =>
+		Shot(dispatcher, "popup-alert", () => PopupInjectDialogAccept("leg A", dispatcher, () =>
 		{
 			var alert = _qtPopupAlert!;
 			_qtPopupChecks.Check($"leg A result: injected accept tap → alert-accepted → Task<bool> completed={alert.IsCompleted} result={(alert.IsCompletedSuccessfully ? alert.Result.ToString() : "?")}==True — the native result reached MAUI",
 				alert.IsCompletedSuccessfully && alert.Result);
-			var depth2 = DiagQml.EvalNum("pageStack.depth");
-			_qtPopupChecks.Check($"leg A lifecycle: the dialog popped itself (depth {depth2:F0}=={_qtPopupBaseDepth})",
-				depth2 == _qtPopupBaseDepth);
+			var open = OpenDialogEval("'open'");
+			_qtPopupChecks.Check($"leg A lifecycle: the panel closed itself (open='{open}'=='', depth {DiagQml.EvalNum("pageStack.depth"):F0}=={_qtPopupBaseDepth})",
+				open.Length == 0 && DiagQml.EvalNum("pageStack.depth") == _qtPopupBaseDepth);
 
 			// Leg B: DisplayPromptAsync → native TextField + Maliit keyboard.
 			Console.Error.WriteLine("[Sailfish] Qt popup diag: leg B — Page.DisplayPromptAsync → dialogs/PromptDialog (native field focus, injected key taps)");
@@ -2956,30 +2976,49 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				accept: "Save", cancel: "Cancel", placeholder: "text");
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(900),
 				() => VerifyPopupLegB(renderer, dispatcher, page));
-		});
+		}));
 	}
 
-	/// <summary>Injects a tap on the top dialog's DialogHeader accept hotspot, then invokes <paramref name="after"/> once it has settled.</summary>
+	/// <summary>Injects a tap on the open dialog panel's accept button, then invokes <paramref name="after"/> once it has settled.</summary>
 	private void PopupInjectDialogAccept(string leg, SailfishDispatcher dispatcher, Action after)
 	{
-		var pt = QtHost.QtHostRuntime.Eval(
-			"(function(){var d=pageStack.currentPage;function F(o){if(o.acceptText!==undefined)return o;for(var i=0;i<o.children.length;++i){var r=F(o.children[i]);if(r)return r;}return null;}var h=F(d);if(!h)return '-1,-1';var p=h.mapToItem(d,h.width-40,h.height/2);return p.x+','+p.y;})()");
+		InjectDialogAcceptTap($"Qt popup diag: {leg}");
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), after);
+	}
+
+	/// <summary>The dialog panel open over the current page (dialogs/DialogPanel.qml), as JS; null when none is.</summary>
+	private const string OpenDialogJs = "(pageStack.currentPage&&pageStack.currentPage.__dialog)";
+
+	/// <summary>Evaluates <paramref name="expr"/> with <c>d</c> = the open dialog panel; "" when none is open.</summary>
+	private static string OpenDialogEval(string expr) =>
+		QtHost.QtHostRuntime.Eval($"(function(){{var d={OpenDialogJs};return d?String({expr}):'';}})()");
+
+	/// <summary>"panel/page" heights (from <see cref="OpenDialogEval"/>) with the panel under half the page.</summary>
+	private static bool PanelUnderHalf(string heights)
+	{
+		var parts = heights.Split('/');
+		return parts.Length == 2 && DiagQml.Num(parts[0]) > 0 && DiagQml.Num(parts[0]) < DiagQml.Num(parts[1]) / 2;
+	}
+
+	/// <summary>Injects a tap on the centre of the open dialog panel's accept button.</summary>
+	private static void InjectDialogAcceptTap(string leg)
+	{
+		var pt = OpenDialogEval("(function(){var b=d.__acceptItem,p=b.mapToItem(pageStack.currentPage,b.width/2,b.height/2);return b.visible?p.x+','+p.y:'-1,-1';})()");
 		if (CtlTryPoint(pt, out var ax, out var ay))
 		{
-			Console.Error.WriteLine($"[Sailfish] Qt popup diag: {leg} — injecting a tap on the DialogHeader Accept at {ax:F0},{ay:F0}");
+			Console.Error.WriteLine($"[Sailfish] {leg} — injecting a tap on the dialog's accept button at {ax:F0},{ay:F0}");
 			DiagQml.Tap(ax, ay);
 		}
 		else
 		{
-			Console.Error.WriteLine($"[Sailfish] Qt popup diag: {leg} — accept header geometry unavailable ('{pt}'), tap skipped");
+			Console.Error.WriteLine($"[Sailfish] {leg} — accept button geometry unavailable ('{pt}'), tap skipped");
 		}
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), after);
 	}
 
 	private void VerifyPopupLegB(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Page page)
 	{
-		var title = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiTitle || ''");
-		var probe = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiProbe || ''");
+		var title = OpenDialogEval("d.mauiTitle");
+		var probe = OpenDialogEval("d.mauiProbe");
 		var vkb = QtHost.QtHostRuntime.Eval("(function(){try{return Qt.inputMethod.visible?'1':'0';}catch(e){return '?';}})()");
 		_qtPopupChecks.Check($"leg B prompt surface: title '{title}'=='Q13 Prompt', field probe '{probe}' — the native TextField took focus on dialog activation (activeFocus=true; the Maliit VKB follows: Qt.inputMethod.visible={vkb}, screenshot is the visual evidence)",
 			title == "Q13 Prompt" && probe.StartsWith("true|", StringComparison.OrdinalIgnoreCase));
@@ -2990,10 +3029,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		InjectQtKeyTap(QtHost.QtHostRuntime.QtKeyA + ('K' - 'A'), "K");
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(700), () =>
 		{
-			var probe2 = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiProbe || ''");
+			var probe2 = OpenDialogEval("d.mauiProbe");
 			_qtPopupChecks.Check($"leg B native keyboard input: injected key taps landed in the native field (probe '{probe2}' ends '|OK')",
 				probe2.EndsWith("|OK", StringComparison.Ordinal));
-			PopupInjectDialogAccept("leg B", dispatcher, () =>
+			Shot(dispatcher, "popup-prompt", () => PopupInjectDialogAccept("leg B", dispatcher, () =>
 			{
 				var prompt = _qtPopupPrompt!;
 				_qtPopupChecks.Check($"leg B result: accept tap → prompt-accepted → Task<string> completed={prompt.IsCompleted} result='{(prompt.IsCompletedSuccessfully ? prompt.Result ?? "<null>" : "?")}'=='OK' — the entered text reached MAUI",
@@ -3004,27 +3043,39 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				_qtPopupSheet = page.DisplayActionSheetAsync("Q13 Sheet", "Cancel", "Delete", "Share", "Archive");
 				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(900),
 					() => VerifyPopupLegC(renderer, dispatcher));
-			});
+			}));
 		});
 	}
 
 	private void VerifyPopupLegC(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
-		var title = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiTitle || ''");
-		var items = QtHost.QtHostRuntime.Eval(
-			"(function(){var it=(pageStack.currentPage.__items||[]).slice();it.sort(function(a,b){return a.y-b.y;});var s=[];for(var i=0;i<it.length;i++)s.push(it[i].label+(it[i].visible?'':'(hidden)'));return s.join(',');})()");
-		var cancel = QtHost.QtHostRuntime.Eval(
-			"(function(){var d=pageStack.currentPage;function F(o){if(o.cancelText!==undefined)return o;for(var i=0;i<o.children.length;++i){var r=F(o.children[i]);if(r)return r;}return null;}var h=F(d);return h?h.cancelText:'?'})()");
-		_qtPopupChecks.Check($"leg C sheet surface: title '{title}'=='Q13 Sheet', entries [{items}] with the destructive 'Delete' FIRST, cancel '{cancel}'=='Cancel' in the DialogHeader",
+		var title = OpenDialogEval("d.mauiTitle");
+		var items = OpenDialogEval(
+			"(function(){var it=(d.__items||[]).slice();it.sort(function(a,b){return a.y-b.y;});var s=[];for(var i=0;i<it.length;i++)s.push(it[i].label+(it[i].visible?'':'(hidden)'));return s.join(',');})()");
+		var cancel = OpenDialogEval("d.__cancelItem.visible?d.cancelText:'(hidden)'");
+		_qtPopupChecks.Check($"leg C sheet surface: title '{title}'=='Q13 Sheet', entries [{items}] with the destructive 'Delete' FIRST, cancel button '{cancel}'=='Cancel'",
 			title == "Q13 Sheet" && items.StartsWith("Delete,", StringComparison.Ordinal) &&
 			items.Contains("Share", StringComparison.Ordinal) &&
 			items.Contains("Archive", StringComparison.Ordinal) &&
 			cancel == "Cancel");
+		// Entries that exist but paint nothing (a zero-width row) passed every other check once.
+		var sizes = QtHost.QtHostRuntime.Eval(
+			"(function(){function T(o){if(o.text!==undefined&&o.text!=='')return o.text;var k=o.children||[];for(var j=0;j<k.length;j++){var t=T(k[j]);if(t)return t;}return '';}" +
+			"var d=" + OpenDialogJs + ",it=d?d.__items||[]:[],s=[];for(var i=0;i<it.length;i++)if(it[i].visible)s.push(Math.round(it[i].width)+'x'+Math.round(it[i].height)+':'+T(it[i]));return s.join(',');})()");
+		var pageWidth = DiagQml.EvalNum("pageStack.currentPage.width");
+		_qtPopupChecks.Check($"leg C sheet rows span the page and show their text: [{sizes}] each {pageWidth:F0} wide",
+			sizes.Length > 0 && sizes.Split(',').All(r => r.StartsWith(((int)Math.Round(pageWidth)).ToString(System.Globalization.CultureInfo.InvariantCulture) + "x", StringComparison.Ordinal) &&
+				!r.Contains("x0:", StringComparison.Ordinal) && !r.EndsWith(':')));
 		var grabRc = QtHost.QtHostRuntime.GrabPng("/tmp/q13-sheet.png");
 		Console.Error.WriteLine($"[Sailfish] Qt popup diag: leg C screenshot rc={grabRc} -> /tmp/q13-sheet.png");
-		// Tap the 'Share' entry: map its center out of the dialog page.
-		var pt = QtHost.QtHostRuntime.Eval(
-			"(function(){var it=pageStack.currentPage.__items||[];for(var i=0;i<it.length;i++){if(it[i].label==='Share'){var p=it[i].mapToItem(pageStack.currentPage,it[i].width/2,it[i].height/2);return p.x+','+p.y;}}return '-1,-1';})()");
+		Shot(dispatcher, "popup-sheet", () => TapPopupSheetEntry(renderer, dispatcher));
+	}
+
+	private void TapPopupSheetEntry(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
+		// Tap the 'Share' entry: map its center into the page.
+		var pt = OpenDialogEval(
+			"(function(){var it=d.__items||[];for(var i=0;i<it.length;i++){if(it[i].label==='Share'){var p=it[i].mapToItem(pageStack.currentPage,it[i].width/2,it[i].height/2);return p.x+','+p.y;}}return '-1,-1';})()");
 		if (CtlTryPoint(pt, out var x, out var y))
 		{
 			Console.Error.WriteLine($"[Sailfish] Qt popup diag: leg C — injecting a tap on the 'Share' entry at {x:F0},{y:F0}");
@@ -3089,7 +3140,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		Console.Error.WriteLine($"[Sailfish] Qt popup diag: counters: dialogPushes={renderer.DialogPushes} dialogResults={renderer.DialogResults} panelOpenChanges={renderer.PanelOpenChanges} nativeSheetCloses={_qtPopupSheetCloses}");
 		_qtPopupChecks.Check($"bridge counters: dialog pushes={renderer.DialogPushes}==3, dialog results={renderer.DialogResults}==3 (alert+prompt+sheet all completed through the bridge)",
 			renderer.DialogPushes == 3 && renderer.DialogResults == 3);
-		_qtPopupChecks.Accept("OK — Q13 MAUI popups (alert/prompt/action sheet) surface as native Silica dialogs with results flowing back into MAUI tasks, and the BottomSheet maps onto the DockedPanel (PLAN Q13)");
+		_qtPopupChecks.Accept("OK — Q13 MAUI popups (alert/prompt/action sheet) surface as system-dialog panels over the page with results flowing back into MAUI tasks, and the BottomSheet maps onto the DockedPanel (PLAN Q13)");
 		Console.Error.WriteLine("[Sailfish] Qt diag: popup diag done; auto-shutdown in 20s (compositor screenshot window)");
 		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
 	}
@@ -3247,23 +3298,24 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		}
 		var dialogs0 = renderer.DialogPushes;
 		var results0 = renderer.DialogResults;
-		Console.Error.WriteLine("[Sailfish] Qt stress diag: leg E — open dialog (DisplayAlertAsync → native Silica AlertDialog)");
+		Console.Error.WriteLine("[Sailfish] Qt stress diag: leg E — open dialog (DisplayAlertAsync → AlertDialog panel)");
 		_qtStressAlert = page.DisplayAlertAsync("Q17 Stress", "dialog open/close leg of the Q17 stress cycle", "Accept", "Cancel");
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(900), () =>
 		{
-			var title = QtHost.QtHostRuntime.Eval("pageStack.currentPage.mauiTitle || ''");
+			var title = OpenDialogEval("d.mauiTitle");
 			var depth = DiagQml.EvalNum("pageStack.depth");
-			_qtStressChecks.Check($"leg E dialog open: DialogPushes +{renderer.DialogPushes - dialogs0}==1, pageStack depth {depth:F0}=={_qtStressBaseDepth + 2}, top title '{title}'=='Q17 Stress'",
-				renderer.DialogPushes - dialogs0 == 1 && depth == _qtStressBaseDepth + 2 && title == "Q17 Stress");
-			// Leg F: close the dialog with an injected tap on the DialogHeader accept.
+			_qtStressChecks.Check($"leg E dialog open: DialogPushes +{renderer.DialogPushes - dialogs0}==1, pageStack depth {depth:F0}=={_qtStressBaseDepth + 1} (the panel is not a page), panel title '{title}'=='Q17 Stress'",
+				renderer.DialogPushes - dialogs0 == 1 && depth == _qtStressBaseDepth + 1 && title == "Q17 Stress");
+			// Leg F: close the dialog with an injected tap on its accept button.
 			Console.Error.WriteLine("[Sailfish] Qt stress diag: leg F — close dialog (injected accept tap)");
 			PopupInjectDialogAccept("Q17 leg F", dispatcher, () =>
 			{
 				var alert = _qtStressAlert!;
 				var depth2 = DiagQml.EvalNum("pageStack.depth");
-				_qtStressChecks.Check($"leg F dialog close: Task<bool> completed={alert.IsCompleted} result={(alert.IsCompletedSuccessfully ? alert.Result.ToString() : "?")}==True, DialogResults +{renderer.DialogResults - results0}==1, the dialog popped itself (depth {depth2:F0}=={_qtStressBaseDepth + 1})",
+				var open = OpenDialogEval("'open'");
+				_qtStressChecks.Check($"leg F dialog close: Task<bool> completed={alert.IsCompleted} result={(alert.IsCompletedSuccessfully ? alert.Result.ToString() : "?")}==True, DialogResults +{renderer.DialogResults - results0}==1, the panel closed itself (open='{open}'=='', depth {depth2:F0}=={_qtStressBaseDepth + 1})",
 					alert.IsCompletedSuccessfully && alert.Result &&
-					renderer.DialogResults - results0 == 1 && depth2 == _qtStressBaseDepth + 1);
+					renderer.DialogResults - results0 == 1 && open.Length == 0 && depth2 == _qtStressBaseDepth + 1);
 				FinishQtStressDiagnostics(renderer, dispatcher, nav);
 			});
 		});

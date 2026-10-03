@@ -8,6 +8,9 @@
     <!-- The device RID must be known at restore (NETSDK1047 otherwise), and restore never sees the package's targets;
          a multi-head app would need it in its csproj without this. 32-bit phones set linux-arm. -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
+    <!-- Self-contained from restore on, so restore downloads the runtime pack (NETSDK1112 on a clean machine
+         otherwise: the package's buildTransitive targets set it, too late for restore). -->
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
   <!-- The backend package comes with the TFM, like an in-box workload's packs: adding net11.0-sailfish to

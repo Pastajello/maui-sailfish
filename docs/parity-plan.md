@@ -206,16 +206,22 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
 - Page-load guard: leg `navback` fails when a push takes longer to Appearing than twice today's time (first
   Statistics 300 ms, Controls 150 ms, Statistics again 120 ms). Every hub page of leg `features` reaches Appearing in
   29–104 ms, Statistics (pushed in the first second) 170 ms.
-- MAUI animations: a transform (TranslationX/Y, Scale*, Rotation*, Anchor*) outside a list row now takes the geometry
-  pass only, without measuring and arranging the page (`SailfishViewMapper.MapTransform`). Still one managed pass per
-  frame; a Qt-side animation path (NumberAnimation driven by FadeTo/TranslateTo) is not done.
+- MAUI animations: since 2026-10-03 they tick on Qt's frame clock (`SailfishFrameTicker`, MAUI's
+  `IAnimationManager` answered by the service overlay): one tick per frame the panel shows (~85–90 Hz on the
+  Jolla phone, leg `visual` G), on the Qt thread, none when nothing animates; a transform outside a list row takes the
+  geometry pass only (`SailfishViewMapper.MapTransform`). The values are still computed by MAUI in managed code each
+  frame, since app code may observe them; a QML NumberAnimation path is not planned.
 - CollectionView row pool: done 2026-10-02 (F4b as recycling, RecyclerView's view holders). Qt 5.6 destroys a
   delegate that scrolls out; its row subtree now outlives it (canvas-owned), waits in a per-list pool, and the next
   row of the same shape takes it over (new ids, only the differences pushed; `MAUI_SAILFISH_ROW_POOL=0` turns it
   off). Kitchen tour: 920 → 690 hosts created, QML ops 920 → 740 ms. A first screen of rows still creates every host;
-  one composite QML component per DataTemplate would be the next step for that.
-- Opening a page with a list (~200 ms stall in Kitchen): split into two turns (page + header first, visible rows
-  in the next frame)? Saves ~80–120 ms but the list is empty for 1–2 frames of the enter animation. Needs a decision.
+  one composite QML component per DataTemplate was measured for that and dropped (leg `adapterbench`: a Kitchen card as
+  one composite 1583 µs against five createObject calls 1667 µs, −5%): the cost is the adapters' own instantiation.
+- Opening a page with a list: done 2026-10-03 (owner decision 3c). A list estimated taller than its viewport (item
+  count, span, a grid cell as tall as wide, at least 40 dp a row) builds its first rows after the page's first frame,
+  at most 200 ms later (`QtHostListAdapter.FirstFrame.cs`, `MAUI_SAILFISH_LIST_FIRST_FRAME=0` turns it off). Kitchen
+  Beef catalog push stall 164–179 → 136–158 ms. What is left is the app's push work and the page creation in one
+  block (75 + 67 ms).
 
 **Platform**
 - Per-page orientation: done 2026-10-02, `SailfishPage.AllowedOrientations` (Silica `Page.allowedOrientations`,
@@ -228,15 +234,22 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   the 2D footprint. Button colours set back to `null` return to Silica's (fixed 2026-10-02, leg `visual` D2).
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
   today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
+  Tried 2026-10-03 in a private SDK (W10 13a): once the tool has installed the manifest, `dotnet workload install
+  sailfish` works in both modes and adds the backend to the SDK's `library-packs` (no NuGet source needed for it),
+  `workload list` and `workload uninstall`. Without the tool it fails ("Workload ID sailfish is not recognized"):
+  the SDK only knows IDs from manifests on disk or from a workload set. Two manifest defects found there are fixed:
+  the manifest version was the number 1 (workload-set mode uninstalled the manifest right after installing it), and
+  restore on a clean machine failed with NETSDK1112 (`SelfContained` now defaults to true in the manifest targets).
+  A workload set of our own would replace Microsoft's for the band and has to be re-cut with each of theirs.
 
-**Deliberately open** (not touched without a new decision)
+**Deliberately open** (not touched without a new decision; confirmed by the owner 2026-10-03)
 - Camera photos (Sailfish has no in-app capture API); Geocoding and TextToSpeech (no provider on the platform).
 - BlazorWebView.
 - `MauiSplashScreen` ignored (Sailfish apps have no splash, `sailfishos-packaging.md`); the ugly
   cold start is a separate defect in `BUG_LIST.md` (S3-1).
 
 **Quality and release**
-- armv7hl on a real device (built, untested).
+- armv7hl on a real device (built, untested; labelled so in the README until a 32-bit device is at hand).
 - NativeAOT: phase 4 frozen by decision G2; `LibraryImport` instead of `DllImport`, `NativeMemory`, B5 (TimeZone
   with InvariantGlobalization), audit 2.14 — [`aot-and-trimming.md`](aot-and-trimming.md).
 - No sfdk integration (RPM from host rpmbuild or `sf-rpmbuild.py`) — known limitation.

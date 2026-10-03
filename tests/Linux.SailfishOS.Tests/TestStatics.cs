@@ -22,6 +22,7 @@ internal sealed class TestStatics : IDisposable
 	private readonly Action _imageSources = QtHostImageSources.CaptureForTests();
 	private readonly double _devicePixelRatio = QtHostUnits.DevicePixelRatio;
 	private readonly bool _rowPool = QtHostListAdapter.RowPoolEnabled;
+	private readonly bool _firstBuildWaitsFrame = QtHostListAdapter.FirstBuildWaitsFrame;
 	private readonly Action _services = QtHostServices.CaptureForTests();
 
 	public void Dispose()
@@ -37,6 +38,7 @@ internal sealed class TestStatics : IDisposable
 		_imageSources();
 		QtHostUnits.DevicePixelRatio = _devicePixelRatio;
 		QtHostListAdapter.RowPoolEnabled = _rowPool;
+		QtHostListAdapter.FirstBuildWaitsFrame = _firstBuildWaitsFrame;
 		_services();
 	}
 }

@@ -300,6 +300,14 @@ one (first Statistics push: QML ops ~110 ms, the second 17–22 ms), which the a
 | Adapter warm-up, first Controls push (leg `navback`) | 54–61 ms to Appearing | 44–45 ms |
 | Adapter warm-up, detail stall | 183–203 ms | 166–170 ms |
 | Threaded canvases (shapes/visual/tree legs, dropped) | 6 slow paints, 219 ms | 11 slow paints, 1598 ms |
+| Composite QML component per card (leg `adapterbench`, dropped) | 1667 µs per card | 1583 µs (−5%) |
+| Animation ticker (leg `visual` G, RotateTo 600 ms) | thread-pool timer, 16 ms | 55 ticks in 644 ms, one per frame, 0 layout passes |
+| Long list's first rows after the page's first frame (Kitchen Beef catalog push, 2026-10-03, 3 runs, `ready` → `catalog opened`) | 164–179 ms | 136–158 ms |
+
+The catalog push after that change (`MAUI_SAILFISH_SLOW_WORK_MS=15`): the app's push work item 75 ms (page
+construction, `PushAsync`), then the poll that creates the page 67 ms (navigation 18, reconcile 46, rows 2), back to
+back; the row model (~33 ms) and the row delegates (~60 ms) follow after frames. The stall that is left is those two
+items in one block.
 
 ## 7. Next steps
 

@@ -97,7 +97,7 @@ dotnet publish samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj \
 dotnet publish samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj \
   -r linux-arm64 -p:SelfContained=true -p:CreateSailfishRpm=true
 
-# 32-bit ARM (armv7hl) device
+# 32-bit ARM (armv7hl) device: builds, never run on a device yet
 dotnet publish samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj \
   -r linux-arm -p:SelfContained=true -p:CreateSailfishRpm=true
 ```
