@@ -24,7 +24,7 @@
       "type": "parameter",
       "datatype": "string",
       "description": "Microsoft.Maui.SailfishOS package version to reference.",
-      "defaultValue": "0.1.0",
+      "defaultValue": "@SAILFISH_VERSION@",
       "replaces": "SAILFISH_PACKAGE_VERSION"
     }
   },

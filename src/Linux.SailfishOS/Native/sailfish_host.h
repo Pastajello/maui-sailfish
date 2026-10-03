@@ -29,10 +29,16 @@ typedef void (*sfhost_log_fn)(int level, const char *message, void *user_data);
  * sailfish_host_last_error(). */
 enum sfhost_err {
     SFHOST_OK            =  0,  /* success */
-    SFHOST_E_ARGS        = -1,  /* bad argument / null / bad JSON / JS error (eval) */
+    SFHOST_E_ARGS        = -1,  /* bad argument / null / bad JSON / host not ready */
     SFHOST_E_PROPERTY    = -2,  /* unknown property / object is not a QQuickItem */
-    SFHOST_E_DEAD_HANDLE = -3   /* handle not in registry or object already destroyed */
+    SFHOST_E_DEAD_HANDLE = -3,  /* handle not in registry or object already destroyed */
+    SFHOST_E_JS          = -4,  /* the JS engine reported an error (eval, page push/pop) */
+    SFHOST_E_LOAD        = -5   /* a QML file did not load (the QML errors are the last error) */
 };
+
+/* Bumped whenever an export's signature, a payload format or an error code changes. The managed side
+ * (QtHostNative.AbiVersion) refuses to start against another version instead of losing features silently. */
+#define SFHOST_ABI_VERSION 3
 
 
 /* Called on the Qt loop every tick_ms milliseconds. */
@@ -55,6 +61,15 @@ typedef void (*sfhost_event_fn)(const char *name, const char *payload,
 
 /* Generic callback run on the Qt thread (bridge for MAUI dispatchers). */
 typedef void (*sfhost_void_fn)(void *user_data);
+
+/* Calls a QML function on the object behind handle: method(arg) when arg is non-null, else method(). The result
+ * (its string form; "" for undefined) goes to out like eval's. Returns its UTF-8 length, SFHOST_E_ARGS,
+ * SFHOST_E_PROPERTY (no such method with that arity) or SFHOST_E_DEAD_HANDLE. Unlike eval nothing is compiled per
+ * call. A JS exception inside the function is logged by the QML engine; the call then answers "". Qt thread only. */
+int sailfish_host_invoke(long long handle, const char *method, const char *arg, char *out, int cap);
+
+/* SFHOST_ABI_VERSION of this build; callable before init. */
+int sailfish_host_abi_version(void);
 
 /* Creates QGuiApplication via SailfishApp::application. Idempotent. */
 int sailfish_host_init(const char *app_name, sfhost_log_fn log, void *log_user);

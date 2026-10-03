@@ -30,12 +30,13 @@ public class NullViewHandler : ViewHandler<IView, object>
 	}
 
 	/// <summary>Constructor for derived handlers with their own mapper.</summary>
-	protected NullViewHandler(PropertyMapper<IView, NullViewHandler> mapper) : base(mapper)
+	protected NullViewHandler(PropertyMapper<IView, NullViewHandler> mapper) : base(mapper, SailfishViewMapper.CommandMapper)
 	{
 	}
 
 	/// <summary>Constructor for handlers that also answer MAUI commands.</summary>
-	protected NullViewHandler(IPropertyMapper mapper, CommandMapper? commandMapper) : base(mapper, commandMapper)
+	protected NullViewHandler(IPropertyMapper mapper, CommandMapper? commandMapper)
+		: base(mapper, commandMapper ?? SailfishViewMapper.CommandMapper)
 	{
 	}
 
@@ -45,12 +46,6 @@ public class NullViewHandler : ViewHandler<IView, object>
 	{
 		SailfishHandlerCore.TraceUpdate(this, property);
 		base.UpdateValue(property);
-	}
-
-	public override void Invoke(string command, object? args = null)
-	{
-		if (!SailfishHandlerCore.TryInvoke(this, command, args))
-			base.Invoke(command, args);
 	}
 
 	public override void PlatformArrange(Rect frame)
@@ -66,19 +61,29 @@ public class NullViewHandler : ViewHandler<IView, object>
 		SailfishHandlerCore.DesiredSize(VirtualView, widthConstraint, heightConstraint, null);
 }
 
+/// <summary>A handler whose control takes native (Qt) focus; null = not native yet or no native focus.</summary>
+internal interface ISailfishNativeFocus
+{
+	bool? FocusNatively(bool focus);
+}
+
 /// <summary>What every Sailfish view handler does the same way, typed or not.</summary>
 internal static class SailfishHandlerCore
 {
-	/// <summary>Hosts of handlers connected while no renderer runs; they never attach natively.</summary>
+	/// <summary>Hosts of handlers whose services carry no render session (a bare provider in a test); they never
+	/// attach natively.</summary>
 	private static readonly NativeHostCache Detached = new();
 
-	/// <summary>The element's host: the renderer's (the same instance the reconcile uses), unbound while no adapter
-	/// is chosen.</summary>
-	public static NativeElementHost HostFor(IView view, string? adapterUri)
+	/// <summary>The render session of a handler's MAUI context.</summary>
+	public static SailfishRenderSession? SessionOf(IElementHandler handler) => SailfishRenderSession.Of(handler.MauiContext?.Services);
+
+	/// <summary>The element's host from the session's cache (the same instance the reconcile uses, whether the
+	/// renderer runs yet or not), unbound while no adapter is chosen.</summary>
+	public static NativeElementHost HostFor(IElementHandler handler, IView view, string? adapterUri)
 	{
 		if (view is not Element element)
 			throw new InvalidOperationException($"{view.GetType()} is not a MAUI Element; Sailfish hosts are keyed on elements");
-		return (QtHostPageRenderer.Current?.Cache ?? Detached).GetOrAddForHandler(element, adapterUri);
+		return (SessionOf(handler)?.Cache ?? Detached).GetOrAddForHandler(element, adapterUri);
 	}
 
 	/// <summary>Traces which property names reach the handler at runtime.</summary>
@@ -88,32 +93,28 @@ internal static class SailfishHandlerCore
 			QtHostDiag.Trace(QtHostDiagChannel.QmlProperty, $"update-value {handler.GetType().Name} {property}");
 	}
 
-	/// <summary>
-	/// The commands every Sailfish view handler answers the same way: InvalidateMeasure asks for a layout pass (a
-	/// native view would request one), and Focus/Unfocus write IsFocused, since an unanswered FocusRequest throws on
-	/// Result. Qt is the focus source; the renderer mirrors adapter focus changes into MAUI through these commands.
-	/// Returns true when the command is consumed.
-	/// </summary>
-	public static bool TryInvoke(IViewHandler handler, string command, object? args)
+	/// <summary>Focus(): Qt decides where the control has native focus (<see cref="ISailfishNativeFocus"/>) and
+	/// IsFocused follows, as the platforms write it back from their focus change; otherwise IsFocused is written and
+	/// the request granted, since an unanswered FocusRequest throws on Result.</summary>
+	public static void MapFocus(IViewHandler handler, IView view, object? args) => ApplyFocus(handler, view, args, true);
+
+	public static void MapUnfocus(IViewHandler handler, IView view, object? args) => ApplyFocus(handler, view, args, false);
+
+	private static void ApplyFocus(IViewHandler handler, IView view, object? args, bool focus)
 	{
-		switch (command)
-		{
-			case nameof(IView.InvalidateMeasure):
-				QtHostPageRenderer.Current?.RequestLayout();
-				return false;
-			case nameof(IView.Focus):
-				if (handler.VirtualView is VisualElement focusing)
-					focusing.SetValue(VisualElement.IsFocusedPropertyKey, true);
-				if (args is FocusRequest focusRequest)
-					focusRequest.TrySetResult(true);
-				return true;
-			case nameof(IView.Unfocus):
-				if (handler.VirtualView is VisualElement unfocusing)
-					unfocusing.SetValue(VisualElement.IsFocusedPropertyKey, false);
-				return true;
-			default:
-				return false;
-		}
+		var native = (handler as ISailfishNativeFocus)?.FocusNatively(focus);
+		var granted = native ?? true;
+		if (view is VisualElement visual)
+			visual.SetValue(VisualElement.IsFocusedPropertyKey, focus && granted);
+		if (focus || native is not null)
+			(args as FocusRequest)?.TrySetResult(granted);
+	}
+
+	/// <summary>InvalidateMeasure(): a layout pass, as a native view would request one.</summary>
+	public static void MapInvalidateMeasure(IViewHandler handler, IView view, object? args)
+	{
+		SessionOf(handler)?.RequestLayout();
+		ViewHandler.MapInvalidateMeasure(handler, view, args);
 	}
 
 	/// <summary>

@@ -22,7 +22,7 @@ dotnet build Linux.Sailfish.slnx -c Release
 # 5. capture what the user sees
 ./tools/sf screenshot /tmp/sf_now.png
 
-# 6. full unattended acceptance matrix (27 legs, verdicts per leg)
+# 6. full unattended acceptance matrix (31 legs, verdicts per leg)
 ./tools/sf matrix
 
 # 7. packaging cycle: RPM build → install → launcher spawn → remove → restore
@@ -156,7 +156,8 @@ Runtime knobs and probes for any app (full names):
 `tools/sf matrix` wraps these into named legs:
 `page controls nav popup collection collection10 collection100 collection500
 shapes visual text input geometry reconcile bridge stress perf error tree
-shell containers pulley navback features f3 f4 adapterbench`.
+shell containers pulley tabpulley silica navback features f3 f4 adapterbench skia skiainput`
+(`ALL_LEGS` in `tools/cmd/matrix.sh`; the skia legs run `samples/SkiaSharpProbe`).
 
 ## Recording the phone's screen
 

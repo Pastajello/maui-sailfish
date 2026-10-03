@@ -76,6 +76,6 @@ public class SailfishWindowHandler : ElementHandler<IWindow, object>
 	{
 		if (window.Content is IView { Handler: null } root && handler.MauiContext is { } context)
 			SailfishHandlersFactory.AttachRootHandler(root, context);
-		QtHostPageRenderer.RequestPoll();
+		SailfishHandlerCore.SessionOf(handler)?.RequestPoll();
 	}
 }

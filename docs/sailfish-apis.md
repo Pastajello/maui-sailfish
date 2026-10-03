@@ -49,14 +49,14 @@ countdown, for example before the data they act on reloads.
 A Silica `DockedPanel` docked to a screen edge. It follows the user's drag; `IsOpen` and `OpenChanged` report it.
 
 ```csharp
-using var sheet = new SailfishBottomSheet { Text = "3 tasks due today", Dock = "bottom" };
+using var sheet = new SailfishBottomSheet { Text = "3 tasks due today", Dock = SailfishDockEdge.Bottom };
 sheet.OpenChanged += (_, open) => Debug.WriteLine($"panel open: {open}");
 sheet.Show();
 // …
 sheet.Hide();   // Show() again later; Close()/Dispose() releases it
 ```
 
-`Dock` is `"bottom"` (default), `"top"`, `"left"` or `"right"`; `Size` sets the extent (0 = Silica's default),
+`Dock` is a `SailfishDockEdge`: `Bottom` (default), `Top`, `Left` or `Right`; `Size` sets the extent (0 = Silica's default),
 `Update()` pushes changed properties to an open panel.
 
 <img src="media/api/bottom-sheet.gif" width="220" alt="A DockedPanel slides up from the bottom with '3 tasks due today' and slides back">
@@ -174,6 +174,9 @@ SailfishDisplay.Changed += () => Relayout();
 ```
 
 Prefer `Application.RequestedTheme` and `DeviceDisplay` in shared code: they carry the same values.
+
+Shared code that branches per platform compares `DeviceInfo.Platform` with `SailfishPlatform.DevicePlatform`, as it
+does with `DevicePlatform.Android`.
 
 ## Native without extra code
 

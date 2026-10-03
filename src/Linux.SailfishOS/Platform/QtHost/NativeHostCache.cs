@@ -6,7 +6,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// Weak cache of <see cref="NativeElementHost"/>s keyed by element instance, so hosts survive
 /// rebuilds without keeping elements alive. Native objects are destroyed by the renderer's diff, not by GC.
 /// </summary>
-public sealed class NativeHostCache
+internal sealed class NativeHostCache
 {
 	private readonly ConditionalWeakTable<Element, NativeElementHost> _hosts = new();
 	private int _nextId;
@@ -40,6 +40,10 @@ public sealed class NativeHostCache
 		host = null;
 		return false;
 	}
+
+	/// <summary>Drops the element's host: the next lookup creates a fresh one (its adapter changed; the renderer's
+	/// diff destroys the old object).</summary>
+	internal void Forget(Element element) => _hosts.Remove(element);
 
 	private string NextId() => $"e{Interlocked.Increment(ref _nextId)}";
 }

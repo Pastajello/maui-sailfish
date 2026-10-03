@@ -62,7 +62,7 @@ public static class SailfishRemorse
 		QtHostRuntime.RunOnQtThread(() =>
 		{
 			string? dg = null, host = null;
-			if (item is not null && QtHostPageRenderer.Current is { } renderer)
+			if (item is not null && SailfishRenderSession.OfApp?.Renderer is { } renderer)
 			{
 				dg = renderer.Collection.DelegateOf(item);
 				host = dg is null ? renderer.HostIdOf(item) : null;

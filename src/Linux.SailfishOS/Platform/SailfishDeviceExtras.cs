@@ -12,7 +12,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// only toggles, so TurnOn/TurnOff read its state first. Sailjail has no permission for it: a sandboxed app cannot reach
 /// it and gets <see cref="FeatureNotSupportedException"/>.
 /// </summary>
-public sealed class SailfishFlashlight : IFlashlight
+internal sealed class SailfishFlashlight : IFlashlight
 {
 	private const string Service = "flashlight";
 
@@ -40,13 +40,13 @@ public sealed class SailfishFlashlight : IFlashlight
 		""";
 
 	public Task<bool> IsSupportedAsync() =>
-		SailfishMainThreadCall.Run(() => QtHostServices.Ensure(Service, Qml) && QtHostServices.Eval(Service, "s.state()") is "on" or "off");
+		QtThread.RunAsync(() => QtHostServices.Ensure(Service, Qml) && QtHostServices.Eval(Service, "s.state()") is "on" or "off");
 
 	public Task TurnOnAsync() => Set(true);
 
 	public Task TurnOffAsync() => Set(false);
 
-	private static Task Set(bool on) => SailfishMainThreadCall.Run(() =>
+	private static Task Set(bool on) => QtThread.RunAsync(() =>
 	{
 		var result = QtHostServices.Ensure(Service, Qml) ? QtHostServices.Eval(Service, $"s.setOn({(on ? "true" : "false")})") : "unavailable";
 		if (result is not ("same" or "toggled"))
@@ -59,7 +59,7 @@ public sealed class SailfishFlashlight : IFlashlight
 
 /// <summary>Sailfish OS ships no speech engine (no speech-dispatcher, espeak or similar), so there is nothing to speak
 /// with: no locales, and SpeakAsync reports the feature as unsupported, as MAUI does on a device without a TTS engine.</summary>
-public sealed class SailfishTextToSpeech : ITextToSpeech
+internal sealed class SailfishTextToSpeech : ITextToSpeech
 {
 	public Task<IEnumerable<Locale>> GetLocalesAsync() => Task.FromResult<IEnumerable<Locale>>(Array.Empty<Locale>());
 
@@ -69,7 +69,7 @@ public sealed class SailfishTextToSpeech : ITextToSpeech
 
 /// <summary>Geocoding needs a geocoding provider; Sailfish OS has no Qt Location geoservices plugin and no system
 /// geocoder, so both directions are unsupported (an app can call a web geocoder itself).</summary>
-public sealed class SailfishGeocoding : IGeocoding
+internal sealed class SailfishGeocoding : IGeocoding
 {
 	public Task<IEnumerable<Placemark>> GetPlacemarksAsync(double latitude, double longitude) =>
 		throw new FeatureNotSupportedException("Sailfish OS has no system geocoder.");
@@ -79,7 +79,7 @@ public sealed class SailfishGeocoding : IGeocoding
 }
 
 /// <summary>Passkeys need a platform authenticator (WebAuthn/FIDO2); Sailfish OS has none.</summary>
-public sealed class SailfishPasskeys : IPasskeys
+internal sealed class SailfishPasskeys : IPasskeys
 {
 	public bool IsSupported => false;
 
@@ -88,24 +88,4 @@ public sealed class SailfishPasskeys : IPasskeys
 
 	public Task<PasskeyAssertionResponse> AssertAsync(PasskeyRequestOptions options, CancellationToken cancellationToken = default) =>
 		throw new FeatureNotSupportedException("Sailfish OS has no passkey (WebAuthn) authenticator.");
-}
-
-/// <summary>Platform services talk to QML on the Qt (main) thread; a call from elsewhere hops there.</summary>
-internal static class SailfishMainThreadCall
-{
-	public static Task<T> Run<T>(Func<T> work)
-	{
-		if (!QtHostRuntime.IsRunning || QtHostRuntime.IsQtThread)
-		{
-			try
-			{
-				return Task.FromResult(work());
-			}
-			catch (Exception ex)
-			{
-				return Task.FromException<T>(ex);
-			}
-		}
-		return MainThread.InvokeOnMainThreadAsync(work);
-	}
 }

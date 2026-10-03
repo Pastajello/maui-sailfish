@@ -12,7 +12,7 @@ namespace Microsoft.Maui.SailfishOS.Handlers;
 public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageContainer
 {
 	public static readonly CommandMapper<IStackNavigationView, SailfishNavigationViewHandler> NavigationCommandMapper =
-		new(ViewCommandMapper)
+		new(SailfishViewMapper.CommandMapper)
 		{
 			[nameof(IStackNavigation.RequestNavigation)] = MapRequestNavigation,
 		};
@@ -44,9 +44,9 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 	{
 		if (args is not NavigationRequest request)
 			return;
-		Platform.QtHost.QtHostPageRenderer.NoteNavigationRequest();   // navigation timeline start
+		SailfishHandlerCore.SessionOf(handler)?.NoteNavigationRequest();   // navigation timeline start
 		void Finish() => view.NavigationFinished(request.NavigationStack);
-		if (Platform.QtHost.QtHostPageRenderer.Current is { } renderer)
+		if (SailfishHandlerCore.SessionOf(handler)?.Renderer is { } renderer)
 			renderer.WhenNavigationSettled(Finish);
 		else
 			Finish();   // no native stack to wait for

@@ -39,8 +39,75 @@ internal sealed class FakeShim : IQtHostShim
 	public List<string> Evals { get; } = new();
 	public List<JsonElement> Ops { get; } = new();
 
+	/// <summary>
+	/// Strict mode (default): an eval this fake neither models nor lists in <see cref="AllowedUnanswered"/> is
+	/// recorded in <see cref="UnhandledEvals"/>, and <see cref="RendererHarness"/> fails the test on dispose. It is
+	/// not thrown from <see cref="Eval"/>, because the renderer catches and logs eval failures: a throw would change
+	/// the code path under test and still pass. A test that drives an eval on purpose sets <see cref="EvalHook"/>.
+	/// </summary>
+	public bool Strict { get; set; } = true;
+
+	/// <summary>Evals that reached the fake unanswered (see <see cref="Strict"/>).</summary>
+	public List<string> UnhandledEvals { get; } = new();
+
+	/// <summary>
+	/// Evals whose empty answer is the intended fake behaviour, by prefix. Each one is a probe whose caller falls back
+	/// to a default when the answer is empty; anything new must be modelled or added here with its reason.
+	/// </summary>
+	public static readonly IReadOnlyList<(string Prefix, string Why)> AllowedUnanswered =
+	[
+		("Theme.", "SailfishMeasure theme probes (fontSizeMedium, paddingSmall, …): empty → the dp defaults"),
+		("2 * Theme.", "SailfishMeasure composed theme probe: empty → the dp default"),
+		("(function(){var o=Qt.createQmlObject(", "SailfishMeasure.TextInputMarginsDp probe of a Silica text field: empty → defaults"),
+		("(function(){var p='maui_", "list delegate resync (QtHostListAdapter): empty → no stale delegate found"),
+		("window.mauiPreloadAdapters(", "adapter warm-up (fire and forget)"),
+		("window.mauiOpsTiming=", "diagnostic flag (fire and forget)"),
+		("window.mauiListPrefetch=", "list prefetch flag (fire and forget)"),
+		("window.mauiImageTrace=", "diagnostic flag (fire and forget)"),
+		("typeof window!=='undefined'&&window?window.orientation", "first orientation read: empty → portrait"),
+	];
+
+	/// <summary>A call of a MauiModelPage entry point (QmlPage.Call or a direct page call).</summary>
+	internal sealed record PageCall(string Page, string Method, string Arg);
+
+	/// <summary>Page entry points the renderer called, in order (applyMauiOps and the stray sweep excluded).</summary>
+	public List<PageCall> PageCalls { get; } = new();
+
+	/// <summary>MauiModelPage functions that take an argument and return nothing the renderer reads.</summary>
+	private static readonly HashSet<string> PageMethods = new(StringComparer.Ordinal)
+	{
+		"setMauiScroll", "setMauiTabs", "setMauiRefresh", "mauiReattachPulleys", "mauiSetTabDrag", "mauiEndTabDrag",
+		"mauiRemorse", "mauiRemorseCancel", "__destroyAllHosts",
+	};
+
+	private static readonly System.Text.RegularExpressions.Regex PageIdRx =
+		new(@"mauiPageById\('([^']*)'\)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+	private static readonly System.Text.RegularExpressions.Regex CallRx =
+		new(@"(?:if\(p&&p\.(?<m>[A-Za-z_]+)\)return p\.\k<m>\((?<a>.*)\);return '';\}\)\(\)$)|(?:\)\.(?<m>[A-Za-z_]+)\((?<a>.*)\)$)",
+			System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.Singleline);
+
+	/// <summary>Records a page entry point; false when <paramref name="expression"/> is not one.</summary>
+	private bool TryRecordPageCall(string expression)
+	{
+		var call = CallRx.Match(expression);
+		if (!call.Success || !PageMethods.Contains(call.Groups["m"].Value))
+			return false;
+		var page = PageIdRx.Match(expression) is { Success: true } id ? id.Groups[1].Value : Pages[^1];
+		PageCalls.Add(new PageCall(page, call.Groups["m"].Value, call.Groups["a"].Value));
+		return true;
+	}
+
 	/// <summary>Row hosts handed to another row by the row pool.</summary>
 	public int Rekeys { get; private set; }
+
+	/// <summary>Rekey ops MauiModelPage would refuse (the target id taken).</summary>
+	public int RekeysRefused { get; private set; }
+
+	/// <summary>Refuses every rekey, as the page does for a target id held by an object managed does not know.</summary>
+	public bool RefuseRekeys { get; set; }
+
+	private int _unknownOps;   // per batch, as MauiModelPage counts them
 	public int PropertyBatches { get; private set; }
 	public int GeometryBatches { get; private set; }
 	public int Destroys { get; private set; }
@@ -63,8 +130,13 @@ internal sealed class FakeShim : IQtHostShim
 		var ops = expression.IndexOf("applyMauiOps(", StringComparison.Ordinal);
 		if (ops >= 0)
 		{
-			ApplyOps(ReadJsString(expression, ops + "applyMauiOps(".Length));
-			return string.Empty;
+			_unknownOps = 0;
+			var (created, destroyed) = ApplyOps(ReadJsString(expression, ops + "applyMauiOps(".Length));
+			// MauiModelPage.applyMauiOps's answer, which reaches the caller only when the expression returns it (the
+			// QmlPage.Call wrapper used to drop it, and every pooled row then read as refused on the device).
+			return expression.Contains("return p.applyMauiOps(", StringComparison.Ordinal)
+				? $"{created}:{destroyed}:{_unknownOps}"
+				: string.Empty;
 		}
 		if (expression.StartsWith("(typeof window!=='undefined'&&window.mauiPages", StringComparison.Ordinal))
 		{
@@ -74,12 +146,7 @@ internal sealed class FakeShim : IQtHostShim
 		var sweep = expression.IndexOf("__destroyHostsNotIn(", StringComparison.Ordinal);
 		if (sweep >= 0)
 		{
-			var known = JsonSerializer.Deserialize<string[]>(ReadJsString(expression, sweep + "__destroyHostsNotIn(".Length)) ?? [];
-			foreach (var obj in Objects.Where(o => o.Page == Pages[^1] && !known.Contains(o.Id)).ToList())
-			{
-				obj.Destroyed = true;
-				Destroys++;
-			}
+			SweepStrays(Pages[^1], ReadJsString(expression, sweep + "__destroyHostsNotIn(".Length));
 			return string.Empty;
 		}
 		var push = expression.IndexOf("pageStack.push(window.mauiPageUrl,{mauiPageId:'", StringComparison.Ordinal);
@@ -90,11 +157,28 @@ internal sealed class FakeShim : IQtHostShim
 			Pages.Add(id);
 			return $"ok|depth={Pages.Count}|top=true";
 		}
+		if (TryRecordPageCall(expression))
+			return string.Empty;
+		if (Strict && !AllowedUnanswered.Any(a => expression.StartsWith(a.Prefix, StringComparison.Ordinal)))
+			UnhandledEvals.Add(expression);
 		return string.Empty;
 	}
 
-	private void ApplyOps(string json)
+	private int SweepStrays(string page, string knownJson)
 	{
+		var known = JsonSerializer.Deserialize<string[]>(knownJson) ?? [];
+		var strays = Objects.Where(o => o.Page == page && o.Uri != "model-page" && !known.Contains(o.Id)).ToList();
+		foreach (var obj in strays)
+		{
+			obj.Destroyed = true;
+			Destroys++;
+		}
+		return strays.Count;
+	}
+
+	private (int Created, int Destroyed) ApplyOps(string json, string? page = null)
+	{
+		int created = 0, destroyed = 0;
 		using var doc = JsonDocument.Parse(json);
 		foreach (var op in doc.RootElement.EnumerateArray())
 		{
@@ -110,7 +194,7 @@ internal sealed class FakeShim : IQtHostShim
 						Handle = ++_nextHandle,
 						Id = id,
 						Uri = op.TryGetProperty("uri", out var u) ? u.GetString() ?? string.Empty : string.Empty,
-						Page = Pages[^1],
+						Page = page ?? Pages[^1],
 					};
 					if (op.TryGetProperty("props", out var props) && props.ValueKind == JsonValueKind.Object)
 						foreach (var p in props.EnumerateObject())
@@ -119,19 +203,28 @@ internal sealed class FakeShim : IQtHostShim
 						old.Destroyed = true;
 					_byName["maui_" + id] = obj;
 					_byHandle[obj.Handle] = obj;
+					created++;
 					break;
 				}
 				case "rekey":
 				{
 					// A pooled row host takes the new element's id (MauiModelPage.applyMauiOps).
+					// MauiModelPage refuses when the target id is taken (a live host, or the same id).
 					var from = "maui_" + op.GetProperty("from").GetString();
 					var to = op.GetProperty("to").GetString()!;
-					if (_byName.Remove(from, out var moved))
+					if (RefuseRekeys || (_byName.TryGetValue("maui_" + to, out var taken) && !taken.Destroyed))
+					{
+						RekeysRefused++;
+						_unknownOps++;
+					}
+					else if (_byName.Remove(from, out var moved))
 					{
 						moved.Id = to;
 						_byName["maui_" + to] = moved;
 						Rekeys++;
 					}
+					else
+						_unknownOps++;
 					break;
 				}
 				case "destroy":
@@ -140,11 +233,15 @@ internal sealed class FakeShim : IQtHostShim
 					{
 						obj.Destroyed = true;
 						Destroys++;
+						destroyed++;
 					}
+					else
+						_unknownOps++;
 					break;
 				}
 			}
 		}
+		return (created, destroyed);
 	}
 
 	/// <summary>Reads the JS string literal (ToJsString output) at <paramref name="at"/>.</summary>
@@ -180,8 +277,64 @@ internal sealed class FakeShim : IQtHostShim
 		return o;
 	}
 
-	public long FindObject(string objectName) =>
-		_byName.TryGetValue(objectName, out var o) && !o.Destroyed ? o.Handle : 0;
+	public long FindObject(string objectName)
+	{
+		// A model page is found by its objectName ("mauiPage_<id>") while it is on the stack.
+		if (objectName.StartsWith(PagePrefix, StringComparison.Ordinal) && Pages.Contains(objectName[PagePrefix.Length..]) &&
+		    !_byName.ContainsKey(objectName))
+			AddNative(objectName, "model-page");
+		return _byName.TryGetValue(objectName, out var o) && !o.Destroyed ? o.Handle : 0;
+	}
+
+	private const string PagePrefix = "mauiPage_";
+
+	/// <summary>Direct page calls (sailfish_host_invoke): page id, method, raw argument.</summary>
+	public List<(string Page, string Method, string? Arg)> Invokes { get; } = new();
+
+	/// <summary>sailfish_host_invoke on a model page: the same functions the eval path models.</summary>
+	/// <summary>Adapter commands (mauiCommand) sent to objects: object id, command JSON.</summary>
+	public List<(string Id, string Json)> Commands { get; } = new();
+
+	public string? Invoke(long handle, string method, string? arg, out int rc)
+	{
+		if (_byHandle.TryGetValue(handle, out var target) && !target.Destroyed && target.Uri != "model-page")
+		{
+			// An adapter: commands only (the adapters' mauiCommand).
+			rc = method == "mauiCommand" ? 0 : QtHostRuntime.SfhostEProperty;
+			if (rc == 0)
+				Commands.Add((target.Id, arg ?? string.Empty));
+			return rc == 0 ? string.Empty : null;
+		}
+		if (!_byHandle.TryGetValue(handle, out var o) || o.Destroyed || o.Uri != "model-page" || !Pages.Contains(o.Id[PagePrefix.Length..]))
+		{
+			if (o is { Uri: "model-page" })
+				o.Destroyed = true;   // the page left the stack: its handle is dead
+			rc = QtHostRuntime.SfhostEDeadHandle;
+			return null;
+		}
+		var page = o.Id[PagePrefix.Length..];
+		Invokes.Add((page, method, arg));
+		rc = 0;
+		switch (method)
+		{
+			case "applyMauiOps":
+			{
+				_unknownOps = 0;
+				var (created, destroyed) = ApplyOps(arg ?? "[]", page);
+				return $"{created}:{destroyed}:{_unknownOps}";
+			}
+			case "__destroyHostsNotIn":
+				return SweepStrays(page, arg ?? "[]").ToString(System.Globalization.CultureInfo.InvariantCulture);
+			default:
+				if (!PageMethods.Contains(method))
+				{
+					rc = QtHostRuntime.SfhostEProperty;   // no such function on the page
+					return null;
+				}
+				PageCalls.Add(new PageCall(page, method, arg is null ? string.Empty : BridgeValue.Quote(arg)));
+				return string.Empty;
+		}
+	}
 
 	public int SetProperty(long handle, string name, string? valueJson)
 	{
@@ -189,6 +342,8 @@ internal sealed class FakeShim : IQtHostShim
 			return -3;
 		using var doc = JsonDocument.Parse(valueJson ?? "null");
 		o.Props[name] = doc.RootElement.Clone();
+		if (name is "mauiFocus" or "enabled")
+			EmulateFocus(o);   // QML reacts to a single set as to a batch
 		return 0;
 	}
 
@@ -205,7 +360,8 @@ internal sealed class FakeShim : IQtHostShim
 	}
 
 	public string GetProperty(long handle, string name) =>
-		_byHandle.TryGetValue(handle, out var o) && !o.Destroyed && o.Props.TryGetValue(name, out var v)
+		name == "objectName" && _byHandle.TryGetValue(handle, out var named) && !named.Destroyed ? "maui_" + named.Id
+		: _byHandle.TryGetValue(handle, out var o) && !o.Destroyed && o.Props.TryGetValue(name, out var v)
 			? v.ValueKind switch
 			{
 				JsonValueKind.String => v.GetString() ?? string.Empty,
@@ -304,7 +460,16 @@ internal sealed class FakeShim : IQtHostShim
 	}
 
 	/// <summary>Posts run inline (the test thread is the "Qt thread").</summary>
-	public void Post(Action action) => action();
+	/// <summary>When set, posts queue here instead of running inline (tests of the scheduler's latches run them).</summary>
+	public Queue<Action>? Deferred { get; set; }
+
+	public void Post(Action action)
+	{
+		if (Deferred is { } queue)
+			queue.Enqueue(action);
+		else
+			action();
+	}
 
 	/* --- Drawing surfaces --- */
 

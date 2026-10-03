@@ -153,7 +153,7 @@ public class PropertyOwnershipTests
 		var handlerType = SailfishHandlersFactory.ResolveViewHandlerType(control);
 		dynamic handler = Activator.CreateInstance(handlerType)!;
 		var mapper = (IPropertyMapper)handlerType.GetField("Mapper")!.GetValue(null)!;
-		foreach (var name in Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.TransientInputProperties)
+		foreach (var name in Microsoft.Maui.SailfishOS.Handlers.SailfishViewKeys.TransientInput)
 		{
 			Assert.False((bool)handler.OwnsProperty(name), $"{handlerType.Name} snapshots transient {name}");
 			Assert.Contains(name, mapper.GetKeys());

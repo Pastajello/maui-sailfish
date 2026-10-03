@@ -13,7 +13,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <c>image://</c> or file URL; without one the button shows <c>icon-cover-next</c>. It replaces actions set through
 /// <see cref="SailfishCover.SetActions"/>.
 /// </summary>
-public sealed class SailfishAppActions : IAppActions
+internal sealed class SailfishAppActions : IAppActions
 {
 	internal const string DefaultIcon = "image://theme/icon-cover-next";
 	private IReadOnlyList<AppAction> _actions = Array.Empty<AppAction>();
@@ -56,7 +56,7 @@ public sealed class SailfishAppActions : IAppActions
 /// callback activity takes it. A new sign-in or the token cancels a pending one; the browser has no "closed" signal,
 /// so a sign-in the user abandons stays pending until then.
 /// </summary>
-public sealed class SailfishWebAuthenticator : IWebAuthenticator
+internal sealed class SailfishWebAuthenticator : IWebAuthenticator
 {
 	private TaskCompletionSource<Uri>? _pending;
 
@@ -113,7 +113,7 @@ public sealed class SailfishWebAuthenticator : IWebAuthenticator
 /// the user's address book is privileged data that Sailfish OS opens only to system apps, so a third-party app reads
 /// the non-privileged store, normally empty (see docs/porting-existing-apps.md).
 /// </summary>
-public sealed class SailfishContacts : IContacts
+internal sealed class SailfishContacts : IContacts
 {
 	private const string Service = "contacts";
 	private TaskCompletionSource<JsonElement?>? _pick;
@@ -215,8 +215,8 @@ public sealed class SailfishContacts : IContacts
 		if (_subscribed)
 			return;
 		_subscribed = true;
-		QtHostServices.Subscribe("svc-contacts-populated", _ => _populated?.TrySetResult(true));
-		QtHostServices.Subscribe("svc-contacts-picked", e =>
+		QtHostServices.Subscribe(ShellEvents.ContactsPopulated, _ => _populated?.TrySetResult(true));
+		QtHostServices.Subscribe(ShellEvents.ContactsPicked, e =>
 		{
 			var pick = Interlocked.Exchange(ref _pick, null);
 			pick?.TrySetResult(e.TryGetProperty("contact", out var c) && c.ValueKind == JsonValueKind.Object ? c.Clone() : null);

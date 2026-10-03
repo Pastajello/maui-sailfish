@@ -1,10 +1,9 @@
 // Compiled into the app when SailfishGenerateMain=true: finds a public static CreateMauiApp() and runs it.
 internal static class SailfishGeneratedEntryPoint
 {
-	private static void Main(string[] args)
-	{
+	// The exit code is Run's: non-zero when the host or the app failed to start.
+	private static int Main(string[] args) =>
 		new Microsoft.Maui.SailfishOS.Hosting.SailfishMauiApplicationHost(Discover()).Run(args);
-	}
 
 	private static System.Func<Microsoft.Maui.Hosting.MauiApp> Discover()
 	{

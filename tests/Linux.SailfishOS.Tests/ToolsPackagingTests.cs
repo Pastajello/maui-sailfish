@@ -122,3 +122,19 @@ public class ToolsPackagingTests
 		}
 	}
 }
+
+/// <summary>A failed start reaches the launcher: every Sailfish entry point returns Run's exit code.</summary>
+public class EntryPointExitCodeTests
+{
+	[Theory]
+	[InlineData("src/Linux.SailfishOS/scaffold/SailfishGeneratedEntryPoint.cs")]
+	[InlineData("templates/maui-sailfish-app/Platforms/SailfishOS/Program.cs")]
+	[InlineData("samples/Linux.SailfishOS.Sample/Program.cs")]
+	[InlineData("samples/SkiaSharpProbe/Platforms/SailfishOS/Program.cs")]
+	public void The_entry_point_returns_the_exit_code(string path)
+	{
+		var source = File.ReadAllText(Path.Combine(Repo.Root, path));
+		Assert.Matches(@"static int Main\(string\[\] args\)", source);
+		Assert.DoesNotMatch(@"static void Main\(", source);
+	}
+}

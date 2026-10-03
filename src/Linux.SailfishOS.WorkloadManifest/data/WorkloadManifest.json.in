@@ -11,7 +11,7 @@
   "packs": {
     "microsoft.maui.sailfishos": {
       "kind": "library",
-      "version": "0.1.0"
+      "version": "@SAILFISH_VERSION@"
     }
   }
 }

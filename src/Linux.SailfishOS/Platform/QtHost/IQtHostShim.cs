@@ -7,6 +7,10 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 internal interface IQtHostShim
 {
 	string Eval(string expression);
+
+	/// <summary>sailfish_host_invoke: <paramref name="method"/>(<paramref name="arg"/>) on the object behind the
+	/// handle; the result, or null with <paramref name="rc"/> negative when the call failed.</summary>
+	string? Invoke(long handle, string method, string? arg, out int rc);
 	long FindObject(string objectName);
 	int SetProperty(long handle, string name, string? valueJson);
 	int ApplyProperties(long handle, string propsJson);

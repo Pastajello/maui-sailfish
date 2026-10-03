@@ -1,5 +1,7 @@
 # Runtime and performance: CoreCLR payload, trimming, ReadyToRun, NativeAOT
 
+> Stage and leg codes in this log (Q4–Q22A, Q14, Q18, A5, …) refer to the quarter plan removed on 2026-09-28; it is in git history (`git log -- PLAN.md`). Today's matrix legs are listed in [tools.md](tools.md).
+
 > **Status (refreshed 2026-09-28).** Decisions from 2026-09-15 stand:
 > **`trimr2r` is the default Release profile** (`--jit` / `--trim` as an escape hatch, §2.4, item 1.7), and
 > **NativeAOT is deferred** (gate G2, Phase 4 frozen). Open: 2.6/2.8/2.9 (return with Phase 4), B5,
@@ -115,7 +117,7 @@ sits in three files: `QtHostPageRenderer.cs`, `QtHostInput.cs`,
 | # | Place | Construct | Shape of the fix |
 |---|---|---|---|
 | B1 | `QtHost/QtHostBridge.cs:32,33,39,49,139` | `JsonSerializer.Serialize` on statically known `string`/`char`/`Enum.ToString()` — goes through the reflection resolver | Own escaping (already exists: `QtHostTextMetrics.JsonString:87-105`, `QtHostPageRenderer.ToJsString:3494`) |
-| B2 | `SailfishMauiApplication.cs:4049-4066` | `GetType().Assembly` / `Assembly.GetEntryAssembly()` / `GetCustomAttributes<AssemblyMetadataAttribute>()` → reading `MauiApplicationId` for the Qt/Wayland app_id | A constant generated from MSBuild (`$(ApplicationId)`) or rd.xml; a fallback already exists: env `MAUI_SAILFISH_APP_ID` (`QtHostRuntime.cs:516-518`) |
+| B2 | ~~`SailfishMauiApplication.cs:4049-4066`~~ (code removed 2026-10-03: nothing read it; the shim resolves the app id, `QtHostRuntime.ResolveAppId`) | `GetType().Assembly` / `Assembly.GetEntryAssembly()` / `GetCustomAttributes<AssemblyMetadataAttribute>()` → reading `MauiApplicationId` for the Qt/Wayland app_id | A constant generated from MSBuild (`$(ApplicationId)`) or rd.xml; a fallback already exists: env `MAUI_SAILFISH_APP_ID` (`QtHostRuntime.cs:516-518`) |
 | B3 | `SailfishMauiApplication.cs:3662, 4405` | `label.SetBinding(Label.TextProperty, new Binding("."))` in the `DataTemplate` of diag pages — an uncompiled binding created at runtime | The dataset is `ObservableCollection<string>` → `label.Text = item?.ToString()` in the factory is enough |
 | B4 | `SailfishMauiApplication.cs:1610, 1618` | `VisualStateManager.GoToState(…, CommonStates.Disabled/Normal)` — static on our side, the risk lives in MAUI | rd.xml / `TrimmerRootAssembly` for `Microsoft.Maui.Controls` or the diag leg outside Release |
 | B5 | `QtHost/QtHostPageRenderer.cs:1869-1870` | `TimeZoneInfo.Local.GetUtcOffset(midnight)` (DatePicker/TimePicker → epoch ms) | `TimeZoneInfo` on Linux requires tzdata and is sensitive to `InvariantGlobalization` → a guard with a fallback or a documented tzdata requirement in the RPM |

@@ -58,3 +58,12 @@ public enum SailfishMemoryLevel
 	/// <summary>The system is about to kill background apps.</summary>
 	Critical,
 }
+
+/// <summary>The screen edge a <see cref="SailfishBottomSheet"/> docks to (Silica DockedPanel's dock).</summary>
+public enum SailfishDockEdge
+{
+	Bottom,
+	Top,
+	Left,
+	Right,
+}

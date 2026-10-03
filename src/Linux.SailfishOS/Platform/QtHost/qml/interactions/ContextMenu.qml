@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../lib/adapter.js" as Adapter
 
 // Adapter: MAUI View.ContextFlyout (MenuFlyout) -> Silica ContextMenu. Page-level (mauiDetached):
 // Silica expands it around the long-press target. Managed detects the long press and calls
@@ -28,7 +29,7 @@ ContextMenu {
         mi.text = text;
         mi.enabled = enabled;
         mi.clicked.connect(function() {
-            root.mauiEvent("context-activated", JSON.stringify({ index: index }));
+            Adapter.emit(root, "context-activated", { index: index });
         });
         return mi;
     }

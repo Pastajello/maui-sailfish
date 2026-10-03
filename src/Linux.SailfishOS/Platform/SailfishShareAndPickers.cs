@@ -14,7 +14,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// Share via the Sailfish.Share system sheet; text and URIs go as data resources, files as paths.
 /// </summary>
-public sealed class SailfishShare : IShare
+internal sealed class SailfishShare : IShare
 {
 	private const string Service = "share";
 
@@ -100,7 +100,7 @@ public sealed class SailfishShare : IShare
 /// MediaPicker and FilePicker on Sailfish.Pickers; closing the page without a selection is a cancel (null).
 /// Capture is unsupported: Sailfish has no in-app camera API.
 /// </summary>
-public sealed class SailfishPickers : IMediaPicker, IFilePicker
+internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 {
 	private const string Service = "pickers";
 	private static TaskCompletionSource<List<string>>? _pending;
@@ -164,7 +164,7 @@ public sealed class SailfishPickers : IMediaPicker, IFilePicker
 		if (!_subscribed)
 		{
 			_subscribed = true;
-			QtHostServices.Subscribe("svc-pickers-result", e =>
+			QtHostServices.Subscribe(ShellEvents.PickersResult, e =>
 			{
 				var paths = new List<string>();
 				if (e.TryGetProperty("paths", out var array) && array.ValueKind == JsonValueKind.Array)
@@ -236,7 +236,7 @@ public sealed class SailfishPickers : IMediaPicker, IFilePicker
 /// Permissions under Sailjail, which asks at launch only, so Request equals Check: Granted when unsandboxed or
 /// the needed Sailjail permission is declared. Permissions without a Sailjail counterpart are always Granted.
 /// </summary>
-public sealed class SailfishPermissions : IPermissions
+internal sealed class SailfishPermissions : IPermissions
 {
 	private static readonly Lazy<(bool Sandboxed, HashSet<string> Declared)> Policy = new(ReadPolicy);
 
@@ -337,7 +337,7 @@ public sealed class SailfishPermissions : IPermissions
 }
 
 /// <summary>Dialer, e-mail, SMS and maps via URI schemes, which lipstick routes to the Sailfish apps.</summary>
-public sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
+internal sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
 {
 	bool IPhoneDialer.IsSupported => true;
 
@@ -409,14 +409,14 @@ public sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
 }
 
 /// <summary>Screenshot of the app window via QQuickWindow::grabWindow.</summary>
-public sealed class SailfishScreenshot : IScreenshot
+internal sealed class SailfishScreenshot : IScreenshot
 {
 	public bool IsCaptureSupported => QtHostRuntime.IsRunning;
 
 	public Task<IScreenshotResult> CaptureAsync()
 	{
 		var path = Path.Combine(SailfishAppPaths.CacheDirectory, $"screenshot-{Guid.NewGuid():N}.png");
-		if (QtHostRuntime.GrabPng(path) != 0 || !File.Exists(path))
+		if (QtThread.Run(() => QtHostRuntime.GrabPng(path)) != 0 || !File.Exists(path))
 			throw new InvalidOperationException($"Screenshot capture failed: {QtHostRuntime.LastErrorText}");
 		return Task.FromResult<IScreenshotResult>(new ScreenshotFile(path));
 	}

@@ -142,6 +142,26 @@ The backend sets the adapter's geometry from the MAUI layout pass. Silica items 
 `width`/`height` to their content need plain `width: 0; height: 0`, or the bindings overwrite the managed
 geometry.
 
+State crosses as properties, actions as commands. A one-shot action (scroll to an item, run a script, open a
+panel) is a call of the adapter's `mauiCommand(json)` function, made once per request with `{"name": …}` plus its
+arguments. The handler sends it with `SendCommand`; before the adapter exists there is nothing to act on and
+`SendCommand` returns false:
+
+```csharp
+public void Reset() => SendCommand("reset", new() { ["to"] = 0 });   // in the handler
+```
+
+```qml
+function mauiCommand(json) {
+    var c = JSON.parse(json);
+    if (c.name === "reset")
+        root.value = c.to;
+}
+```
+
+Do not model an action as a property plus a counter that changes to re-fire an equal value: the counter is state
+the adapter keeps for nothing, and an equal value pushed twice is dropped by the property diff.
+
 ## A control that draws its own pixels
 
 A library that renders with its own engine (a raster canvas, a video frame) uses the generic drawing surface

@@ -9,7 +9,7 @@ using Microsoft.Maui.Graphics;
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 // Silica interaction surfaces: pulley and context menus, tabs, dialogs and app-added interaction hosts.
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer
 {
 	// --- Sailfish interaction surfaces ---
 	// ContextFlyout → Silica ContextMenu (press-and-hold via the input router); Page.ToolbarItems → PullDownMenu /
@@ -100,10 +100,10 @@ public sealed partial class QtHostPageRenderer
 				item.PropertyChanged += OnToolbarItemChanged;
 	}
 
-	private static void OnToolbarItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
+	private void OnToolbarItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
 		RequestPoll();
 
-	private static void OnToolbarItemChanged(object? sender, PropertyChangedEventArgs e)
+	private void OnToolbarItemChanged(object? sender, PropertyChangedEventArgs e)
 	{
 		if (e.PropertyName is nameof(ToolbarItem.Text) or nameof(MenuItem.IsEnabled) or nameof(ToolbarItem.Order)
 		    or nameof(ToolbarItem.Priority))
@@ -128,6 +128,18 @@ public sealed partial class QtHostPageRenderer
 	private string _renderedTabs = string.Empty;
 	private Action<int>? _tabSelect;
 	private Action<int>? _subTabSelect;
+
+	/// <summary>A tap in the page's tab bar (level 0) or its section bar (level 1) selects that MAUI tab.</summary>
+	internal void SelectTab(int level, int index)
+	{
+		if (level == 1)
+			_subTabSelect?.Invoke(index);
+		else
+			_tabSelect?.Invoke(index);
+	}
+
+	/// <summary>The cancel text an action sheet dismissed without a pick completes with.</summary>
+	internal string SheetCancel => _sheetCancel;
 	private int _tabIndex;
 	private int _tabCount;
 
@@ -261,7 +273,7 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>ContextMenu item pick → the MAUI MenuFlyoutItem.</summary>
-	private void ApplyContextActivated(string payload)
+	internal void ApplyContextActivated(string payload)
 	{
 		using var doc = JsonDocument.Parse(payload);
 		var index = BridgeJson.Int(doc.RootElement, "index");
@@ -279,7 +291,7 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>Pulley-menu pick → the matching entry (pull = flyout + primary items, push = Secondary items).</summary>
-	private void ApplyToolbarActivated(string payload)
+	internal void ApplyToolbarActivated(string payload)
 	{
 		using var doc = JsonDocument.Parse(payload);
 		var root = doc.RootElement;
@@ -387,7 +399,7 @@ public sealed partial class QtHostPageRenderer
 		return tcs.Task;
 	}
 
-	private void CompleteDialog(object? result)
+	internal void CompleteDialog(object? result)
 	{
 		var tcs = _dialogTcs;
 		_dialogTcs = null;
@@ -397,7 +409,7 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>Extracts "text" from a dialog payload; missing text becomes "".</summary>
-	private static string ParseDialogText(string payload)
+	internal static string ParseDialogText(string payload)
 	{
 		try
 		{
@@ -412,7 +424,7 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>Routes a DockedPanel open write-back ({id,open}) to managed listeners (SailfishBottomSheet).</summary>
-	private void RoutePanelOpenChanged(string payload)
+	internal void RoutePanelOpenChanged(string payload)
 	{
 		if (PanelOpenChanged is null)
 			return;

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The MSBuild tasks of buildTransitive/Microsoft.Maui.SailfishOS.targets (they were inline RoslynCodeTaskFactory
+       tasks, compiled on every build). netstandard2.0 runs in every MSBuild; the targets load it out of process
+       (TaskHostFactory), so a rebuild of this project is never blocked by a node holding the dll. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- MSBuild hosts the tasks: no trimming or AOT applies (the repo props turn the analyzers on). -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
+    <AssemblyName>Microsoft.Maui.SailfishOS.Build.Tasks</AssemblyName>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Build.Tasks</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- One fixed place in a checkout, which the in-repo import of the targets falls back to. -->
+    <OutputPath>$(MSBuildThisFileDirectory)../../artifacts/build-tasks/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" PrivateAssets="all" ExcludeAssets="runtime" />
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+</Project>

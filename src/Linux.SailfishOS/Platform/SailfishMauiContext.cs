@@ -5,7 +5,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// MAUI context carrying the service provider and handler factory.
 /// </summary>
-public class SailfishMauiContext : IMauiContext
+internal class SailfishMauiContext : IMauiContext
 {
 	public SailfishMauiContext(IServiceProvider services)
 	{

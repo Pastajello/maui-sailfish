@@ -11,6 +11,8 @@
 #   D3 `rpm -V <pkg>` clean                 -> files on disk match the rpmdb
 #   D4 sha256 of the installed <BIN>.dll == local published one
 #   D5 no process runs a "(deleted)" binary -> catches the stale-instance bug
+#   D6 sha256 of the installed libsailfishhost.so == local published one
+#      -> catches a shim built before the last native change (tools/sf native-build)
 
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;; esac
@@ -113,6 +115,18 @@ if [ -n "${local_dll_sha:-}" ]; then
 		pass "D4 installed $SF_BIN.dll matches the local build"
 	else
 		fail "D4 installed $SF_BIN.dll ${DEVICE_DLL_SHA:-<missing>} != local $local_dll_sha"
+	fi
+fi
+
+# D6 installed native shim sha256 (the managed side also refuses another SFHOST_ABI_VERSION at start)
+LOCAL_SO="$SF_PUBLISH_DIR/libsailfishhost.so"
+if [ -f "$LOCAL_SO" ]; then
+	local_so_sha="$(_sf_sha256 "$LOCAL_SO")"
+	DEVICE_SO_SHA="$(sf_ssh_out "sha256sum $REMOTE_DIR/libsailfishhost.so 2>/dev/null" | awk '{print $1}' | tail -1)" || true
+	if [ "$DEVICE_SO_SHA" = "$local_so_sha" ]; then
+		pass "D6 installed libsailfishhost.so matches the local build"
+	else
+		fail "D6 installed libsailfishhost.so ${DEVICE_SO_SHA:-<missing>} != local $local_so_sha"
 	fi
 fi
 

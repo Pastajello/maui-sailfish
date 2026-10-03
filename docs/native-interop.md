@@ -55,8 +55,9 @@ rules follow from this:
 
 - Everything that touches QML or Qt objects (including from your own C++) must run on this thread. From another thread
   call `QtHostRuntime.RunOnQtThread(...)` or `MainThread.BeginInvokeOnMainThread(...)`.
-  Shim calls from outside the Qt thread are counted by `QtHostRuntime.OffThreadCalls`, and this counter must stay 0: such calls
-  silently corrupt the QV4 heap.
+  A shim call from outside the Qt thread throws `InvalidOperationException` (such calls silently corrupted the QV4
+  heap) and is counted by `QtHostRuntime.OffThreadCalls`. `MAUI_SAILFISH_STRICT_THREAD=0` only logs it, for one
+  release.
 - `QtHostRuntime.QmlEvent` is invoked on the Qt thread, in the tick. In the handler do not block or synchronously wait
   on a `Task`.
 - A callback from a native worker thread (e.g. a C library with its own thread) must hop to the Qt thread via
@@ -288,7 +289,8 @@ Implementation:
   `sailfish_host_invoke(handle, method, args_json, out, cap)` on `QMetaObject::invokeMethod` with `QVariant` is better, without
   building JS strings.
 - **L3**: `Eval` and `get_property` retry the call with a buffer of the returned length when `len >= cap`.
-- **Thread**: every method checks `IsQtThread` and throws outside it, instead of only counting `OffThreadCalls`.
+- **Thread**: every method checks `IsQtThread` and throws outside it, instead of only counting `OffThreadCalls`
+  (done for the raw shim calls on 2026-10-03; `MAUI_SAILFISH_STRICT_THREAD=0` turns it back into a log).
   A simpler rule is easier to describe.
 - The shell JS contract (`mauiAppNotify`, `mauiService`) described in a `MauiShell.qml` comment as stable.
 - Internal Essentials move to the same API. That is the best proof that the API is sufficient.

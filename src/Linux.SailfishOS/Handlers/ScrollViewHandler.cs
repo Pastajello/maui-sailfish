@@ -21,7 +21,7 @@ public class ScrollViewHandler : SailfishSnapshotHandler<IScrollView>
 
 	public static readonly PropertyMapper<IScrollView, ScrollViewHandler> Mapper = SnapshotMapper<ScrollViewHandler>(Keys);
 
-	public static readonly CommandMapper<IScrollView, ScrollViewHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IScrollView, ScrollViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	private IScrollViewController? _controller;
 	private EventHandler<ScrollToRequestedEventArgs>? _onScrollToRequested;
@@ -39,14 +39,14 @@ public class ScrollViewHandler : SailfishSnapshotHandler<IScrollView>
 	{
 		base.UpdateValue(property);
 		if (property is nameof(ScrollView.ScrollX) or nameof(ScrollView.ScrollY))
-			QtHostPageRenderer.Current?.RequestScrollGeometry();
+			SailfishHandlerCore.SessionOf(this)?.RequestScrollGeometry();
 	}
 
 	protected override Dictionary<string, object?>? Snapshot(IScrollView view) =>
 		view is not ScrollView scroll ? null
-		: ((IElementHandler)this).PlatformView is NativeElementHost { QmlUri: "scroll-view" }
-			? QtHostPageRenderer.ScrollProps(scroll)
-			: QtHostPageRenderer.ContainerProps(scroll);
+		: ((IElementHandler)this).PlatformView is NativeElementHost { QmlUri: QtHostAdapters.ScrollView }
+			? AdapterSnapshots.ScrollProps(scroll)
+			: AdapterSnapshots.ContainerProps(scroll);
 
 	protected override void ConnectHandler(NativeElementHost platformView)
 	{

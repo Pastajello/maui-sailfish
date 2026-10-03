@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../lib/adapter.js" as Adapter
 
 // Adapter: MAUI DisplayPromptAsync -> Silica Dialog + TextField (QtHostPageRenderer.PushPromptAsync).
 // Events: "prompt-accepted" {id, text} / "prompt-rejected" (payload = mauiId).
@@ -67,5 +68,5 @@ Dialog {
 
     onAccepted: mauiEvent("prompt-accepted",
                           JSON.stringify({ id: mauiId, text: field.text }))
-    onRejected: mauiEvent("prompt-rejected", mauiId)
+    onRejected: Adapter.emit(root, "prompt-rejected")
 }

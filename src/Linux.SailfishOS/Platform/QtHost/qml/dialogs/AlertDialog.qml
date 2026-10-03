@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../lib/adapter.js" as Adapter
 
 // Adapter: MAUI DisplayAlert -> Silica Dialog, pushed on the pageStack by the renderer.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
@@ -40,6 +41,6 @@ Dialog {
         color: Theme.primaryColor
     }
 
-    onAccepted: mauiEvent("alert-accepted", mauiId)
-    onRejected: mauiEvent("alert-rejected", mauiId)
+    onAccepted: Adapter.emit(root, "alert-accepted")
+    onRejected: Adapter.emit(root, "alert-rejected")
 }

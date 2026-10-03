@@ -1,0 +1,27 @@
+<Project>
+  <!-- One version for everything the repo packs: PlatformMauiSailfishVersion (Directory.Build.props). Files that must
+       carry it as text (the workload manifest, its targets, the template's default package version) are kept as
+       *.in templates with @SAILFISH_VERSION@ and written to obj/ by SailfishWriteVersioned before the build reads or
+       packs them. Usage: an item <SailfishVersioned Include="source.in" TargetPath="name" /> and a target that runs
+       after SailfishWriteVersioned and takes @(SailfishVersionedOutput). -->
+  <PropertyGroup>
+    <SailfishVersionedDir>$(BaseIntermediateOutputPath)sailfish-versioned/</SailfishVersionedDir>
+  </PropertyGroup>
+
+  <!-- No Inputs/Outputs: the version is an input no file timestamp shows; WriteOnlyWhenDifferent keeps an unchanged
+       file's timestamp, so incremental builds stay incremental. -->
+  <Target Name="SailfishWriteVersioned" BeforeTargets="PrepareForBuild;_GetPackageFiles">
+    <Error Condition="'$(PlatformMauiSailfishVersion)' == ''" Text="PlatformMauiSailfishVersion is not set (Directory.Build.props)." />
+    <MakeDir Directories="$(SailfishVersionedDir)" />
+    <!-- Escape: ';', '*' and '?' in the text would otherwise split or glob the WriteLinesToFile item. -->
+    <WriteLinesToFile File="$(SailfishVersionedDir)%(SailfishVersioned.TargetPath)"
+                      Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('%(SailfishVersioned.FullPath)').Replace('@SAILFISH_VERSION@', '$(PlatformMauiSailfishVersion)').TrimEnd())))"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="SailfishCollectVersioned" AfterTargets="SailfishWriteVersioned" BeforeTargets="PrepareForBuild;_GetPackageFiles">
+    <ItemGroup>
+      <SailfishVersionedOutput Include="@(SailfishVersioned->'$(SailfishVersionedDir)%(TargetPath)')" />
+    </ItemGroup>
+  </Target>
+</Project>

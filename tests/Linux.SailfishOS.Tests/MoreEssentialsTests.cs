@@ -222,3 +222,87 @@ public class MoreEssentialsTests
 		Assert.Equal(Path.GetFileName(path), file.FileName);
 	}
 }
+
+/// <summary>SailfishPreferences on a scratch file (never the user's ~/.config).</summary>
+public class PreferencesStoreTests : IDisposable
+{
+	private readonly string _dir = Path.Combine(Path.GetTempPath(), "sf-prefs-" + Guid.NewGuid().ToString("N"));
+	private string File => Path.Combine(_dir, "preferences.json");
+
+	public void Dispose()
+	{
+		if (Directory.Exists(_dir))
+			Directory.Delete(_dir, recursive: true);
+	}
+
+	[Fact]
+	public void Clearing_a_shared_container_keeps_the_others()
+	{
+		var prefs = new Microsoft.Maui.SailfishOS.Platform.SailfishPreferences(File);
+		prefs.Set("a", 1);
+		prefs.Set("b", 2, "group");
+		prefs.Set("c", 3, "other");
+
+		prefs.Clear("group");
+		Assert.Equal((1, 0, 3), (prefs.Get("a", 0), prefs.Get("b", 0, "group"), prefs.Get("c", 0, "other")));
+
+		prefs.Clear();   // the default container only
+		Assert.Equal((0, 3), (prefs.Get("a", 0), prefs.Get("c", 0, "other")));
+	}
+
+	[Fact]
+	public void A_DateTimeOffset_round_trips_through_the_file()
+	{
+		var when = new DateTimeOffset(2026, 10, 3, 9, 30, 0, TimeSpan.FromHours(2));
+		new Microsoft.Maui.SailfishOS.Platform.SailfishPreferences(File).Set("when", when);
+		Assert.Equal(when, new Microsoft.Maui.SailfishOS.Platform.SailfishPreferences(File).Get("when", DateTimeOffset.MinValue));
+		Assert.False(System.IO.File.Exists(File + ".tmp"));   // written through a temp file, renamed over the store
+	}
+
+	[Fact]
+	public void Concurrent_writers_lose_no_key()
+	{
+		var prefs = new Microsoft.Maui.SailfishOS.Platform.SailfishPreferences(File);
+		Parallel.For(0, 64, i => prefs.Set($"k{i}", i));
+		var reread = new Microsoft.Maui.SailfishOS.Platform.SailfishPreferences(File);
+		Assert.All(Enumerable.Range(0, 64), i => Assert.Equal(i, reread.Get($"k{i}", -1)));
+	}
+}
+
+/// <summary>SailfishEssentialsRegistry: one row per Essentials service drives DI, the facades and the overlay.</summary>
+public class EssentialsRegistryTests
+{
+
+	[Fact]
+	public void Every_row_names_an_installer_the_facade_has()
+	{
+		foreach (var entry in Microsoft.Maui.SailfishOS.Platform.SailfishEssentialsRegistry.Entries)
+		{
+			var hook = entry.Facade.GetMethod(entry.Hook, System.Reflection.BindingFlags.Static |
+				System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+			Assert.True(hook is not null, $"{entry.Facade.Name}.{entry.Hook} not found");
+			Assert.IsAssignableFrom(entry.Service, Microsoft.Maui.SailfishOS.Platform.SailfishEssentialsRegistry.DefaultFor(entry));
+		}
+	}
+
+	// The facade installed before CreateMauiApp, the container's singleton and the overlay's fallback are one object:
+	// two Preferences instances kept two caches that overwrote each other's file. (No MauiApp is built here: that
+	// remaps MAUI's official mappers process-wide and races HandlerParityTests.)
+	[Fact]
+	public void Container_overlay_and_registry_hand_out_one_instance()
+	{
+		var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+		SailfishEssentials.AddSailfishEssentials(services);
+		var container = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
+		var overlay = new SailfishServiceOverlay(container);
+		var plainOverlay = new SailfishServiceOverlay(
+			Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+				new Microsoft.Extensions.DependencyInjection.ServiceCollection()));
+		var registry = SailfishEssentialsRegistry.DefaultFor(SailfishEssentialsRegistry.Find(typeof(IPreferences))!);
+
+		Assert.Same(registry, container.GetService(typeof(IPreferences)));
+		Assert.Same(registry, overlay.GetService(typeof(IPreferences)));
+		Assert.Same(registry, plainOverlay.GetService(typeof(IPreferences)));
+		Assert.Same(container.GetService(typeof(IMediaPicker)), container.GetService(typeof(IFilePicker)));   // one pickers instance
+	}
+}

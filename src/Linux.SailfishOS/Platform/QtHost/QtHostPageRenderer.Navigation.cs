@@ -9,7 +9,7 @@ using Microsoft.Maui.Graphics;
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 // MAUI navigation stack ⇄ Silica pageStack sync (one model page per MAUI page); the page cache is PageCache.cs.
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer : INativeStackOwner
 {
 	private Page? RootPage() =>
 		_window.Page ?? (_window as Microsoft.Maui.IWindow)?.Content as Page;
@@ -140,24 +140,8 @@ public sealed partial class QtHostPageRenderer
 		QtHostRuntime.RunOnQtThread(Register);
 	}
 
-	private bool _settleKickArmed;
-
-	/// <summary>While a waiter exists, polls every 50 ms instead of every 250 ms.</summary>
-	private void KickSettlePolls()
-	{
-		if (_settleKickArmed || _settleWaiters.Count == 0)
-			return;
-		_settleKickArmed = true;
-		if (Microsoft.Maui.Dispatching.Dispatcher.GetForCurrentThread() is { } dispatcher)
-			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(50), () =>
-			{
-				_settleKickArmed = false;
-				RequestPoll();
-				KickSettlePolls();
-			});
-		else
-			_settleKickArmed = false;   // tests drive the polls themselves
-	}
+	/// <summary>While a waiter exists, polls every 50 ms instead of waiting for the heartbeat.</summary>
+	private void KickSettlePolls() => _scheduler.KickSettlePolls(() => _settleWaiters.Count > 0);
 
 	private void CompleteSettledNavigation()
 	{
@@ -349,7 +333,7 @@ public sealed partial class QtHostPageRenderer
 			_nativeTopUnfollowed = topId.Length > 0 && NativeTopPageId is { } waitingTop && topId != waitingTop;
 			return;
 		}
-		StepNavigation(ids, topModel, version);
+		_stack.Step(ids, topModel, version);
 		_nativeTopUnfollowed = false;
 	}
 
@@ -361,11 +345,11 @@ public sealed partial class QtHostPageRenderer
 	{
 		// The blanket destroy takes parked back-cache hosts too, so retire the mirror first.
 		DropRetention();
-		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "__destroyAllHosts"));
+		CallPage(null, "__destroyAllHosts");
 		TearDownHosts(pageId: null, pageAlive: false);   // also retires every collection list
 		ResetModelPageScopedState(reason);
 		QtHostDiag.Warn(QtHostDiagChannel.Geometry,
-			$"README #5: full page host reset ({reason}) — the next reconcile rebuilds from MAUI state");
+			$"page reset: full page host reset ({reason}) — the next reconcile rebuilds from MAUI state");
 	}
 
 	/// <summary>
@@ -599,7 +583,7 @@ public sealed partial class QtHostPageRenderer
 			return;
 		var hosts = _current.ToList();
 		if (pageAlive && pageId is not null)
-			DestroyHosts(hosts, pageId == NativeTopPageId ? QmlPage.Model : QmlPage.ById(pageId));
+			DestroyHosts(hosts, pageId);
 		else
 			foreach (var host in hosts)
 				ReleaseHost(host);
@@ -608,4 +592,47 @@ public sealed partial class QtHostPageRenderer
 		_current.Clear();
 		_byId.Clear();
 	}
+
+	// --- INativeStackOwner: what the coordinator asks of the renderer ---
+
+	int INativeStackOwner.ExpectedNativeDepth() => ExpectedNativeDepth();
+
+	void INativeStackOwner.PushModelPages(int levels) => PushModelPages(levels);
+
+	void INativeStackOwner.PopModelPages(int levels) => PopModelPages(levels);
+
+	void INativeStackOwner.OnNativePopped(string? returnedTo)
+	{
+		// The popped page took its QML hosts with it: drop the mirror without an eval (dead handles resolve to null).
+		TearDownHosts(pageId: null, pageAlive: false);
+		PruneParked();
+		// The returned-to page is already visible under the dying one: restore its parked hosts now.
+		if (returnedTo is not null)
+		{
+			_tlStart = 0;
+			TimelineStart("gesture-pop");
+			RestoreRetention(returnedTo);
+		}
+		// Dead handles counted mid-transition belonged to the dying page; don't let them wipe the revealed page.
+		_fullResetPending = false;
+		_healedSinceReconcile = 0;
+	}
+
+	void INativeStackOwner.OnResynced(bool topGone)
+	{
+		if (topGone)
+			TearDownHosts(pageId: null, pageAlive: false);
+		PruneParked();
+		_layoutDirty = true;
+	}
+
+	void INativeStackOwner.FollowNative(NavOperation op, int levels) =>
+		Observe(PopMauiLevelsAsync(op, levels), "MAUI pop after a native pop");
+
+	void INativeStackOwner.KickIn(long ms) => KickIn(ms);
+
+	void INativeStackOwner.RequestPoll() => RequestPoll();
+
+	void INativeStackOwner.LogNavOp(string op, string source, string pageId, string nativeReport) =>
+		LogNavOp(op, source, pageId, nativeReport);
 }

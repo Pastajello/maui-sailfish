@@ -10,6 +10,9 @@ internal static class QtHostNative
 {
 	private const string Lib = "sailfishhost";
 
+	/// <summary>SFHOST_ABI_VERSION of the shim this code was written against (sailfish_host.h).</summary>
+	internal const int AbiVersion = 3;
+
 	/* Log levels match QtMsgType: 0=debug 1=warning 2=critical 3=fatal. */
 	public delegate void LogFn(int level, IntPtr message, IntPtr userData);
 
@@ -36,6 +39,13 @@ internal static class QtHostNative
 	/* Surface touch: action 0 pressed, 1 moved, 2 released, 3 cancelled; device 0 touch, 1 mouse; returns handled. */
 	public delegate int SurfaceTouchFn(long handle, int action, int pointer, double x, double y, double pressure,
 		int device, int button, IntPtr userData);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_abi_version();
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_invoke(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string method,
+		[MarshalAs(UnmanagedType.LPUTF8Str)] string? arg, IntPtr output, int capacity);
 
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_init(string appName, LogFn? log, IntPtr logUser);

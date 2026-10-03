@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../lib/adapter.js" as Adapter
 
 // Adapter: MAUI DisplayActionSheetAsync -> Silica Dialog with a value-button list.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
@@ -80,7 +81,7 @@ Dialog {
     }
 
     // Header cancel / swipe-down / hardware back → the cancel text result.
-    onRejected: mauiEvent("action-cancelled", mauiId)
+    onRejected: Adapter.emit(root, "action-cancelled")
     // A bare swipe-up accept is also a dismiss, so the managed task never hangs.
-    onAccepted: if (!__selected) mauiEvent("action-cancelled", mauiId)
+    onAccepted: if (!__selected) Adapter.emit(root, "action-cancelled")
 }

@@ -150,6 +150,20 @@ ApplicationWindow {
         onKeyboardRectangleChanged: window.__mauiReportInputMethod()
     }
     function __mauiAppDrain() { var q = __mauiAppQueue; __mauiAppQueue = []; return q; }
+    // The shim's drain, once per tick: every model page's queue and the app queue. A page under a Silica dialog or a
+    // parked page reports too (the drain used to read pageStack.currentPage only, so their events waited until the
+    // page was on top again).
+    function __mauiDrainAll() {
+        var out = null;
+        for (var i = 0; i < mauiPages.length; ++i) {
+            var p = mauiPages[i];
+            if (p && p.__mauiQueue && p.__mauiQueue.length)
+                out = (out || []).concat(p.__mauiDrain());
+        }
+        if (__mauiAppQueue.length)
+            out = (out || []).concat(__mauiAppDrain());
+        return out ? JSON.stringify(out) : "[]";
+    }
     function mauiService(name, qml) {
         if (!mauiServices[name]) {
             try {
@@ -198,8 +212,13 @@ ApplicationWindow {
         target: Qt.application
         // One payload shape for both signals: the C# side reads `state` (SailfishApplicationState) and treated a
         // missing `state` as Active, so an `{ active: false }` payload used to report deactivation as activation.
-        onStateChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }))
-        onActiveChanged: window.mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }))
+        // The only source of svc-app-state (the shim no longer sends its own): both signals report the same payload,
+        // and SailfishMauiApplication raises a transition once.
+        onStateChanged: window.mauiReportAppState()
+        onActiveChanged: window.mauiReportAppState()
+    }
+    function mauiReportAppState() {
+        mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }));
     }
     // Bumped on every pageStack depth change: the coordinator logs which native state an operation saw.
     property int mauiStackVersion: 0
@@ -301,8 +320,12 @@ ApplicationWindow {
     }
 
     // mauiFirstTitle: the first page's header, a context property of the window load.
-    Component.onCompleted: pageStack.push(mauiPageUrl,
-                                          { mauiPageId: "mp1",
-                                            pageTitle: typeof mauiFirstTitle !== "undefined" ? mauiFirstTitle : "" },
-                                          PageStackAction.Immediate)
+    Component.onCompleted: {
+        pageStack.push(mauiPageUrl,
+                       { mauiPageId: "mp1",
+                         pageTitle: typeof mauiFirstTitle !== "undefined" ? mauiFirstTitle : "" },
+                       PageStackAction.Immediate);
+        // The state settles while the window loads and shows: report where it is now (queued until managed drains).
+        mauiReportAppState();
+    }
 }

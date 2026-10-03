@@ -1285,6 +1285,19 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		}
 		var text = themed.TextColor;
 		var plate = themed.BackgroundColor;
+		// The gallery sets both colours in XAML, before the host exists: createObject's init fires no change handler,
+		// so Button.qml must apply them on completion (they stayed Silica's after 1cfd712 until it did).
+		var created = QtHost.QtHostRuntime.Eval(
+			"(function(i){return i?(Qt.colorEqual(i.color,'#ffffff')?'fg':'')+(Qt.colorEqual(i.backgroundColor,'#2e6bb0')?'bg':''):'';})(" +
+			DiagQml.ItemJs(host) + ")");
+		_qtVisualChecks.Check($"XAML colours at create: TextColor White, BackgroundColor #2E6BB0 on the native button ({created})",
+			created == "fgbg");
+		Shot(dispatcher, "visual-xaml-colours", () => RunQtVisualColorResetLegChange(host, themed, text, plate, renderer, dispatcher));
+	}
+
+	private void RunQtVisualColorResetLegChange(QtHost.NativeElementHost host, Button themed, Color? text, Color? plate,
+		QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
 		themed.TextColor = Colors.Red;   // away from white, which is also the theme's primary colour
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(450), () =>
 		{
@@ -1661,7 +1674,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			{
 				_qtCtlStage = 2;
 				Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg A — '{title}' pushed through MAUI navigation and rendered by the Qt pipeline");
-				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => VerifyQtControlsRender(renderer, dispatcher));
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
+					Shot(dispatcher, "controls-gallery", () => VerifyQtControlsRender(renderer, dispatcher)));
 			}
 		};
 
@@ -1806,7 +1820,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		{
 			Spacing = 10,
 			Padding = new Thickness(20),
-			Children = { label, button, indicator, slider, progress, sw, checkBox, searchBar, picker, datePicker, timePicker, radioA, radioB, frame, imageButton, flex, absolute, border, contentView, grid, stack, ctxLabel, tail },
+			// The Border (leg D taps the Button inside it) sits high on the page: further down, the content above it decided
+			// whether its Button was still on screen at scroll offset 0 (a font measure change pushed it below the page).
+			Children = { label, button, border, indicator, slider, progress, sw, checkBox, searchBar, picker, datePicker, timePicker, radioA, radioB, frame, imageButton, flex, absolute, contentView, grid, stack, ctxLabel, tail },
 		};
 		var scrollView = new ScrollView { Content = layout };
 		_qtCtl["scrollView"] = scrollView;
@@ -3319,8 +3335,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		"cr+=p[i].createdTotal||0;de+=p[i].destroyedTotal||0;}" +
 		"return JSON.stringify({pages:p.length,live:live,parked:pk,created:cr,destroyed:de});})";
 
-	private static string EvalStressQmlCounts() =>
-		QtHost.QtHostRuntime.Eval($"{StressQmlCountsJs}({QtHost.BridgeValue.Serialize(QtHost.QtHostPageRenderer.Current?.ParkedHostIds ?? Array.Empty<string>())})");
+	private string EvalStressQmlCounts() =>
+		QtHost.QtHostRuntime.Eval($"{StressQmlCountsJs}({QtHost.BridgeValue.Serialize(_context.Renderer?.ParkedHostIds ?? Array.Empty<string>())})");
 
 	/// <summary>Parses the StressQmlCountsJs JSON (-1 = missing field).</summary>
 	private static StressQml ParseStressQml(string json)
@@ -3585,7 +3601,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var yBefore = obj is null ? double.NaN : ColPropNum(obj, "contentY");
 		// Target near the end at every scale, so the RemainingItemsThreshold witness can fire.
 		var scrollTarget = System.Math.Max(System.Math.Min(30, _qtColRows - 1), _qtColRows - 10);
-		Console.Error.WriteLine($"[Sailfish] Qt collection diag: leg D — ScrollTo({scrollTarget}, Center) → mauiScrollRow/Pos/Tick → native contentY jump, then an injected flick → list-scroll → ItemsView.Scrolled");
+		Console.Error.WriteLine($"[Sailfish] Qt collection diag: leg D — ScrollTo({scrollTarget}, Center) → mauiCommand scrollTo → native contentY jump, then an injected flick → list-scroll → ItemsView.Scrolled");
 		_qtColView!.ScrollTo(scrollTarget, -1, ScrollToPosition.Center, false);
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(900),
 			() => VerifyColLegD(renderer, dispatcher, obj, yBefore, rowsBuiltBeforeUpdate));
@@ -3604,7 +3620,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var scrollable = !double.IsNaN(contentH) && !double.IsNaN(viewH) && contentH > viewH + 1;
 		CheckColVisibleRows(obj, "leg D after ScrollTo near the end");
 		_qtColChecks.Check(scrollable
-			? $"leg D ScrollTo: managed ScrollTo(Center) jumped the native list (contentY {yBefore:F0} → {yAfter:F0}, mauiScrollTick applied)"
+			? $"leg D ScrollTo: managed ScrollTo(Center) jumped the native list (contentY {yBefore:F0} → {yAfter:F0}, scrollTo command applied)"
 			: $"leg D ScrollTo: dataset fits the viewport at this scale (contentHeight {contentH:F0} <= height {viewH:F0}) — ScrollTo is a no-op by design, nothing to jump",
 			scrollable ? !double.IsNaN(yAfter) && yAfter > yBefore : true);
 		// Reposition near the top so the upward flick has room (StopAtBounds, and the centered target sits near the end).
@@ -4128,7 +4144,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		Console.Error.WriteLine($"[Sailfish] QT PERF startup: firstFrameMs={_perfS0.FirstFrameMs} frames={_perfS0.Frames} renderLoop={_perfS0.RenderLoop} " +
 			$"uptimeMs={_perfS0.UptimeMs} cpuMs={_perfS0.CpuMs} rssKb={_perfS0.RssKb} qmlObjects={_perfS0.QmlObjects} qmlItems={_perfS0.QmlItems} | " +
 			$"evals={_perfS0.Evals} opsEvals={_perfS0.OpsEvals} propsBatches={_perfS0.PropsBatches} geometryBatches={_perfS0.GeometryBatches} " +
-			$"textMeasures={_perfS0.TextMeasures} findObjects={_perfS0.FindObjects} grabs={_perfS0.Grabs} | " +
+			$"textMeasures={_perfS0.TextMeasures} findObjects={_perfS0.FindObjects} grabs={_perfS0.Grabs} " +
+			$"pageInvokes={renderer.PageInvokes} pageCallFallbacks={renderer.PageCallFallbacks} | " +
 			$"settled after {attempt} re-reads; live hosts {qml0.Live}, model pages {qml0.Pages} (created/destroyed {qml0.Created}/{qml0.Destroyed})");
 		_qtPerfChecks.Check($"startup: first frame {_perfS0.FirstFrameMs}ms after event-loop start (>0, ≤ uptime {_perfS0.UptimeMs}ms), {_perfS0.Frames} frames presented, scene-graph render loop identified as '{_perfS0.RenderLoop}'",
 			_perfS0.FirstFrameMs > 0 && _perfS0.FirstFrameMs <= _perfS0.UptimeMs && _perfS0.Frames > 0 && loopOk);

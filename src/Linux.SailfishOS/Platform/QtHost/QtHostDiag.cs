@@ -1,7 +1,7 @@
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 /// <summary>Diagnostic channels of the Qt host; every <see cref="QtHostDiag"/> message is tagged with exactly one.</summary>
-public enum QtHostDiagChannel
+internal enum QtHostDiagChannel
 {
 	QtHost = 0,
 	QmlLoad = 1,
@@ -50,7 +50,7 @@ public sealed class QtHostException : Exception
 /// Diagnostic log of the Qt host with per-channel counters. Trace prints only with
 /// <c>MAUI_SAILFISH_QT_HOST_DIAG=1</c>; Warn and Error always print, as <c>[Sailfish][CHANNEL]...</c> lines.
 /// </summary>
-public static class QtHostDiag
+internal static class QtHostDiag
 {
 	/// <summary>Number of channels.</summary>
 	public const int ChannelCount = 11;

@@ -60,6 +60,12 @@ internal static class SailfishViewKeys
 		return owned;
 	}
 
+	/// <summary>Text-input properties the handlers leave out of their snapshots, so native focus and caret survive the
+	/// reconcile poll; their mappers push them on their own (QtHostPageRenderer.PushTransient).</summary>
+	internal static readonly string[] TransientInput =
+		{ nameof(Microsoft.Maui.Controls.VisualElement.IsFocused), nameof(Microsoft.Maui.Controls.InputView.CursorPosition),
+		  nameof(Microsoft.Maui.Controls.InputView.SelectionLength) };
+
 	/// <summary>Keys with no meaning on this platform (not counted as gaps).</summary>
 	public static readonly IReadOnlySet<string> NotApplicable = new HashSet<string>(StringComparer.Ordinal)
 	{

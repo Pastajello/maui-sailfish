@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "lib/adapter.js" as Adapter
 
 // Persistent MAUI element host. Managed code reconciles the MAUI tree into op batches
 // (applyMauiOps); each element gets a persistent QML object named "maui_<id>" that the
@@ -8,6 +9,8 @@ import Sailfish.Silica 1.0
 // geometry pass (Qt scene units, already converted from dp); QML never lays them out.
 Page {
     id: page
+    // The managed side finds the page by this name and calls its functions directly (sailfish_host_invoke).
+    objectName: mauiPageId.length > 0 ? "mauiPage_" + mauiPageId : ""
 
     // Managed-assigned page id ("mp1" for the shell root); the renderer addresses batches through it.
     property string mauiPageId: ""
@@ -77,7 +80,7 @@ Page {
         easing.type: Easing.OutCubic
         onStopped: {
             if (page.__tabSwipeDir !== 0 && Math.abs(page.mauiTabDrag) >= page.width - 1) {
-                page.mauiNotify("tab-swipe-commit", JSON.stringify({ delta: page.__tabSwipeDir }));
+                Adapter.pageEmit(page, "tab-swipe-commit", { delta: page.__tabSwipeDir });
                 tabSwipeGuard.restart();
             }
         }
@@ -239,10 +242,13 @@ Page {
     // Managed entry point (Qt thread): applies a reconciled batch of title/background/create/
     // destroy/order/reparent ops. "order" re-parents existing objects without recreating them.
     // Returns "created:destroyed".
+    // MAUI_SAILFISH_OPS_TIMING (set on the shell). Through __shell, not the shell's `window` id: a page loaded outside
+    // MauiShell (a diagnostics host) has no such id and a bare reference would throw in every batch.
+    function __opsTiming() { return !!(page.__shell && page.__shell.mauiOpsTiming); }
     property int __opsFindMs: 0     // MAUI_SAILFISH_OPS_TIMING: parent lookups and createObject in the batch
     property int __opsCreateMs: 0
     function applyMauiOps(opsJson) {
-        var __t0 = window.mauiOpsTiming ? Date.now() : 0;
+        var __t0 = __opsTiming() ? Date.now() : 0;
         __opsFindMs = 0;
         __opsCreateMs = 0;
         var ops = JSON.parse(opsJson);
@@ -322,6 +328,10 @@ Page {
                     var at = __order.indexOf(o.from);
                     if (at >= 0)
                         __order[at] = o.to;
+                    // A re-parent still waiting for its placeholder follows the host to its new id.
+                    for (var pr = 0; pr < __pendingReparents.length; pr++)
+                        if (__pendingReparents[pr].id === o.from)
+                            __pendingReparents[pr].id = o.to;
                 } else {
                     unknown++; unknownIds.push(o.from);
                 }
@@ -346,7 +356,8 @@ Page {
                     " hosts=" + __order.length +
                     " totals=" + createdTotal + "/" + destroyedTotal);
         reportTimer.restart();
-        return created + ":" + destroyed;
+        // unknown last: a refused rekey (its target id taken) or an op on an id this page does not hold.
+        return created + ":" + destroyed + ":" + unknown;
     }
 
     // Native back-navigation can leave hosts whose managed ids were lost; they paint as strays
@@ -446,7 +457,7 @@ Page {
         // Geometry arrives parent-relative; pre-order batches create parents first.
         var hostParent = __hostItem(parentId);
         if (parentObj && parentObj.length > 0) {
-                var __tf = window.mauiOpsTiming ? Date.now() : 0;
+                var __tf = __opsTiming() ? Date.now() : 0;
             var resolved = __mauiFindByName(parentObj);
             if (__tf) __opsFindMs += Date.now() - __tf;
             if (resolved)
@@ -460,7 +471,7 @@ Page {
                 page.__pendingReparents.push({ id: id, parentObj: parentObj });
             }
         }
-        var __tc = window.mauiOpsTiming ? Date.now() : 0;
+        var __tc = __opsTiming() ? Date.now() : 0;
         // A row/slot root is owned by the canvas and only shown in its delegate: when the ListView destroys the
         // delegate the subtree survives, so managed can hand it to the next row of the same template (row pool).
         var owner = parentObj && parentObj.length > 0 ? canvas : hostParent;
@@ -538,7 +549,7 @@ Page {
     // coordinate space and relayouts. The only dp conversion happens in managed (QtHostUnits).
     function reportWindowGeometry() {
         var status = (page.statusHeight !== undefined) ? page.statusHeight : 0;
-        mauiNotify("window-geometry", JSON.stringify({
+        Adapter.pageEmit(page, "window-geometry", ({
             pageWidth: page.width,
             pageHeight: page.height,
             headerHeight: pageHeader.height + tabBar.height + subTabBar.height,
@@ -589,7 +600,7 @@ Page {
                                    w: host.item.width, h: host.item.height });
             }
         }
-        mauiNotify("rendered", JSON.stringify({ title: pageTitle,
+        Adapter.pageEmit(page, "rendered", ({ title: pageTitle,
                                                 hosts: __order.length,
                                                 createdTotal: createdTotal,
                                                 destroyedTotal: destroyedTotal,
@@ -626,7 +637,7 @@ Page {
         else if (o.host && __hosts[o.host])
             target = __hosts[o.host].item;
         if ((o.dg || o.host) && !target) {
-            mauiNotify("remorse-done", JSON.stringify({ token: o.token, executed: false, error: "target gone" }));
+            Adapter.pageEmit(page, "remorse-done", { token: o.token, executed: false, error: "target gone" });
             return "no target";
         }
         var r = target ? remorseItemComponent.createObject(target.parent) : remorsePopupComponent.createObject(page);
@@ -636,7 +647,7 @@ Page {
                 return;
             done = true;
             delete __remorse[o.token];
-            mauiNotify("remorse-done", JSON.stringify({ token: o.token, executed: executed }));
+            Adapter.pageEmit(page, "remorse-done", { token: o.token, executed: executed });
             r.destroy(1500);   // after Silica's own close animation
         }
         __remorse[o.token] = r;
@@ -696,7 +707,7 @@ Page {
                     mauiDefer(function() { mauiOpenPulley(which, (tries || 0) + 1); });
                     return "retry";
                 }
-                mauiNotify("pulley-open-try", JSON.stringify({
+                Adapter.pageEmit(page, "pulley-open-try", ({
                     which: which, hasF: !!f, hasM: false, gaveUp: true }));
                 return "gaveup";
             }
@@ -712,7 +723,7 @@ Page {
             // Silica starts its own return animation once no drag is active, so keep re-parking.
             __pulleyHold = { f: f, m: m, ticks: 0 };
             pulleyHoldTimer.restart();
-            mauiNotify("pulley-opened", JSON.stringify({
+            Adapter.pageEmit(page, "pulley-opened", ({
                 which: which, pageFlick: f === flick, active: m.active,
                 before: before, after: f.contentY, fin: m._finalPosition,
                 origin: f.originY, menuH: m.height, bb: f.boundsBehavior }));
@@ -776,7 +787,7 @@ Page {
                     return;
                 pageStack.busyChanged.disconnect(later);
                 if (__pushDialogNow(comp, propsJson) !== "ok")
-                    page.mauiNotify("dialog-failed", "{}");
+                    Adapter.pageEmit(page, "dialog-failed");
             };
             pageStack.busyChanged.connect(later);
             return "ok";
@@ -891,7 +902,7 @@ Page {
             if (page.__applyingScroll || contentY === page.__lastReportedY)
                 return;
             page.__lastReportedY = contentY;
-            page.mauiNotify("scroll-changed", JSON.stringify({ y: contentY }));
+            Adapter.pageEmit(page, "scroll-changed", { y: contentY });
         }
         // Releasing a top overscroll past itemSizeMedium is the pull-to-refresh gesture.
         onDragEnded: page.__maybeRequestRefresh()
@@ -984,7 +995,7 @@ Page {
                                 color: palette.highlightColor
                                 visible: index === page.mauiTabIndex
                             }
-                            onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index }))
+                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index })
                         }
                     }
                 }
@@ -1027,7 +1038,7 @@ Page {
                                 opacity: 0.6
                                 visible: index === page.mauiSubTabIndex
                             }
-                            onClicked: page.mauiNotify("tab-selected", JSON.stringify({ index: index, level: 1 }))
+                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index, level: 1 })
                         }
                     }
                 }

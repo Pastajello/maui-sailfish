@@ -22,7 +22,7 @@ public class SailfishSKCanvasViewHandler : SailfishViewHandler<ISKCanvasView>
 {
 	public static readonly PropertyMapper<ISKCanvasView, SailfishSKCanvasViewHandler> Mapper = BuildMapper();
 
-	public static readonly CommandMapper<ISKCanvasView, SailfishSKCanvasViewHandler> CommandMapper = new(ViewCommandMapper)
+	public static readonly CommandMapper<ISKCanvasView, SailfishSKCanvasViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper)
 	{
 		[nameof(ISKCanvasView.InvalidateSurface)] = OnInvalidateSurface,
 	};

@@ -5,7 +5,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// Backend runtime services: the <see cref="SailfishDispatcherTimer"/> registry the Qt loop ticks, and opt-in trace logging.
 /// </summary>
-public static class SailfishRuntime
+internal static class SailfishRuntime
 {
 	private static readonly ConcurrentDictionary<SailfishDispatcherTimer, byte> _timers = new();
 
@@ -77,13 +77,6 @@ public static class SailfishRuntime
 		if (!TraceEnabled)
 			return;
 
-		try
-		{
-			System.IO.File.AppendAllText("/tmp/maui_trace.log", $"[SailfishRuntime] {message} {DateTime.Now:HH:mm:ss.fff}\n");
-		}
-		catch
-		{
-			// Tracing must never crash the runtime.
-		}
+		SailfishCrashTrace.Line($"[SailfishRuntime] {message} {DateTime.Now:HH:mm:ss.fff}", stderr: false);
 	}
 }

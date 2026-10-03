@@ -77,7 +77,7 @@ internal static class SailfishPageContainers
 /// <summary>TabbedPage: the selected child's stack, the children as tabs.</summary>
 public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageContainer
 {
-	private readonly EventHandler _onCurrentPage = (_, _) => QtHostPageRenderer.RequestPoll();
+	private void OnCurrentPageChanged(object? sender, EventArgs e) => SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 
 	private TabbedPage? Tabbed => ((IElementHandler)this).VirtualView as TabbedPage;
 
@@ -85,13 +85,13 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 	{
 		base.ConnectHandler(platformView);
 		if (Tabbed is { } tabbed)
-			tabbed.CurrentPageChanged += _onCurrentPage;
+			tabbed.CurrentPageChanged += OnCurrentPageChanged;
 	}
 
 	protected override void DisconnectHandler(object platformView)
 	{
 		if (Tabbed is { } tabbed)
-			tabbed.CurrentPageChanged -= _onCurrentPage;
+			tabbed.CurrentPageChanged -= OnCurrentPageChanged;
 		base.DisconnectHandler(platformView);
 	}
 
@@ -125,7 +125,7 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 /// <summary>FlyoutPage: the Detail's stack, plus the Flyout page while presented (a native push, closed by Back).</summary>
 public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageContainer
 {
-	private readonly EventHandler _onPresented = (_, _) => QtHostPageRenderer.RequestPoll();
+	private void OnPresentedChanged(object? sender, EventArgs e) => SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 
 	private FlyoutPage? Flyout => ((IElementHandler)this).VirtualView as FlyoutPage;
 
@@ -133,13 +133,13 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 	{
 		base.ConnectHandler(platformView);
 		if (Flyout is { } flyout)
-			flyout.IsPresentedChanged += _onPresented;
+			flyout.IsPresentedChanged += OnPresentedChanged;
 	}
 
 	protected override void DisconnectHandler(object platformView)
 	{
 		if (Flyout is { } flyout)
-			flyout.IsPresentedChanged -= _onPresented;
+			flyout.IsPresentedChanged -= OnPresentedChanged;
 		base.DisconnectHandler(platformView);
 	}
 
@@ -177,15 +177,19 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 /// contents as tabs, the flyout items as the pulley menu.</summary>
 public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 {
-	private readonly EventHandler<ShellNavigatedEventArgs> _onNavigated = (_, _) =>
+	private void OnNavigated(object? sender, ShellNavigatedEventArgs e)
 	{
-		Platform.SailfishServiceOverlay.RoutePageNavigation = false;
-		QtHostPageRenderer.RequestPoll();
-	};
+		if (SailfishHandlerCore.SessionOf(this) is { } session)
+			session.RoutePageNavigation = false;
+		SailfishHandlerCore.SessionOf(this)?.RequestPoll();
+	}
 
 	// Shell raises Navigating before it builds a pushed route page: only those pages come from the service overlay.
-	private readonly EventHandler<ShellNavigatingEventArgs> _onNavigating = (_, e) =>
-		Platform.SailfishServiceOverlay.RoutePageNavigation = e.Source is ShellNavigationSource.Push or ShellNavigationSource.Insert;
+	private void OnNavigating(object? sender, ShellNavigatingEventArgs e)
+	{
+		if (SailfishHandlerCore.SessionOf(this) is { } session)
+			session.RoutePageNavigation = e.Source is ShellNavigationSource.Push or ShellNavigationSource.Insert;
+	}
 
 	private Shell? ShellView => ((IElementHandler)this).VirtualView as Shell;
 
@@ -194,8 +198,8 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 		base.ConnectHandler(platformView);
 		if (ShellView is { } shell)
 		{
-			shell.Navigating += _onNavigating;
-			shell.Navigated += _onNavigated;
+			shell.Navigating += OnNavigating;
+			shell.Navigated += OnNavigated;
 		}
 	}
 
@@ -203,8 +207,8 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 	{
 		if (ShellView is { } shell)
 		{
-			shell.Navigating -= _onNavigating;
-			shell.Navigated -= _onNavigated;
+			shell.Navigating -= OnNavigating;
+			shell.Navigated -= OnNavigated;
 		}
 		base.DisconnectHandler(platformView);
 	}

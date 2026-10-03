@@ -22,6 +22,9 @@ public class LifecycleTests
 		protected override void OnApplicationStateChanged(SailfishApplicationState state) => Calls.Add($"override:state:{state}");
 		protected override void OnInputMethodChanged(bool visible, Rect keyboard) => Calls.Add($"override:vkb:{visible}:{keyboard.Height}");
 		protected override void OnQuitting() => Calls.Add("override:quit");
+		protected override void OnDisplayStateChanged(SailfishDisplayState state) => Calls.Add($"override:display:{state}");
+		protected override void OnScreenLockChanged(bool locked) => Calls.Add($"override:lock:{locked}");
+		protected override void OnMemoryLevelChanged(SailfishMemoryLevel level) => Calls.Add($"override:memory:{level}");
 	}
 
 	[Fact]
@@ -42,5 +45,44 @@ public class LifecycleTests
 
 		Assert.Equal(new[] { "override:state:Inactive", "override:vkb:True:760", "override:quit" }, app.Calls);
 		Assert.Equal(new[] { "event:state:Inactive", "event:vkb:True:760", "event:quit" }, log);
+	}
+	// MauiShell.qml reports both Qt.application signals (state and active) with the same payload, so one transition
+	// arrives twice: the override and the handlers see it once.
+	[Fact]
+	public void An_application_state_transition_is_raised_once()
+	{
+		var app = new TestApplication(MauiApp.CreateBuilder(useDefaults: false).Build().Services);
+		app.SubscribeNativeEvents();
+
+		QtHostServices.Dispatch(ShellEvents.AppState, "{\"state\":2,\"active\":false}");
+		QtHostServices.Dispatch(ShellEvents.AppState, "{\"state\":2,\"active\":false}");
+		QtHostServices.Dispatch(ShellEvents.AppState, "{\"state\":4,\"active\":true}");
+		QtHostServices.Dispatch(ShellEvents.AppState, "{\"state\":4,\"active\":true}");
+
+		Assert.Equal(new[] { "override:state:Inactive", "override:state:Active" }, app.Calls);
+	}
+
+	// The MCE service (SailfishSystemService) keeps the last display/lock/memory state and raises each change once;
+	// MCE re-reports on valid/changed, so repeats are common.
+	[Fact]
+	public void Mce_states_are_kept_and_each_change_is_raised_once()
+	{
+		var app = new TestApplication(MauiApp.CreateBuilder(useDefaults: false).Build().Services);
+		app.SubscribeNativeEvents();
+		Assert.Null(app.DisplayState);
+		Assert.False(app.MemoryLevelAnswered);
+
+		QtHostServices.Dispatch(ShellEvents.Display, "{\"state\":0}");
+		QtHostServices.Dispatch(ShellEvents.Display, "{\"state\":0}");
+		QtHostServices.Dispatch(ShellEvents.ScreenLock, "{\"locked\":true}");
+		QtHostServices.Dispatch(ShellEvents.MemoryLevel, "{\"level\":\"unknown\"}");
+		QtHostServices.Dispatch(ShellEvents.MemoryLevel, "{\"level\":\"warning\"}");
+		QtHostServices.Dispatch(ShellEvents.MemoryLevel, "{\"level\":\"warning\"}");
+
+		Assert.Equal(SailfishDisplayState.Off, app.DisplayState);
+		Assert.True(app.ScreenLocked);
+		Assert.Equal(SailfishMemoryLevel.Warning, app.MemoryLevel);
+		Assert.True(app.MemoryLevelAnswered);
+		Assert.Equal(new[] { "override:display:Off", "override:lock:True", "override:memory:Warning" }, app.Calls);
 	}
 }

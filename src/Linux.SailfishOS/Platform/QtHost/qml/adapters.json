@@ -42,9 +42,6 @@
         "pull-down-menu":  "interactions/PullDownMenu.qml",
         "push-up-menu":    "interactions/PushUpMenu.qml",
         "docked-panel":    "interactions/DockedPanel.qml",
-        "drawer":          "interactions/Drawer.qml",
-
-        "maui-page":       "navigation/MauiPage.qml",
-        "navigation-root": "navigation/MauiNavigationRoot.qml"
+        "drawer":          "interactions/Drawer.qml"
     }
 }

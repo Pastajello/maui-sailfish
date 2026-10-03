@@ -27,9 +27,6 @@ PathView {
     property int mauiPosition: 0
     property bool mauiSwipeEnabled: true
     property bool mauiBounce: true
-    property int mauiScrollRow: -1
-    property int mauiScrollPos: 3
-    property int mauiScrollTick: 0
     property real mauiHeaderH: 0
     property real mauiFooterH: 0
     property real mauiEmptyH: 0
@@ -37,6 +34,8 @@ PathView {
     // declarations the shim reported "no such property" and C# logged a bridge failure on every layout push.
     property int mauiVBar: 0
     property int mauiHBar: 0
+    // EmptyView text the bridge pushes to every list adapter (read by ListView.qml's ViewPlaceholder).
+    property string mauiPlaceholderText: ""
 
     readonly property real __pageW: Math.max(1, width - mauiPeekStart - mauiPeekEnd)
     readonly property real __step: __pageW + mauiSpacing

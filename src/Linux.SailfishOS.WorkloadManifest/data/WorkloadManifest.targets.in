@@ -15,7 +15,7 @@
        IsImplicitlyDefined, as on the SDK's own implicit references, keeps central package management from
        rejecting its Version (NU1008). -->
   <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
-    <SailfishPackageVersion Condition="'$(SailfishPackageVersion)' == ''">0.1.0</SailfishPackageVersion>
+    <SailfishPackageVersion Condition="'$(SailfishPackageVersion)' == ''">@SAILFISH_VERSION@</SailfishPackageVersion>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And '$(SailfishImplicitPackageReference)' != 'false' And '@(PackageReference->WithMetadataValue(&quot;Identity&quot;, &quot;Microsoft.Maui.SailfishOS&quot;))' == ''">
     <PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(SailfishPackageVersion)" IsImplicitlyDefined="true" />

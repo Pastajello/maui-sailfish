@@ -6,8 +6,8 @@ import Sailfish.WebEngine 1.0
 // Adapter: MAUI WebView -> Sailfish WebView (Gecko).
 // Named MauiWebView.qml because a local WebView.qml would shadow the imported type.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
-// A sandboxed (Sailjail) app needs the WebView permission. The *Tick properties
-// re-fire equal commands. Events: webview-navigating, webview-navigated, webview-js.
+// A sandboxed (Sailjail) app needs the WebView permission. Commands (mauiCommand): nav {action}, js {req, script}.
+// Events: webview-navigating, webview-navigated, webview-js.
 WebView {
     id: root
 
@@ -30,12 +30,7 @@ WebView {
     property string mauiUrl: ""
     property string mauiHtml: ""
     property string mauiBaseUrl: ""
-    property int mauiSourceTick: 0
-    property string mauiNavCommand: ""
-    property int mauiNavTick: 0
-    property string mauiJs: ""
-    property string mauiJsId: ""
-    property int mauiJsTick: 0
+    property int mauiSourceId: 0   // identity of the MAUI source: a new one loads again, even with the same URL
 
     active: true
 
@@ -47,7 +42,7 @@ WebView {
             url = mauiUrl;
     }
     Component.onCompleted: __load()
-    onMauiSourceTickChanged: __load()
+    onMauiSourceIdChanged: __load()
 
     onLoadingChanged: {
         if (loading)
@@ -57,17 +52,21 @@ WebView {
                 id: mauiId, url: url.toString(), back: canGoBack, fwd: canGoForward }));
     }
 
-    onMauiNavTickChanged: {
-        if (mauiNavCommand === "back") goBack();
-        else if (mauiNavCommand === "forward") goForward();
-        else if (mauiNavCommand === "reload") reload();
+    // Managed commands (QtHostRuntime.Invoke "mauiCommand"): one call per request.
+    function mauiCommand(json) {
+        var c = JSON.parse(json);
+        if (c.name === "nav") {
+            if (c.action === "back") goBack();
+            else if (c.action === "forward") goForward();
+            else if (c.action === "reload") reload();
+        } else if (c.name === "js") {
+            __runJs(c.req, c.script);
+        }
     }
 
     // Gecko runs scripts as a function body, dropping the completion value MAUI
     // expects, so it runs as `return eval(script)` with the raw script as fallback.
-    onMauiJsTickChanged: {
-        var req = mauiJsId;
-        var script = mauiJs;
+    function __runJs(req, script) {
         function done(result) {
             mauiEvent("webview-js", JSON.stringify({ id: mauiId, req: req, ok: true,
                 result: result === undefined || result === null ? "null" : String(result) }));

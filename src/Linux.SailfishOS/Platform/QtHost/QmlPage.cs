@@ -17,8 +17,9 @@ internal static class QmlPage
 	/// <summary>A page by id, or <paramref name="fallbackJs"/> when the registry no longer knows it.</summary>
 	public static string ByIdOr(string pageId, string fallbackJs) => $"({ById(pageId)}||{fallbackJs})";
 
-	/// <summary>Calls <c>page.fn(argJs)</c> when both the page and the function exist; a no-op otherwise.</summary>
+	/// <summary>Calls <c>page.fn(argJs)</c> when both the page and the function exist and answers its result ("" when
+	/// the page or the function is missing).</summary>
 	/// <param name="argJs">Raw JS argument text, e.g. a <see cref="BridgeValue.Quote"/>d JSON string.</param>
 	public static string Call(string pageJs, string fn, string argJs = "") =>
-		$"(function(){{var p={pageJs};if(p&&p.{fn})p.{fn}({argJs});}})()";
+		$"(function(){{var p={pageJs};if(p&&p.{fn})return p.{fn}({argJs});return '';}})()";
 }

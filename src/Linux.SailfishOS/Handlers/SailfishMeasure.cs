@@ -12,7 +12,28 @@ namespace Microsoft.Maui.SailfishOS.Handlers;
 /// </summary>
 internal static class SailfishMeasure
 {
+	/// <summary>MAUI's default font size (dp), for text with no size anywhere (a span model, a FontSizeOf fallback).</summary>
 	public const double DefaultFontSize = 14;
+
+	/// <summary>
+	/// The font size the app chose, or null when it chose none and the adapter paints the Silica theme size. Once the
+	/// handler attaches MAUI stores the font manager's default (<see cref="Platform.SailfishFontManager.DefaultSize"/>,
+	/// 18) as a set value without PropertyChanged, so that value counts as unset; an explicit FontSize="18" therefore
+	/// paints at the theme size too (docs/handler-parity.md). Measure and paint both decide through here.
+	/// </summary>
+	public static double? AppFontSize(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>
+		element.IsSet(property) && size > 0 && Math.Abs(size - Platform.SailfishFontManager.DefaultSize) > 0.01 ? size : null;
+
+	/// <summary>
+	/// A Label's own rule, kept apart because it is device-visible: any positive FontSize paints, MAUI's default (the
+	/// font manager's 18) included, and only 0 (no size resolved yet) leaves Label.qml at Theme.fontSizeMedium. Every
+	/// other control treats 18 as unset (<see cref="AppFontSize"/>). Snapshot and measure both read it.
+	/// </summary>
+	public static double? LabelFontSize(Microsoft.Maui.Controls.Label label) => label.FontSize > 0 ? label.FontSize : null;
+
+	/// <summary>The size (dp) the adapter paints with: the app's, else the Silica theme size.</summary>
+	public static double PaintFontSizeDp(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>
+		AppFontSize(element, property, size) ?? SilicaMediumFontDp();
 
 	/// <summary>
 	/// Shared measure wrapper: applies Width/HeightRequest and explicit sizes, defers layouts to the
@@ -132,10 +153,11 @@ internal static class SailfishMeasure
 			var maxLines = paragraph.MaxLines is > 0 and < int.MaxValue ? paragraph.MaxLines : 0;
 			var pad = (view as Microsoft.Maui.Controls.Label)?.Padding ?? Thickness.Zero;
 			var textWc = IsFinite(wc) ? Math.Max(1, wc - pad.HorizontalThickness) : 0;
-			// An unset Label FontSize paints with Theme.fontSizeMedium (Label.qml), not MAUI's 14 dp default: measuring
-			// at 14 dp wrapped "Y = " in an Auto column and cut its height. FormattedText spans carry their own size.
-			var fontSize = view is Microsoft.Maui.Controls.Label { FormattedText: null } plain && !(plain.FontSize > 0)
-				? (int)Math.Round(SilicaMediumFontDp())
+			// Measured at the size the snapshot paints (LabelFontSize): FontSize 0 leaves Label.qml at
+			// Theme.fontSizeMedium, and measuring that at 14 dp wrapped "Y = " in an Auto column and cut its height.
+			// FormattedText spans carry their own size.
+			var fontSize = view is Microsoft.Maui.Controls.Label { FormattedText: null } plain
+				? (int)Math.Round(LabelFontSize(plain) ?? SilicaMediumFontDp())
 				: first.FontSize;
 			var (qw, qh) = QtHostTextMetrics.Measure(text, first.Family, first.Attributes, fontSize,
 				textWc, wrapMode, paragraph.LineHeight, maxLines, first.CharacterSpacing);
@@ -155,8 +177,7 @@ internal static class SailfishMeasure
 		var text = (button as ITextButton)?.Text ?? string.Empty;
 		// An unset size paints with the Silica theme font, so measure that.
 		var fs = view is Microsoft.Maui.Controls.Button mb
-		         && !QtHostPageRenderer.HasAppFontSize(mb, Microsoft.Maui.Controls.Button.FontSizeProperty, mb.FontSize)
-			? (int)Math.Round(SilicaMediumFontDp())
+			? (int)Math.Round(PaintFontSizeDp(mb, Microsoft.Maui.Controls.Button.FontSizeProperty, mb.FontSize))
 			: FontSizeOf(button);
 		var attributes = (view as Microsoft.Maui.Controls.Button)?.FontAttributes ?? FontAttributes.None;
 		var (tw, th) = MeasureText(text, (view as Microsoft.Maui.Controls.Button)?.FontFamily, attributes, fs,
@@ -210,9 +231,9 @@ internal static class SailfishMeasure
 		// Uses the Silica theme font size unless the app set one, like the adapter paints.
 		var radio = view as Microsoft.Maui.Controls.RadioButton;
 		var text = radio?.Content?.ToString() ?? string.Empty;
-		var fs = radio is not null && QtHostPageRenderer.HasAppFontSize(radio, Microsoft.Maui.Controls.RadioButton.FontSizeProperty, radio.FontSize)
-			? (int)Math.Round(radio.FontSize)
-			: (int)Math.Round(SilicaMediumFontDp());
+		var fs = (int)Math.Round(radio is not null
+			? PaintFontSizeDp(radio, Microsoft.Maui.Controls.RadioButton.FontSizeProperty, radio.FontSize)
+			: SilicaMediumFontDp());
 		var (tw, th) = MeasureText(text, radio?.FontFamily, radio?.FontAttributes ?? FontAttributes.None, fs, radio?.CharacterSpacing ?? 0);
 		if (th == 0)
 			th = fs + 6;
@@ -235,9 +256,9 @@ internal static class SailfishMeasure
 
 	private static double? AppFontSizeOf(Microsoft.Maui.Controls.View view) => view switch
 	{
-		Microsoft.Maui.Controls.Picker p when QtHostPageRenderer.HasAppFontSize(p, Microsoft.Maui.Controls.Picker.FontSizeProperty, p.FontSize) => p.FontSize,
-		Microsoft.Maui.Controls.DatePicker d when QtHostPageRenderer.HasAppFontSize(d, Microsoft.Maui.Controls.DatePicker.FontSizeProperty, d.FontSize) => d.FontSize,
-		Microsoft.Maui.Controls.TimePicker t when QtHostPageRenderer.HasAppFontSize(t, Microsoft.Maui.Controls.TimePicker.FontSizeProperty, t.FontSize) => t.FontSize,
+		Microsoft.Maui.Controls.Picker p => AppFontSize(p, Microsoft.Maui.Controls.Picker.FontSizeProperty, p.FontSize),
+		Microsoft.Maui.Controls.DatePicker d => AppFontSize(d, Microsoft.Maui.Controls.DatePicker.FontSizeProperty, d.FontSize),
+		Microsoft.Maui.Controls.TimePicker t => AppFontSize(t, Microsoft.Maui.Controls.TimePicker.FontSizeProperty, t.FontSize),
 		_ => null,
 	};
 
@@ -308,9 +329,9 @@ internal static class SailfishMeasure
 	{
 		var size = view switch
 		{
-			Microsoft.Maui.Controls.Entry e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.Entry.FontSizeProperty, e.FontSize) => e.FontSize,
-			Microsoft.Maui.Controls.Editor e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.Editor.FontSizeProperty, e.FontSize) => e.FontSize,
-			Microsoft.Maui.Controls.SearchBar e when QtHostPageRenderer.HasAppFontSize(e, Microsoft.Maui.Controls.SearchBar.FontSizeProperty, e.FontSize) => e.FontSize,
+			Microsoft.Maui.Controls.Entry e => PaintFontSizeDp(e, Microsoft.Maui.Controls.Entry.FontSizeProperty, e.FontSize),
+			Microsoft.Maui.Controls.Editor e => PaintFontSizeDp(e, Microsoft.Maui.Controls.Editor.FontSizeProperty, e.FontSize),
+			Microsoft.Maui.Controls.SearchBar e => PaintFontSizeDp(e, Microsoft.Maui.Controls.SearchBar.FontSizeProperty, e.FontSize),
 			_ => SilicaMediumFontDp(),
 		};
 		return (int)Math.Round(size);

@@ -4,7 +4,7 @@ namespace SkiaSharpProbe;
 
 public static class Program
 {
-	private static void Main(string[] args) => new SailfishApplication().Run(args);
+	private static int Main(string[] args) => new SailfishApplication().Run(args);
 }
 
 public class SailfishApplication : SailfishMauiApplication

@@ -7,8 +7,8 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
 
 ## Status (2026-09-28)
 
-- **On-device matrix:** `tools/sf matrix` 25/25 legs PASS (2026-09-25), every verdict from the leg's own
-  marker.
+- **On-device matrix:** `tools/sf matrix` 25/25 legs PASS on 2026-09-25 (31 legs today, `tools/cmd/matrix.sh`),
+  every verdict from the leg's own marker.
 - **Handler parity:** 1073/1073 keys of the official MAUI mappers (100%, since 2026-09-28,
   [`handler-parity.md`](handler-parity.md), measured on remapped mappers). `Border` (obsolete
   `IBorder`), `ContainerView` and `ToolTip` do not apply to Sailfish.
@@ -129,8 +129,8 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
 - [x] Renderer tests on the host: `QtHostRuntime.TestShim` + `FakeShim`
   (objects from applyMauiOps, property batches, geometry, page stack) —
   the real renderer/handlers/layout without Qt (`tests/…/Renderer`).
-- [x] Self-hosted CI runner with a phone: job `device` in `ci.yml`
-  (workflow_dispatch + nightly, label `sailfish-device`, full matrix, logs).
+- [ ] Self-hosted CI runner with a phone: not in the repo (no `.github/` is tracked); the matrix runs from a
+  workstation with `tools/sf matrix`.
 - [x] armv7hl shim (`SF_ARCH=armv7hl`): sysroot from the Jolla repo, zig build,
   `.armv7hl` RPM with `-r linux-arm` — built, NOT tested (no device).
   x86: the SFOS 5 emulator is i486, and .NET does not run on 32-bit x86 Linux — no point.

@@ -29,7 +29,7 @@ public static class SailfishPage
 {
 	public static readonly BindableProperty AllowedOrientationsProperty = BindableProperty.CreateAttached(
 		"AllowedOrientations", typeof(SailfishOrientations), typeof(SailfishPage), SailfishOrientations.Default,
-		propertyChanged: (_, _, _) => QtHostPageRenderer.RequestPoll());
+		propertyChanged: (bindable, _, _) => SailfishRenderSession.OfElement(bindable as Element)?.RequestPoll());
 
 	public static SailfishOrientations GetAllowedOrientations(BindableObject page) =>
 		(SailfishOrientations)page.GetValue(AllowedOrientationsProperty);

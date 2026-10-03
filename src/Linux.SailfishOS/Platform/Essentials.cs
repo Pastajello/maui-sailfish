@@ -12,27 +12,31 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// Essentials services: clipboard and URLs go through the shim on the Qt thread, state persists under ~/.config/&lt;app&gt;/.
 /// </summary>
-public sealed class SailfishClipboard : IClipboard
+internal sealed class SailfishClipboard : IClipboard
 {
-	public bool HasText => !string.IsNullOrEmpty(ReadNative());
+	public bool HasText => !string.IsNullOrEmpty(QtThread.Run(ReadNative));
 
 	public event EventHandler<EventArgs>? ClipboardContentChanged;
 
-	public Task<string?> GetTextAsync() => Task.FromResult<string?>(ReadNative());
+	public Task<string?> GetTextAsync() => QtThread.RunAsync<string?>(ReadNative);
 
-	public Task SetTextAsync(string? text)
+	// QGuiApplication::clipboard() is GUI-thread only: the shim is called on the Qt thread (QtThread).
+	public async Task SetTextAsync(string? text)
 	{
-		var utf8 = MarshalUtf8(text ?? string.Empty);
-		try
+		await QtThread.RunAsync(() =>
 		{
-			QtHostNative.sailfish_host_clipboard_set(utf8);
-		}
-		finally
-		{
-			Marshal.FreeCoTaskMem(utf8);
-		}
+			var utf8 = MarshalUtf8(text ?? string.Empty);
+			try
+			{
+				QtHostNative.sailfish_host_clipboard_set(utf8);
+			}
+			finally
+			{
+				Marshal.FreeCoTaskMem(utf8);
+			}
+			return true;
+		}).ConfigureAwait(false);
 		ClipboardContentChanged?.Invoke(this, EventArgs.Empty);
-		return Task.CompletedTask;
 	}
 
 	internal static string ReadNative()
@@ -60,11 +64,24 @@ public sealed class SailfishClipboard : IClipboard
 	}
 }
 
-/// <summary>JSON-file preferences under ~/.config/&lt;app&gt;/preferences.json.</summary>
-public sealed class SailfishPreferences : IPreferences
+/// <summary>
+/// JSON-file preferences under ~/.config/&lt;app&gt;/preferences.json. One store: a shared container's keys are
+/// namespaced "&lt;sharedName&gt;::key". Thread-safe (one lock), and every write replaces the file atomically (a temp
+/// file renamed over it), so a crash mid-write leaves the previous preferences instead of an empty store.
+/// </summary>
+internal sealed class SailfishPreferences : IPreferences
 {
-	private readonly string _path = SailfishAppPaths.ConfigFile("preferences.json");
+	private const string SharedSeparator = "::";
+	private readonly string _path;
+	private readonly object _sync = new();
 	private Dictionary<string, JsonElement>? _cache;
+
+	public SailfishPreferences() : this(SailfishAppPaths.ConfigFile("preferences.json"))
+	{
+	}
+
+	/// <summary>Tests: a store at <paramref name="path"/>.</summary>
+	internal SailfishPreferences(string path) => _path = path;
 
 	private Dictionary<string, JsonElement> Load()
 	{
@@ -77,8 +94,9 @@ public sealed class SailfishPreferences : IPreferences
 			else
 				_cache = new();
 		}
-		catch
+		catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
 		{
+			Console.Error.WriteLine($"[Sailfish] Preferences: {_path} unreadable ({ex.Message}) — starting empty");
 			_cache = new();
 		}
 		return _cache;
@@ -88,40 +106,61 @@ public sealed class SailfishPreferences : IPreferences
 	{
 		Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
 		// Source-generated: the trimmed app disables reflection-based System.Text.Json.
-		File.WriteAllText(_path, JsonSerializer.Serialize(_cache!, SailfishJsonContext.Default.DictionaryStringJsonElement));
+		var temp = _path + ".tmp";
+		File.WriteAllText(temp, JsonSerializer.Serialize(_cache!, SailfishJsonContext.Default.DictionaryStringJsonElement));
+		File.Move(temp, _path, overwrite: true);
 	}
 
-	public bool ContainsKey(string key) => Load().ContainsKey(key);
+	public bool ContainsKey(string key)
+	{
+		lock (_sync)
+			return Load().ContainsKey(key);
+	}
 
 	public bool ContainsKey(string key, string? sharedName) => ContainsKey(Shared(key, sharedName));
 
 	public void Remove(string key)
 	{
-		if (Load().Remove(key))
-			Save();
+		lock (_sync)
+			if (Load().Remove(key))
+				Save();
 	}
 
 	public void Remove(string key, string? sharedName) => Remove(Shared(key, sharedName));
 
-	public void Clear()
-	{
-		Load().Clear();
-		Save();
-	}
+	/// <summary>Clears the default container; shared containers keep their keys, as on the other platforms.</summary>
+	public void Clear() => Clear(null);
 
-	public void Clear(string? sharedName) => Clear();
+	/// <summary>Clears one container: the default one for a null or empty <paramref name="sharedName"/>.</summary>
+	public void Clear(string? sharedName)
+	{
+		lock (_sync)
+		{
+			var store = Load();
+			var prefix = string.IsNullOrEmpty(sharedName) ? null : sharedName + SharedSeparator;
+			var doomed = store.Keys.Where(k => prefix is null ? !k.Contains(SharedSeparator, StringComparison.Ordinal)
+				: k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+			if (doomed.Count == 0)
+				return;
+			foreach (var key in doomed)
+				store.Remove(key);
+			Save();
+		}
+	}
 
 	public T Get<T>(string key, T defaultValue)
 	{
-		if (!Load().TryGetValue(key, out var element))
-			return defaultValue;
+		JsonElement element;
+		lock (_sync)
+			if (!Load().TryGetValue(key, out element))
+				return defaultValue;
 		try
 		{
 			return Convert(element, defaultValue);
 		}
-		catch
+		catch (Exception ex) when (ex is InvalidOperationException or FormatException or JsonException)
 		{
-			return defaultValue;
+			return defaultValue;   // stored as another type
 		}
 	}
 
@@ -129,15 +168,19 @@ public sealed class SailfishPreferences : IPreferences
 
 	public void Set<T>(string key, T value)
 	{
-		Load()[key] = Value(value);
-		Save();
+		var element = Value(value);
+		lock (_sync)
+		{
+			Load()[key] = element;
+			Save();
+		}
 	}
 
 	public void Set<T>(string key, T value, string? sharedName) => Set(Shared(key, sharedName), value);
 
 	// No OS-level shared preferences, so shared sets are namespaced into the single store.
 	private static string Shared(string key, string? sharedName) =>
-		string.IsNullOrEmpty(sharedName) ? key : sharedName + "::" + key;
+		string.IsNullOrEmpty(sharedName) ? key : sharedName + SharedSeparator + key;
 
 	private static JsonElement Value<T>(T value) => value switch
 	{
@@ -149,6 +192,7 @@ public sealed class SailfishPreferences : IPreferences
 		long l => JsonSerializer.SerializeToElement(l, SailfishJsonContext.Default.Int64),
 		string s => JsonSerializer.SerializeToElement(s, SailfishJsonContext.Default.String),
 		DateTime dt => JsonSerializer.SerializeToElement(dt.ToString("O", CultureInfo.InvariantCulture), SailfishJsonContext.Default.String),
+		DateTimeOffset dto => JsonSerializer.SerializeToElement(dto.ToString("O", CultureInfo.InvariantCulture), SailfishJsonContext.Default.String),
 		_ => throw new NotSupportedException($"Preferences value type {typeof(T)} is not supported."),
 	};
 
@@ -169,6 +213,8 @@ public sealed class SailfishPreferences : IPreferences
 			return (T)(object)element.GetSingle();
 		if (target == typeof(DateTime))
 			return (T)(object)DateTime.Parse(element.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+		if (target == typeof(DateTimeOffset))
+			return (T)(object)DateTimeOffset.Parse(element.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 		return defaultValue;
 	}
 }
@@ -304,7 +350,7 @@ internal sealed class SailfishFileSecureStore : ISecureStorage
 }
 
 /// <summary>App-package file access (files published next to the binary).</summary>
-public sealed class SailfishFileSystem : IFileSystem
+internal sealed class SailfishFileSystem : IFileSystem
 {
 	public string CacheDirectory => SailfishAppPaths.CacheDirectory;
 
@@ -321,7 +367,7 @@ public sealed class SailfishFileSystem : IFileSystem
 }
 
 /// <summary>Browser/Launcher over QDesktopServices (shim sailfish_host_open_url).</summary>
-public sealed class SailfishBrowser : IBrowser
+internal sealed class SailfishBrowser : IBrowser
 {
 	public Task<bool> OpenAsync(Uri uri) => OpenUrl(uri.ToString());
 
@@ -334,21 +380,21 @@ public sealed class SailfishBrowser : IBrowser
 	// Launch options (title mode/flags/native colors) have no Silica equivalent.
 	public Task<bool> OpenAsync(Uri uri, BrowserLaunchOptions options) => OpenUrl(uri.ToString());
 
-	internal static Task<bool> OpenUrl(string url)
+	internal static Task<bool> OpenUrl(string url) => QtThread.RunAsync(() =>
 	{
 		var utf8 = SailfishClipboard.MarshalUtf8(url);
 		try
 		{
-			return Task.FromResult(QtHostNative.sailfish_host_open_url(utf8) == 0);
+			return QtHostNative.sailfish_host_open_url(utf8) == 0;
 		}
 		finally
 		{
 			Marshal.FreeCoTaskMem(utf8);
 		}
-	}
+	});
 }
 
-public sealed class SailfishLauncher : ILauncher
+internal sealed class SailfishLauncher : ILauncher
 {
 	public Task<bool> CanOpenAsync(string uri) => Task.FromResult(uri.Length > 0);
 
@@ -376,25 +422,11 @@ public sealed class SailfishLauncher : ILauncher
 }
 
 /// <summary>App identity from the baked app meta + entry assembly.</summary>
-public sealed class SailfishAppInfo : IAppInfo
+internal sealed class SailfishAppInfo : IAppInfo
 {
 	private static readonly Lazy<(string Title, string Version)> Meta = new(() =>
 	{
-		var title = string.Empty;
-		try
-		{
-			var path = Path.Combine(AppContext.BaseDirectory, "qml", "maui-appmeta.json");
-			if (File.Exists(path))
-			{
-				using var doc = JsonDocument.Parse(File.ReadAllText(path));
-				if (doc.RootElement.TryGetProperty("title", out var t))
-					title = t.GetString() ?? string.Empty;
-			}
-		}
-		catch
-		{
-			// meta is optional
-		}
+		var title = SailfishAppMeta.Current.Title;
 		var asm = System.Reflection.Assembly.GetEntryAssembly()?.GetName();
 		return (string.IsNullOrEmpty(title) ? asm?.Name ?? string.Empty : title,
 			asm?.Version?.ToString() ?? "0.0.0");
@@ -445,26 +477,12 @@ internal static class SailfishAppPaths
 	{
 		var assembly = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "maui-sailfish";
 		var package = Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? assembly);
-		try
-		{
-			var path = Path.Combine(AppContext.BaseDirectory, "qml", "maui-appmeta.json");
-			if (!File.Exists(path))
-				return (assembly, package);
-			using var doc = JsonDocument.Parse(File.ReadAllText(path));
-			var root = doc.RootElement;
-			if (root.TryGetProperty("application", out var app) && app.GetString() is { Length: > 0 } a)
-			{
-				package = a;
-				if (root.TryGetProperty("sandboxed", out var sandboxed) && sandboxed.ValueKind == JsonValueKind.True &&
-				    root.TryGetProperty("organization", out var org) && org.GetString() is { Length: > 0 } o)
-					return (Path.Combine(o, a), package);
-			}
-		}
-		catch (Exception)
-		{
-			// meta is optional
-		}
-		return (assembly, package);
+		var meta = SailfishAppMeta.Current;
+		if (meta.Application is not { } application)
+			return (assembly, package);
+		return meta.Sandboxed && meta.Organization is { } organization
+			? (Path.Combine(organization, application), application)
+			: (assembly, application);
 	});
 
 	public static string ConfigFile(string name) =>

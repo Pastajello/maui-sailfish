@@ -71,6 +71,9 @@ internal sealed class QtHostCollectionBridge
 	public long RowsPooled { get; internal set; }
 	public long RowsAdopted { get; internal set; }
 
+	/// <summary>Pooled rows whose rekey the page refused (target id taken); the row was created instead.</summary>
+	public long RowRekeysRefused { get; internal set; }
+
 	/// <summary>Ids of pooled row hosts (alive in QML, unknown to the reconcile).</summary>
 	internal IEnumerable<string> PooledHostIds => _byElement.Values.SelectMany(s => s.PooledHostIds);
 	public long ListEvents { get; private set; }
@@ -200,6 +203,8 @@ internal sealed class QtHostCollectionBridge
 		public long Key;                               // stable across rebuilds (QML diffs by it)
 		public double CellWidthDp;                     // the width its cells were measured at
 		public double NaturalCrossDp;                  // a horizontal list's item height when nothing bounds it
+		public EventHandler? MeasureHandler;           // the cells' MeasureInvalidated (null = not watched)
+		public bool Remeasure;                         // a cell asked for a measure since the last pass
 	}
 
 	internal sealed class DgState
@@ -496,6 +501,8 @@ internal sealed class QtHostCollectionBridge
 			}
 			if (state.SlotsDirty)
 				state.MaterializeSlots(widthDp);
+			if (state.RowsRemeasure)
+				state.RemeasureRows();
 			if (state.ResyncPending > 0)
 			{
 				state.ResyncPending--;
@@ -517,7 +524,7 @@ internal sealed class QtHostCollectionBridge
 			SchedulePending(ResyncIntervalMs);
 	}
 
-	/// <summary>Maps the row holding <paramref name="element"/> again in whichever list holds it (F4a).</summary>
+	/// <summary>Maps the row holding <paramref name="element"/> again in whichever list holds it (flat rows).</summary>
 	internal void RemapRowContaining(Element element)
 	{
 		foreach (var state in _byElement.Values.ToList())
@@ -771,7 +778,7 @@ internal sealed class QtHostCollectionBridge
 		}
 	}
 
-	/// <summary>The ItemsView properties the list follows; SailfishListViewHandler maps them (A7: one channel, the
+	/// <summary>The ItemsView properties the list follows; SailfishListViewHandler maps them (one channel, the
 	/// handler's mapper, instead of a PropertyChanged subscription of the bridge).</summary>
 	internal static readonly string[] ViewProperties =
 	{
@@ -797,7 +804,7 @@ internal sealed class QtHostCollectionBridge
 	/// <summary>The hosts of an item subtree in pre-order (parents first).</summary>
 	internal void CollectHosts(VisualElement element, List<NativeElementHost> children)
 	{
-		// A flattened row layout (F4a) has a cached host that is never created: counting it would make the row look
+		// A flattened row layout has a cached host that is never created: counting it would make the row look
 		// dead to ChildrenAlive (a flattened row root is Children[0]) and every resync would rebuild the row.
 		if (_renderer.Cache.TryGet(element, out var host) && host is not null && !_renderer.IsFlattened(element))
 			children.Add(host);
@@ -817,11 +824,11 @@ internal sealed class QtHostCollectionBridge
 		if (hosts.Count == 0)
 			return;
 		// Target the page the hosts were created on, not the mirror top (during a push that is the incoming page).
-		var target = pageId.Length > 0 ? QmlPage.ById(pageId) : null;
+		var target = pageId.Length > 0 ? pageId : null;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject,
-			$"Q14 destroy {hosts.Count} row/slot hosts on '{pageId}' ids=[{string.Join(",", hosts.Select(h => h.Id))}]");
-		// The QML objects are usually already dead with their delegate; destroy ops clean the registry.
-		// Descendants first (the list is pre-order).
+			$"list destroy {hosts.Count} row/slot hosts on '{pageId}' ids=[{string.Join(",", hosts.Select(h => h.Id))}]");
+		// Row roots belong to the page canvas (MauiModelPage.__createHost), not the delegate, so the objects are alive
+		// here: the destroy ops delete them and clean the registry. Descendants first (the list is pre-order).
 		_renderer.DestroyHosts(Enumerable.Reverse(hosts).ToList(), target, unroute: true);
 		ItemsDestroyed += hosts.Count;
 		hosts.Clear();

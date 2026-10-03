@@ -8,6 +8,10 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 public static class QtHostAdapters
 {
+	/// <summary>The SilicaFlickable host of a ScrollView outside collection rows. The reconcile chooses it (in a row the
+	/// ListView delegate scrolls and the ScrollView is a plain container), so the handler follows the bound host.</summary>
+	public const string ScrollView = "scroll-view";
+
 	/// <summary>Built-in copy of qml/adapters.json (fallback when the file is missing/corrupt).</summary>
 	private static readonly Dictionary<string, string> Fallback = new(StringComparer.Ordinal)
 	{
@@ -37,7 +41,7 @@ public static class QtHostAdapters
 		["border"] = "containers/Border.qml",
 		["grid"] = "containers/Grid.qml",
 		["stack-layout"] = "containers/StackLayout.qml",
-		["scroll-view"] = "containers/ScrollView.qml",
+		[ScrollView] = "containers/ScrollView.qml",
 		["list-view"] = "containers/ListView.qml",
 		["carousel-view"] = "containers/CarouselView.qml",
 		["alert-dialog"] = "dialogs/AlertDialog.qml",
@@ -48,11 +52,16 @@ public static class QtHostAdapters
 		["push-up-menu"] = "interactions/PushUpMenu.qml",
 		["docked-panel"] = "interactions/DockedPanel.qml",
 		["drawer"] = "interactions/Drawer.qml",
-		["maui-page"] = "navigation/MauiPage.qml",
-		["navigation-root"] = "navigation/MauiNavigationRoot.qml",
 	};
 
 	private static Dictionary<string, string>? _map;
+
+	/// <summary>Tests: captures the adapter map and returns the action that puts it back.</summary>
+	internal static Action CaptureForTests()
+	{
+		var saved = _map is null ? null : new Dictionary<string, string>(_map, _map.Comparer);
+		return () => _map = saved;
+	}
 
 	/// <summary>The active uri → src map (adapters.json when readable, else the fallback).</summary>
 	public static IReadOnlyDictionary<string, string> Map => _map ??= Load();

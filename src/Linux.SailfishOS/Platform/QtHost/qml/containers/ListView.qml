@@ -18,7 +18,7 @@ import "../lib/pullrefresh.js" as PullRefresh
 // mauiSelectedRows is highlight only ("0,3,5", or "row:cell" in grids); MAUI stays the selection authority.
 // Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, across the scroll axis: x in a vertical list, y in a
 // horizontal one); taps report the touched cell.
-// mauiScrollPos: 0=Start 1=Center 2=End 3=MakeVisible; mauiScrollTick re-fires equal targets.
+// mauiCommand {"name":"scrollTo","row":N,"pos":P}: P 0=Start 1=Center 2=End 3=MakeVisible.
 SilicaListView {
     id: root
 
@@ -38,9 +38,6 @@ SilicaListView {
     property real mauiCellWidth: 0
     property real mauiCellStride: 0
 
-    property int mauiScrollRow: -1
-    property int mauiScrollPos: 3
-    property int mauiScrollTick: 0
 
     property real mauiHeaderH: 0
     property real mauiFooterH: 0
@@ -114,7 +111,6 @@ SilicaListView {
 
     onMauiRowsJsonChanged: { __rebuildRows(); if (!__prefetch && !prefetchTimer.running) prefetchTimer.start(); }
     onMauiSelectedRowsChanged: __applySelection()
-    onMauiScrollTickChanged: __scrollToRow()
     // Throttle, not debounce: a restart() would delay the report until a fling stops.
     onContentXChanged: if (__horizontal && !scrollReportTimer.running) scrollReportTimer.start()
     onContentYChanged: {
@@ -286,15 +282,22 @@ SilicaListView {
             id: mauiId, y: offset, first: first, last: last, count: count }));
     }
 
-    function __scrollToRow() {
-        if (mauiScrollRow < 0 || mauiScrollRow >= count)
+    // Managed commands (QtHostRuntime.Invoke "mauiCommand", docs/custom-controls.md): one call per request.
+    function mauiCommand(json) {
+        var c = JSON.parse(json);
+        if (c.name === "scrollTo")
+            __scrollToRow(c.row, c.pos);
+    }
+
+    function __scrollToRow(row, where) {
+        if (row < 0 || row >= count)
             return;
         // Qt 5.6 positionViewAtIndex is immediate, so managed ScrollTo never animates.
-        var pos = mauiScrollPos === 0 ? ListView.Beginning
-                : mauiScrollPos === 1 ? ListView.Center
-                : mauiScrollPos === 2 ? ListView.End
+        var pos = where === 0 ? ListView.Beginning
+                : where === 1 ? ListView.Center
+                : where === 2 ? ListView.End
                 : ListView.Contain;
-        positionViewAtIndex(mauiScrollRow, pos);
+        positionViewAtIndex(row, pos);
         __restingAtTop = !__horizontal && atYBeginning;
         __reportScroll();
     }

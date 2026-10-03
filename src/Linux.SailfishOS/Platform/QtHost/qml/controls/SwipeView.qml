@@ -4,7 +4,7 @@ import Sailfish.Silica 1.0
 // Adapter: MAUI SwipeView -> horizontal Flickable with [left items | content | right items].
 // The flickable only takes the drag past its threshold, so taps inside the content still work;
 // release snaps open or closed. Items are JSON [{text, icon, bg, fg}]; "execute" mode invokes the
-// first item past mauiThreshold (Qt units, 0 = half the panel). mauiOpenTick triggers managed
+// first item past mauiThreshold (Qt units, 0 = half the panel). mauiCommand {"name":"open","side"} is managed
 // Open/Close. Events: "swipe-item-invoked", "swipe-state".
 Flickable {
     id: root
@@ -26,10 +26,11 @@ Flickable {
     property real mauiThreshold: 0
     // "reveal" (MAUI default: item rows pinned to the viewport edges, content slides over them)
     // or "drag" (rows travel with the content).
+    // BackgroundColor/Background (ContainerProps): painted under the content, moving with it like a container's
+    // background. Undeclared, the shim rejected every SwipeView batch that carried it.
+    property color mauiBackground: "transparent"
     property string mauiTransition: "reveal"
     readonly property bool __reveal: mauiTransition !== "drag"
-    property string mauiOpenSide: ""
-    property int mauiOpenTick: 0
 
     property var __left: []
     property var __right: []
@@ -96,7 +97,12 @@ Flickable {
         __setState("");
     }
 
-    onMauiOpenTickChanged: __setState(mauiOpenSide)
+    // Managed commands (QtHostRuntime.Invoke "mauiCommand"): {"name":"open","side":"left"|"right"|""}.
+    function mauiCommand(json) {
+        var c = JSON.parse(json);
+        if (c.name === "open")
+            __setState(c.side);
+    }
 
     // Diag: scene center "x,y" of swipe item `index` on `side`.
     function mauiItemPoint(side, index) {
@@ -134,6 +140,12 @@ Flickable {
             width: root.width
             height: root.height
             z: 1   // above the pinned rows in reveal mode
+            Rectangle {
+                anchors.fill: parent
+                z: -1   // under the MAUI content hosts (mauiChildHost)
+                color: root.mauiBackground
+                visible: root.mauiBackground.a > 0
+            }
         }
         Item {
             id: rightPanel

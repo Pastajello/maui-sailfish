@@ -47,6 +47,12 @@ public static class QtHostRuntime
 	/// <summary>sfhost_err: dead or unknown object handle (-3).</summary>
 	public const int SfhostEDeadHandle = -3;
 
+	/// <summary>sfhost_err: the JS engine reported an error — eval, page push or pop (-4).</summary>
+	public const int SfhostEJs = -4;
+
+	/// <summary>sfhost_err: a QML file did not load; the QML errors are the last error (-5).</summary>
+	public const int SfhostELoad = -5;
+
 	// Delegates handed to native code must stay alive for the process lifetime.
 	private static QtHostNative.TickFn? _tick;
 	private static QtHostNative.PointerFn? _pointer;
@@ -109,6 +115,13 @@ public static class QtHostRuntime
 	/// <summary>Shim calls made off the Qt thread; must stay 0, since they silently corrupt the QV4 heap.</summary>
 	public static int OffThreadCalls => Volatile.Read(ref _offThreadCalls);
 
+	/// <summary>MAUI_SAILFISH_STRICT_THREAD=0 only logs an off-thread shim call instead of throwing (kept for one
+	/// release while apps move their calls onto the loop).</summary>
+	private static readonly bool StrictThread = Environment.GetEnvironmentVariable("MAUI_SAILFISH_STRICT_THREAD") != "0";
+
+	/// <summary>A shim call off the Qt thread corrupts the QV4 heap at some later point, so it fails here, at the call,
+	/// as Android's CalledFromWrongThreadException does. Callers hop first (<see cref="RunOnQtThread"/>,
+	/// MainThread.BeginInvokeOnMainThread); the Essentials hop for the app (QtThread).</summary>
 	private static void CheckThread(string op)
 	{
 		if (IsQtThread)
@@ -117,6 +130,10 @@ public static class QtHostRuntime
 		if (n <= 20)
 			QtHostDiag.Error(QtHostDiagChannel.QtHost,
 				$"OFF-THREAD shim call '{op}' #{n} on managed thread {Environment.CurrentManagedThreadId} (Qt thread {_loopThreadId}):\n{Environment.StackTrace}");
+		if (StrictThread)
+			throw new InvalidOperationException(
+				$"Qt shim call '{op}' from managed thread {Environment.CurrentManagedThreadId}, not the Qt thread: hop with " +
+				"QtHostRuntime.RunOnQtThread or MainThread.BeginInvokeOnMainThread (MAUI_SAILFISH_STRICT_THREAD=0 only logs it).");
 	}
 
 	// Longest the event-driven loop sleeps; a safety net for a missed wake.
@@ -131,13 +148,14 @@ public static class QtHostRuntime
 	/// <param name="propsJson">Optional JSON object with root context properties (window mode only).</param>
 	/// <param name="tickMs">Tick interval of the pump timer.</param>
 	/// <returns>exec return code (0 = clean loop exit).</returns>
-	public static int Run(SailfishDispatcher dispatcher, string qmlPath, bool windowMode = true, string? propsJson = null, int tickMs = 16)
+	internal static int Run(SailfishDispatcher dispatcher, string qmlPath, bool windowMode = true, string? propsJson = null, int tickMs = 16)
 	{
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentException.ThrowIfNullOrEmpty(qmlPath);
 
 		_loopThreadId = Environment.CurrentManagedThreadId;
 
+		CheckAbi();
 		var rc = QtHostNative.sailfish_host_init(ResolveAppId(), null, IntPtr.Zero);
 		if (rc != 0)
 			throw BootFailed(rc, "sailfish_host_init");
@@ -178,9 +196,17 @@ public static class QtHostRuntime
 		};
 		QtHostNative.sailfish_host_set_input_callbacks(_pointer, _key, IntPtr.Zero);
 
+		// Runs inside the shim's drain timer: an exception from a subscriber (RaiseQuitting, an app's own handler) would
+		// unwind into native code and fail fast, so it is logged like the pointer/key/post callbacks.
 		_event = (name, payload, _) =>
-			QmlEvent?.Invoke(name == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(name) ?? string.Empty,
-				payload == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(payload) ?? string.Empty);
+		{
+			try
+			{
+				QmlEvent?.Invoke(name == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(name) ?? string.Empty,
+					payload == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(payload) ?? string.Empty);
+			}
+			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in QML event handler: {ex}"); }
+		};
 		QtHostNative.sailfish_host_set_event_callback(_event, IntPtr.Zero);
 
 		// Runs on the dispatcher's own thread; the shim ticks only when woken, not at a fixed rate.
@@ -317,6 +343,33 @@ public static class QtHostRuntime
 			CheckThread("eval");
 			var len = QtHostNative.sailfish_host_eval(expression, buf, cap);
 			return len < 0 ? string.Empty : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
+		}
+		finally
+		{
+			Marshal.FreeHGlobal(buf);
+		}
+	}
+
+	/// <summary>
+	/// Calls a QML function on the object behind <paramref name="handle"/> without compiling JS (sailfish_host_invoke):
+	/// <paramref name="method"/>(<paramref name="arg"/>), or method() when arg is null. Returns the result's string
+	/// form, or null with <paramref name="rc"/> negative (no such method, dead handle). Qt thread.
+	/// </summary>
+	internal static string? Invoke(long handle, string method, string? arg, out int rc)
+	{
+		if (TestShim is { } shim)
+			return shim.Invoke(handle, method, arg, out rc);
+		CheckThread("invoke");
+		const int cap = 8192;
+		var buf = Marshal.AllocHGlobal(cap);
+		try
+		{
+			rc = QtHostNative.sailfish_host_invoke(handle, method, arg, buf, cap);
+			if (rc < 0)
+				return null;
+			if (rc >= cap)
+				QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"invoke {method}: result of {rc} bytes cut at {cap - 1}");
+			return Marshal.PtrToStringUTF8(buf) ?? string.Empty;
 		}
 		finally
 		{
@@ -713,6 +766,27 @@ public static class QtHostRuntime
 	}
 
 	// Logs before returning, so the channel counters record the failure even if the caller swallows it.
+	/// <summary>The installed libsailfishhost.so must be the one this build was made with: an older or newer shim
+	/// fails here, at start, instead of losing features silently later.</summary>
+	private static void CheckAbi()
+	{
+		int abi;
+		try
+		{
+			abi = QtHostNative.sailfish_host_abi_version();
+		}
+		catch (EntryPointNotFoundException)
+		{
+			abi = -1;   // a shim older than the version symbol
+		}
+		if (abi == QtHostNative.AbiVersion)
+			return;
+		var message = $"libsailfishhost.so ABI {(abi < 0 ? "unversioned (older than 2)" : abi.ToString(System.Globalization.CultureInfo.InvariantCulture))}, " +
+		              $"this build needs {QtHostNative.AbiVersion}: the installed shim does not match the managed code (redeploy the app)";
+		QtHostDiag.Error(QtHostDiagChannel.QtHost, $"sailfish_host_abi_version failed: {message}");
+		throw new QtHostException(abi, "sailfish_host_abi_version", message, null);
+	}
+
 	private static QtHostException BootFailed(int rc, string operation, string? qmlPath = null)
 	{
 		var nativeMessage = LastError();

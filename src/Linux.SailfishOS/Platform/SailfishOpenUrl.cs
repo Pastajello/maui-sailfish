@@ -44,7 +44,7 @@ internal static class SailfishOpenUrl
 		_ready = true;
 		if (Enabled)
 		{
-			QtHostServices.Subscribe("svc-open-url", e =>
+			QtHostServices.Subscribe(ShellEvents.OpenUrl, e =>
 			{
 				if (!e.TryGetProperty("urls", out var urls) || urls.ValueKind != System.Text.Json.JsonValueKind.Array)
 					return;

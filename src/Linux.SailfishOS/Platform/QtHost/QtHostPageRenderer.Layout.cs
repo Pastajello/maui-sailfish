@@ -9,7 +9,7 @@ using Microsoft.Maui.Graphics;
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 // Hit-testing, window geometry, the MAUI layout pass and the batched SetGeometry push; page scroll and refresh state.
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer
 {
 	/// <summary>
 	/// Hit-test: the topmost effectively-visible host whose absolute root-space rect (dp,
@@ -120,7 +120,7 @@ public sealed partial class QtHostPageRenderer
 	/// Consumes the QML "window-geometry" report {pageWidth, pageHeight, headerHeight, statusHeight} (Qt scene
 	/// units), pulls the Qt screen info, updates the unit conversion and requests a relayout.
 	/// </summary>
-	private void ApplyWindowGeometry(string payload)
+	internal void ApplyWindowGeometry(string payload)
 	{
 		double pageW, pageH, header, status;
 		try
@@ -205,7 +205,12 @@ public sealed partial class QtHostPageRenderer
 		// Every change of the window report is logged (rotation/configure evidence).
 		QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"window report — {LastWindowGeometryReport}");
 
-		Reconcile();   // relayout + geometry push now
+		// Relayout + geometry push now, unless a transition or an unfollowed pop holds the reconcile: the poll that
+		// ends it lays out with this geometry.
+		if (CanReconcile)
+			Reconcile();
+		else
+			_layoutDirty = true;
 		// The first report (startup) is also when the stack and the application state become readable: the native
 		// sync adopts them on the next loop turn instead of at a timer poll.
 		RequestPoll();
@@ -295,7 +300,7 @@ public sealed partial class QtHostPageRenderer
 					// The geometry batch just showed the page's hosts (a returning tab's list): menus created before it
 					// pick their surface and clone again.
 					_pulleyReattachPending = false;
-					QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiReattachPulleys"));
+					CallPage(null, "mauiReattachPulleys");
 				}
 				var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 				static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -320,8 +325,8 @@ public sealed partial class QtHostPageRenderer
 		{
 			_collection.SchedulePending();   // a list whose width changed rebuilds its rows
 			// Shapes the walk skipped for want of a size may have one now: the reconcile creates them. Only a shape that has a
-			// size now is worth a reconcile; one in a hidden subtree is never arranged and would re-kick every pass (F5: each
-			// native scroll report of a ScrollView ran a full-page reconcile).
+			// size now is worth a reconcile; one in a hidden subtree is never arranged and would re-kick every pass (each
+			// native scroll report of a ScrollView used to run a full-page reconcile).
 			if (_awaitingArrange.Any(e => e is VisualElement { Width: > 0, Height: > 0 }))
 				RequestPoll();
 		}
@@ -340,7 +345,7 @@ public sealed partial class QtHostPageRenderer
 		// RTL mirrors children inside this element like platform layout managers do (MAUI's arrange is always
 		// LTR); each RTL level mirrors its own children, so nesting composes.
 		var rtl = element.FlowDirection == FlowDirection.MatchParent
-			? inheritedRtl ?? IsRightToLeft(element.Parent)
+			? inheritedRtl ?? QtHostVisualState.IsRightToLeft(element.Parent)
 			: element.FlowDirection == FlowDirection.RightToLeft;
 		var visibility = ((IView)element).Visibility;
 		var visible = parentVisible && visibility == Visibility.Visible;
@@ -348,7 +353,7 @@ public sealed partial class QtHostPageRenderer
 		NativeElementHost? host = null;
 		var isHost = element is not Page && _cache.TryGet(element, out host) && host is not null
 		             && host.IsAttached && hosted.Contains(host);
-		var nestedScroll = isHost && host is { QmlUri: "scroll-view" } && element is ScrollView
+		var nestedScroll = isHost && host is { QmlUri: QtHostAdapters.ScrollView } && element is ScrollView
 			? (ScrollView)element
 			: null;
 		if (isHost && host is not null)
@@ -426,17 +431,6 @@ public sealed partial class QtHostPageRenderer
 		host.AppliedGeometrySet
 			? QtHostUnits.ToLogical(host.AppliedGeometry)
 			: new Rect(0, 0, host.MauiLogicalBounds.Width, host.MauiLogicalBounds.Height);
-
-	/// <summary>The transformed rect's bottom in root space, so the scroll extent sees transformed hosts.</summary>
-	private static double TransformedBottom(in Affine2 toRoot, Rect bounds)
-	{
-		if (toRoot.IsTranslationOnly)
-			return toRoot.Ty + bounds.Height;
-		var w = bounds.Width;
-		var h = bounds.Height;
-		return Math.Max(Math.Max(toRoot.Transform(0, 0).Y, toRoot.Transform(w, 0).Y),
-			Math.Max(toRoot.Transform(0, h).Y, toRoot.Transform(w, h).Y));
-	}
 
 	/// <summary>
 	/// Pushes the host's transform: QQuickItem rotation/scale around TopLeft when they reproduce it (the pushed x/y carry
@@ -652,6 +646,20 @@ public sealed partial class QtHostPageRenderer
 		if (key == _lastRefreshPush)
 			return;
 		_lastRefreshPush = key;
-		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "setMauiRefresh", BridgeValue.Quote(json)));   // see PushScrollState
+		CallPage(null, "setMauiRefresh", json);   // see PushScrollState
+	}
+
+	/// <summary>The nearest RefreshView above a scroll surface, but only when the page has no pulley (Silica's
+	/// pull-down menu owns the same overscroll). Mirrors the collection bridge's rule.</summary>
+	internal RefreshView? RefreshAncestorOf(Element view)
+	{
+		RefreshView? refresh = null;
+		for (var e = view.Parent; e is not null; e = e.Parent)
+		{
+			refresh ??= e as RefreshView;
+			if (e is Page page)
+				return refresh is not null && page.ToolbarItems.Count == 0 && !HasFlyoutPulley(page) ? refresh : null;
+		}
+		return null;
 	}
 }

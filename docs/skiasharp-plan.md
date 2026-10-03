@@ -158,7 +158,7 @@ Total ≈ 12 working days.
 
 ## 5. Tests
 
-- **Host unit tests (U-),** in `tests/Linux.SailfishOS.SkiaSharp.Tests` with `FakeShim` (surface commits and frames
+- **Host unit tests (U-),** in `tests/Linux.SailfishOS.Tests/SkiaSharp` with `FakeShim` (surface commits and frames
   recorded; touch callbacks driven):
   - U-R1..R3: registration in every order, subclass resolution, mapper keys vs SkiaSharp's by reflection.
   - U-C1: `Info`/`RawInfo`/matrix for sizes × densities {1, 1.5, 1.75, 2, 2.5, 3} × `IgnorePixelScaling`, expected
@@ -180,8 +180,7 @@ Total ≈ 12 working days.
   - vertical drag in a vertical ScrollView (`Cancelled`),
   - a disabled canvas.
 - Both legs print `Qt skia diag: ACCEPTANCE … => OK|FAIL` and run from `tools/sf matrix skia skiainput`. Their code
-  lives in an opt-in `Linux.SailfishOS.SkiaSharp.Diagnostics`, registered in `SailfishKitchen`, so the core
-  diagnostics stay free of SkiaSharp.
+  lives in `samples/SkiaSharpProbe` (`ProbePage.cs`), so the core diagnostics stay free of SkiaSharp.
 - **Apps (A-):** campaign walkthroughs, render only; chart interaction is the libraries' business.
   - A-1 Profitocracy Overview: charts drawn, repaint on period change.
   - A-2 WeightTracker graph: drawn and animating, repaint after adding an entry.

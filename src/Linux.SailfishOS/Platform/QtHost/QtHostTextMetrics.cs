@@ -8,7 +8,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// Measures text with the same QFontMetrics QML renders with, so layout matches the pixels.
 /// Takes and returns dp; device pixels cross the bridge. Qt thread only.
 /// </summary>
-public static class QtHostTextMetrics
+internal static class QtHostTextMetrics
 {
 	/// <summary>Wrap modes, matching QML Text.wrapMode.</summary>
 	public const int NoWrap = 0;
@@ -16,7 +16,7 @@ public static class QtHostTextMetrics
 	public const int WrapAnywhere = 2;
 
 	/// <summary>True once <see cref="Enable"/> ran; otherwise NullViewHandler estimates from the font size.</summary>
-	public static bool Enabled { get; private set; }
+	public static bool Enabled { get; internal set; }
 
 	/// <summary>Enables Qt measurement; call before the first layout pass.</summary>
 	public static void Enable() => Enabled = true;

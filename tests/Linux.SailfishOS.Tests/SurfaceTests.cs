@@ -184,6 +184,7 @@ public class SurfaceTests
 	[Fact]
 	public void A_replaced_library_handler_resolves_to_the_sailfish_one_wherever_it_is_registered()
 	{
+		using var statics = new TestStatics();
 		SailfishHandlersFactory.ReplaceLibraryHandler<StubLibraryHandler, SailfishStubHandler>();
 		var builder = MauiApp.CreateBuilder(useDefaults: false);
 		builder.UseMauiAppSailfish<TestApp>();
@@ -228,6 +229,7 @@ public class SurfaceTests
 	[Fact]
 	public void A_library_image_source_resolves_through_its_resolver()
 	{
+		using var statics = new TestStatics();
 		QtHostImageSources.Register(s => s is LibraryImageSource { Name: "ok" } ? "file:///tmp/lib.png" : null);
 		QtHostImageSources.Register(s => s is LibraryImageSource { Name: "bad" } ? throw new InvalidOperationException() : null);
 		Assert.Equal("file:///tmp/lib.png", QtHostImages.Resolve(new LibraryImageSource { Name = "ok" }));

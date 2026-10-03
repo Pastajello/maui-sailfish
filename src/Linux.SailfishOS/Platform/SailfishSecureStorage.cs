@@ -10,7 +10,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// Without the daemon it falls back to <see cref="SailfishFileSecureStore"/> and migrates those entries once Secrets appears.
 /// Daemon calls run on the Qt thread (QtDBus); <c>MAUI_SAILFISH_SECURESTORAGE=file</c> forces the file store.
 /// </summary>
-public sealed class SailfishSecureStorage : ISecureStorage
+internal sealed class SailfishSecureStorage : ISecureStorage
 {
 	private static readonly TimeSpan HostWait = TimeSpan.FromSeconds(15);
 
@@ -144,11 +144,17 @@ public sealed class SailfishSecureStorage : ISecureStorage
 		return true;
 	}
 
-	/// <summary>Runs <paramref name="work"/> on the Qt thread, waiting for the host if it is not up yet.</summary>
+	/// <summary>Runs <paramref name="work"/> on the Qt thread (QtThread), waiting for the host if it is not up yet. The Qt
+	/// loop itself cannot wait for its own first tick: a synchronous call there before the host is ready fails at once
+	/// instead of stalling the loop for <see cref="HostWait"/>.</summary>
 	private static async Task<T> OnQt<T>(Func<T> work)
 	{
 		if (!QtHostRuntime.IsRunning || !SailfishEssentials.HostReady.Task.IsCompleted)
 		{
+			if (QtHostRuntime.IsRunning && QtHostRuntime.IsQtThread)
+				throw new InvalidOperationException(
+					"SecureStorage needs the running Qt host (Sailfish Secrets is reached over QtDBus) — " +
+					"call it after the first page shows, not while the app starts on the main thread.");
 			try
 			{
 				await SailfishEssentials.HostReady.Task.WaitAsync(HostWait).ConfigureAwait(false);
@@ -160,21 +166,7 @@ public sealed class SailfishSecureStorage : ISecureStorage
 					"do not block the main thread on SecureStorage before the first page shows.");
 			}
 		}
-		if (QtHostRuntime.IsQtThread)
-			return work();
-		var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-		QtHostRuntime.Post(() =>
-		{
-			try
-			{
-				tcs.SetResult(work());
-			}
-			catch (Exception ex)
-			{
-				tcs.SetException(ex);
-			}
-		});
-		return await tcs.Task.ConfigureAwait(false);
+		return await QtThread.RunAsync(work).ConfigureAwait(false);
 	}
 }
 

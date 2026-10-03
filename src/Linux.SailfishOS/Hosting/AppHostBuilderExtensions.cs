@@ -39,14 +39,8 @@ public static class AppHostBuilderExtensions
 		// ConfigureFonts registers here; the Qt host registers the files with Qt.
 		builder.Services.AddSingleton<IFontRegistrar, SailfishFontRegistrar>();
 
-		builder.Services.AddScoped(svc =>
-		{
-			var provider = svc.GetRequiredService<IDispatcherProvider>();
-			if (DispatcherProvider.SetCurrent(provider))
-				svc.GetService<ILogger<Dispatcher>>()?.LogWarning("Replaced an existing DispatcherProvider.");
-
-			return Dispatcher.GetForCurrentThread()!;
-		});
+		// IDispatcher is not registered here: SailfishServiceOverlay answers it from the Qt-loop dispatcher provider
+		// (a registered factory would call DispatcherProvider.SetCurrent and swap the global provider back).
 
 		// SailfishHandlersFactory resolves over this collection: app and library registrations win, stock MAUI
 		// handlers give way to the Sailfish table (SailfishHandlersFactory.ViewHandlers).

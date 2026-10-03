@@ -48,7 +48,8 @@ public class SailfishApplication : SailfishMauiApplication
 
 	protected override void OnQuitting()
 	{
-		using var sheet = new SailfishBottomSheet { Text = "Bye", Dock = "bottom" };
+		using var sheet = new SailfishBottomSheet { Text = "Bye", Dock = SailfishDockEdge.Bottom };
+		_ = Microsoft.Maui.Devices.DeviceInfo.Platform == SailfishPlatform.DevicePlatform;
 		// Remorse: page-wide and over one element.
 		_ = SailfishRemorse.ExecuteAsync("Clearing", () => { });
 		_ = SailfishRemorse.ExecuteAsync(new Label(), null, () => { }, SailfishRemorse.DefaultTimeoutMs);

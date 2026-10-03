@@ -6,7 +6,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// Dispatcher provider; the queue is drained by the Qt host loop.
 /// </summary>
-public class SailfishDispatcherProvider : IDispatcherProvider
+internal class SailfishDispatcherProvider : IDispatcherProvider
 {
 	// Per thread, as a dispatcher belongs to its thread's loop (Android's Looper, iOS's main queue). AsyncLocal lost it
 	// in every callback from the native Qt loop (a fresh execution context on the same thread), which then got a new
@@ -38,7 +38,7 @@ public class SailfishDispatcherProvider : IDispatcherProvider
 /// <summary>
 /// Dispatcher backed by a thread-safe queue drained on the Qt loop thread.
 /// </summary>
-public class SailfishDispatcher : IDispatcher
+internal class SailfishDispatcher : IDispatcher
 {
 	private readonly ConcurrentQueue<Action> _queue = new();
 	private readonly object _lock = new();
@@ -104,7 +104,7 @@ public class SailfishDispatcher : IDispatcher
 /// UI-thread SynchronizationContext: awaits resume on the Qt loop thread, as on Android/iOS.
 /// Continuations on the thread pool would hit the single-threaded QML engine concurrently and corrupt its heap.
 /// </summary>
-public sealed class SailfishSynchronizationContext : SynchronizationContext
+internal sealed class SailfishSynchronizationContext : SynchronizationContext
 {
 	private readonly SailfishDispatcher _dispatcher;
 
@@ -139,7 +139,7 @@ public sealed class SailfishSynchronizationContext : SynchronizationContext
 }
 
 /// <summary>Timer driven by the Qt loop tick.</summary>
-public class SailfishDispatcherTimer : IDispatcherTimer
+internal class SailfishDispatcherTimer : IDispatcherTimer
 {
 	private readonly SailfishDispatcher _dispatcher;
 	private DateTime _nextTick;

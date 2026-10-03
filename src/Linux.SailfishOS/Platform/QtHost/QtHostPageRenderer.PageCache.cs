@@ -8,7 +8,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 // push waits below the pushed page; a tab, Shell section or FlyoutPage detail switched away from waits hidden on the
 // same model page. The QML objects live on Silica model pages only the renderer knows, so the cache is here; the
 // container handlers decide which pages are shown and which still belong to the app.
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer
 {
 	private sealed class ParkedPage
 	{
@@ -56,7 +56,7 @@ public sealed partial class QtHostPageRenderer
 		synthetic.AddRange(_interactionHosts.Values);
 		if (synthetic.Count > 0)
 		{
-			DestroyHosts(synthetic, QmlPage.ById(pageId));
+			DestroyHosts(synthetic, pageId);
 			_pullHost = null;
 			_pushHost = null;
 			_ctxMenuHost = null;
@@ -68,7 +68,7 @@ public sealed partial class QtHostPageRenderer
 		if (_rendered is { } page && hosts.Count > 0)
 			Park(page, pageId, hosts, hide: false);
 		else if (hosts.Count > 0)
-			DestroyHosts(hosts, QmlPage.ById(pageId));
+			DestroyHosts(hosts, pageId);
 	}
 
 	/// <summary>
@@ -231,11 +231,13 @@ public sealed partial class QtHostPageRenderer
 	private void Drop(ParkedPage entry, bool pageAlive, string reason)
 	{
 		_parked.Remove(entry);
+		// Lists first, while their hosts still read as parked: the row pool's destroys then address the parked page
+		// (QtHostListAdapter.PageTarget), as ClearDg does, instead of the top page where the ids are unknown.
+		_collection.TearDownListsForHosts(entry.Hosts.Select(h => h.Id).ToHashSet());
 		foreach (var host in entry.Hosts)
 			_parkedHosts.Remove(host);
-		_collection.TearDownListsForHosts(entry.Hosts.Select(h => h.Id).ToHashSet());
 		if (pageAlive)
-			DestroyHosts(entry.Hosts, QmlPage.ById(entry.ModelPageId));
+			DestroyHosts(entry.Hosts, entry.ModelPageId);
 		else
 			foreach (var host in entry.Hosts)
 				ReleaseHost(host);

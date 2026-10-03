@@ -278,7 +278,7 @@ internal static class QtHostImages
 			using (var file = File.Create(path))
 				await stream.CopyToAsync(file);
 			entry.Path = path;
-			QtHostPageRenderer.Current?.InvalidateLayout();
+			SailfishRenderSession.OfApp?.Renderer?.InvalidateLayout();
 			// The element hosted nothing while the stream was read: its container's subtree gains the image host.
 			Dictionary<object, Action>? ready;
 			lock (entry)

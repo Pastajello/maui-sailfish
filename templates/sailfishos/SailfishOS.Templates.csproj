@@ -23,8 +23,10 @@
     <!-- Own directory on purpose: two template packaging projects in one
          directory would share templates/obj and overwrite each other's
          project.assets.json (NETSDK1005 on the sibling's TFM). -->
-    <Content Include="../maui-sailfish-app/**" Exclude="../maui-sailfish-app/**/bin/**;../maui-sailfish-app/**/obj/**"
+    <Content Include="../maui-sailfish-app/**" Exclude="../maui-sailfish-app/**/bin/**;../maui-sailfish-app/**/obj/**;../maui-sailfish-app/.template.config/template.json"
              Pack="true" PackagePath="content/maui-sailfish-app/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- template.json's SailfishPackageVersion default is the version this pack ships (written from @SAILFISH_VERSION@). -->
+    <SailfishVersioned Include="../maui-sailfish-app/.template.config/template.json" TargetPath="template.json" />
     <!-- The item template adds the app template's Platforms/SailfishOS to an existing project (same files, one source). -->
     <Content Include="../maui-sailfish-platform/.template.config/**"
              Pack="true" PackagePath="content/maui-sailfish-platform/.template.config/%(RecursiveDir)%(Filename)%(Extension)" />
@@ -33,5 +35,12 @@
     <Compile Remove="**/*" />
     <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
+
+  <Import Project="../../src/Linux.SailfishOS.WorkloadManifest/SailfishVersionedFiles.targets" />
+  <Target Name="_SailfishPackVersionedTemplate" AfterTargets="SailfishCollectVersioned" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <Content Include="@(SailfishVersionedOutput)" Pack="true" PackagePath="content/maui-sailfish-app/.template.config/template.json" />
+    </ItemGroup>
+  </Target>
 
 </Project>

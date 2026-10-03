@@ -9,7 +9,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// MAUI sensors on QtSensors: one QML sensor per MAUI sensor, readings converted to MAUI's units here.
 /// </summary>
-public abstract class SailfishSensor
+internal abstract class SailfishSensor
 {
 	private readonly string _name;
 	private readonly string _qmlType;
@@ -40,7 +40,7 @@ public abstract class SailfishSensor
 	{
 		get
 		{
-			if (!QtHostRuntime.IsQtThread || !QtHostServices.Ensure(Service, Qml))
+			if (!QtHostServices.Ensure(Service, Qml))
 				return false;
 			// The QML sensor connects on completion; connectToBackend() is not exposed.
 			return QtHostServices.Eval(Service, "s.connectedToBackend") == "true";
@@ -58,7 +58,7 @@ public abstract class SailfishSensor
 		if (!_subscribed)
 		{
 			_subscribed = true;
-			QtHostServices.Subscribe("svc-sensor-" + _name, OnReading);
+			QtHostServices.Subscribe(ShellEvents.SensorPrefix + _name, OnReading);
 		}
 		var hz = sensorSpeed switch
 		{
@@ -96,7 +96,7 @@ public abstract class SailfishSensor
 		e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? (float)v.GetDouble() : 0f;
 }
 
-public sealed class SailfishAccelerometer : SailfishSensor, IAccelerometer
+internal sealed class SailfishAccelerometer : SailfishSensor, IAccelerometer
 {
 	private const double StandardGravity = 9.80665;
 	private DateTime _lastShake;
@@ -123,7 +123,7 @@ public sealed class SailfishAccelerometer : SailfishSensor, IAccelerometer
 	}
 }
 
-public sealed class SailfishGyroscope : SailfishSensor, IGyroscope
+internal sealed class SailfishGyroscope : SailfishSensor, IGyroscope
 {
 	public SailfishGyroscope() : base("gyroscope", "Gyroscope", "{x:reading.x,y:reading.y,z:reading.z}")
 	{
@@ -139,7 +139,7 @@ public sealed class SailfishGyroscope : SailfishSensor, IGyroscope
 	}
 }
 
-public sealed class SailfishMagnetometer : SailfishSensor, IMagnetometer
+internal sealed class SailfishMagnetometer : SailfishSensor, IMagnetometer
 {
 	public SailfishMagnetometer() : base("magnetometer", "Magnetometer", "{x:reading.x,y:reading.y,z:reading.z}")
 	{
@@ -155,7 +155,7 @@ public sealed class SailfishMagnetometer : SailfishSensor, IMagnetometer
 	}
 }
 
-public sealed class SailfishCompass : SailfishSensor, ICompass
+internal sealed class SailfishCompass : SailfishSensor, ICompass
 {
 	public SailfishCompass() : base("compass", "Compass", "{azimuth:reading.azimuth}")
 	{
@@ -169,7 +169,7 @@ public sealed class SailfishCompass : SailfishSensor, ICompass
 		ReadingChanged?.Invoke(this, new CompassChangedEventArgs(new CompassData(F(r, "azimuth"))));
 }
 
-public sealed class SailfishBarometer : SailfishSensor, IBarometer
+internal sealed class SailfishBarometer : SailfishSensor, IBarometer
 {
 	public SailfishBarometer() : base("barometer", "PressureSensor", "{pressure:reading.pressure}")
 	{
@@ -182,7 +182,7 @@ public sealed class SailfishBarometer : SailfishSensor, IBarometer
 		ReadingChanged?.Invoke(this, new BarometerChangedEventArgs(new BarometerData(F(r, "pressure") / 100.0)));
 }
 
-public sealed class SailfishOrientationSensor : SailfishSensor, IOrientationSensor
+internal sealed class SailfishOrientationSensor : SailfishSensor, IOrientationSensor
 {
 	public SailfishOrientationSensor() : base("orientation", "RotationSensor", "{x:reading.x,y:reading.y,z:reading.z}")
 	{
@@ -203,7 +203,7 @@ public sealed class SailfishOrientationSensor : SailfishSensor, IOrientationSens
 /// Geolocation on QtPositioning: a request activates one PositionSource until a valid fix or the timeout.
 /// A sandboxed app without the Location Sailjail permission gets a PermissionException, as MAUI does on Android/iOS.
 /// </summary>
-public sealed class SailfishGeolocation : IGeolocation
+internal sealed class SailfishGeolocation : IGeolocation
 {
 	private const string Service = "geolocation";
 	private Location? _last;
@@ -238,13 +238,13 @@ public sealed class SailfishGeolocation : IGeolocation
 
 	private bool EnsureService()
 	{
-		if (!QtHostRuntime.IsQtThread || !QtHostServices.Ensure(Service, Qml))
+		if (!QtHostServices.Ensure(Service, Qml))
 			return false;
 		if (!_subscribed)
 		{
 			_subscribed = true;
-			QtHostServices.Subscribe("svc-geolocation-fix", OnFix);
-			QtHostServices.Subscribe("svc-geolocation-error", OnError);
+			QtHostServices.Subscribe(ShellEvents.GeolocationFix, OnFix);
+			QtHostServices.Subscribe(ShellEvents.GeolocationError, OnError);
 		}
 		return true;
 	}
@@ -277,7 +277,8 @@ public sealed class SailfishGeolocation : IGeolocation
 		if (!EnsureService())
 			throw new FeatureNotSupportedException("Positioning is not available.");
 		var tcs = new TaskCompletionSource<Location?>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_pending.Add(tcs);
+		lock (_pending)
+			_pending.Add(tcs);
 		QtHostServices.Eval(Service, "(function(){s.active=true;s.update();return s.active;})()");
 		var timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : TimeSpan.FromSeconds(30);
 		using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken);
@@ -285,8 +286,13 @@ public sealed class SailfishGeolocation : IGeolocation
 		using (cts.Token.Register(() => tcs.TrySetResult(null)))
 		{
 			var location = await tcs.Task.ConfigureAwait(true);
-			_pending.Remove(tcs);
-			if (_listening is null && _pending.Count == 0)
+			bool idle;
+			lock (_pending)
+			{
+				_pending.Remove(tcs);
+				idle = _pending.Count == 0;
+			}
+			if (_listening is null && idle)
 				QtHostServices.Eval(Service, "(function(){s.active=false;return s.active;})()");
 			return location;
 		}
@@ -315,7 +321,10 @@ public sealed class SailfishGeolocation : IGeolocation
 	public void StopListeningForeground()
 	{
 		_listening = null;
-		if (_pending.Count == 0)
+		bool idle;
+		lock (_pending)
+			idle = _pending.Count == 0;
+		if (idle)
 			QtHostServices.Eval(Service, "(function(){s.active=false;return s.active;})()");
 	}
 
@@ -323,7 +332,10 @@ public sealed class SailfishGeolocation : IGeolocation
 	{
 		var location = ToLocation(e);
 		_last = location;
-		foreach (var tcs in _pending.ToArray())
+		TaskCompletionSource<Location?>[] pending;
+		lock (_pending)
+			pending = _pending.ToArray();
+		foreach (var tcs in pending)
 			tcs.TrySetResult(location);
 		if (_listening is not null)
 			LocationChanged?.Invoke(this, new GeolocationLocationChangedEventArgs(location));

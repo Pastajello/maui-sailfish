@@ -13,7 +13,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 internal sealed partial class QtHostListAdapter
 {
-	internal static readonly bool RowPoolEnabled = Environment.GetEnvironmentVariable("MAUI_SAILFISH_ROW_POOL") != "0";
+	internal static bool RowPoolEnabled { get; set; } = SailfishEnv.Get("MAUI_SAILFISH_ROW_POOL") != "0";
 
 	/// <summary>Detached rows kept per list; more are destroyed. Two viewports of catalog cards.</summary>
 	private const int RowPoolCap = 48;
@@ -103,47 +103,112 @@ internal sealed partial class QtHostListAdapter
 
 	/// <summary>
 	/// Hands a pooled subtree of the same shape to a row being materialized: the hosts take the new ids, the old
-	/// property state seeds the diff, and the root moves into <paramref name="dg"/>'s delegate. False (nothing done)
+	/// property state seeds the diff, and the root moves into <paramref name="dg"/>'s delegate. False (nothing adopted)
 	/// when no pooled row fits; the caller creates the hosts then.
 	/// </summary>
 	private bool TryAdoptPooledRow(DgState dg, List<NativeElementHost> desired,
 	                               Dictionary<NativeElementHost, Dictionary<string, object?>> props)
 	{
 		var hosts = desired;
-		if (_pooledRows == 0 || hosts.Count == 0 || hosts.Any(h => h.IsAttached) ||
-		    Shape(hosts) is not { } shape || !_rowPool.TryGetValue(shape, out var stack))
+		if (_pooledRows == 0 || hosts.Count == 0 || hosts.Any(h => h.IsAttached) || Shape(hosts) is not { } shape)
+			return false;
+		// A row that scrolled out and back finds its own former subtree in the pool, still registered under its ids:
+		// it is adopted as it is. Any other pooled row holding one of those ids would make MauiModelPage refuse the
+		// rekey onto them, so it goes first.
+		if (TakePooledHolding(hosts.Select(h => h.Id).ToList()) is { } own)
+		{
+			if (Shape(hosts) == shape && IsAlive(own) && Compatible(own, hosts, props))
+				return Adopt(dg, hosts, own, props, rekey: false);
+			DestroyPooled(own);
+		}
+		if (!_rowPool.TryGetValue(shape, out var stack))
 			return false;
 		while (stack.Count > 0)
 		{
 			var pooled = stack.Pop();
 			_pooledRows--;
-			if (!QtHostRuntime.TryItemGeometry(pooled[0].Handle, out _) || !Compatible(pooled, hosts, props))
+			if (!IsAlive(pooled) || !Compatible(pooled, hosts, props))
 			{
 				DestroyPooled(pooled);
 				continue;
 			}
+			return Adopt(dg, hosts, pooled, props, rekey: true);
+		}
+		return false;
+	}
+
+	private bool Adopt(DgState dg, List<NativeElementHost> hosts, List<PooledHost> pooled,
+	                   Dictionary<NativeElementHost, Dictionary<string, object?>> props, bool rekey)
+	{
+		if (rekey)
+		{
 			var ops = new List<Dictionary<string, object?>>(hosts.Count);
 			for (var i = 0; i < hosts.Count; i++)
 				ops.Add(new Dictionary<string, object?>
 				{
 					["op"] = "rekey", ["from"] = pooled[i].Id, ["to"] = hosts[i].Id, ["parent"] = hosts[i].Parent?.Id ?? string.Empty,
 				});
-			_renderer.ApplyOps(ops, PageTarget());
-			for (var i = 0; i < hosts.Count; i++)
+			var refused = _renderer.ApplyOps(ops, PageTarget());
+			if (refused != 0)
 			{
-				_renderer.AdoptPooledHost(hosts[i], pooled[i].Handle, pooled[i].Applied,
-					props.TryGetValue(hosts[i], out var p) ? p : new());
-				_renderer.RegisterRoute(hosts[i].Id, hosts[i]);
+				// Some objects kept their old id: binding them would drive objects the page knows by another name. Both
+				// names go, and the caller creates the row.
+				QtHostDiag.Warn(QtHostDiagChannel.QmlObject,
+					$"pooled row rekey refused ({refused} of {hosts.Count}) for [{string.Join(",", hosts.Select(h => h.Id))}] — creating the row");
+				_renderer.ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), PageTarget());
+				DestroyPooled(pooled);
+				_bridge.RowRekeysRefused++;
+				return false;
 			}
-			// Every cell root of the row (a grid row holds several) joins the delegate; nested hosts ride their parents.
-			foreach (var root in hosts.Where(h => h.Parent is null))
-				if (!QtHostRuntime.SetParentItem(root.NativeHandle, dg.Handle))
-					QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"pooled row root {root} could not join '{dg.Obj}': {QtHostRuntime.LastErrorText}");
-			_bridge.RowsAdopted++;
-			return true;
 		}
-		return false;
+		for (var i = 0; i < hosts.Count; i++)
+		{
+			_renderer.AdoptPooledHost(hosts[i], pooled[i].Handle, pooled[i].Applied,
+				props.TryGetValue(hosts[i], out var p) ? p : new());
+			_renderer.RegisterRoute(hosts[i].Id, hosts[i]);
+		}
+		// Every cell root of the row (a grid row holds several) joins the delegate; nested hosts ride their parents.
+		foreach (var root in hosts.Where(h => h.Parent is null))
+			if (!QtHostRuntime.SetParentItem(root.NativeHandle, dg.Handle))
+				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"pooled row root {root} could not join '{dg.Obj}': {QtHostRuntime.LastErrorText}");
+		_bridge.RowsAdopted++;
+		return true;
 	}
+
+	/// <summary>Takes every pooled row holding one of <paramref name="ids"/> out of the pool: returns the one holding
+	/// exactly them, in order (the row's own former subtree), and destroys the others.</summary>
+	private List<PooledHost>? TakePooledHolding(IReadOnlyList<string> ids)
+	{
+		var wanted = new HashSet<string>(ids, StringComparer.Ordinal);
+		List<PooledHost>? own = null;
+		foreach (var (shape, stack) in _rowPool.ToList())
+		{
+			if (!stack.Any(row => row.Any(h => wanted.Contains(h.Id))))
+				continue;
+			var keep = new List<List<PooledHost>>();
+			foreach (var row in stack.Reverse())   // bottom → top, so the rebuilt stack keeps its order
+			{
+				if (!row.Any(h => wanted.Contains(h.Id)))
+				{
+					keep.Add(row);
+					continue;
+				}
+				_pooledRows--;
+				if (own is null && row.Select(h => h.Id).SequenceEqual(ids, StringComparer.Ordinal))
+					own = row;
+				else
+					DestroyPooled(row);
+			}
+			_rowPool[shape] = new Stack<List<PooledHost>>(keep);
+		}
+		return own;
+	}
+
+	/// <summary>The pooled row's root object is alive and still the one its id names (a handle can outlive its object
+	/// and be reused by Qt for another).</summary>
+	private static bool IsAlive(List<PooledHost> pooled) =>
+		QtHostRuntime.TryItemGeometry(pooled[0].Handle, out _) &&
+		QtHostRuntime.GetProperty(pooled[0].Handle, "objectName") == "maui_" + pooled[0].Id;
 
 	/// <summary>The pooled host state must cover the new snapshot's keys and hold nothing else but late keys.</summary>
 	private static bool Compatible(List<PooledHost> pooled, List<NativeElementHost> hosts,
@@ -161,7 +226,7 @@ internal sealed partial class QtHostListAdapter
 	}
 
 	private string? PageTarget() =>
-		_renderer.IsParked(Host) && PageId.Length > 0 ? QmlPage.ById(PageId) : null;
+		_renderer.IsParked(Host) && PageId.Length > 0 ? PageId : null;
 
 	private void DestroyPooled(List<PooledHost> pooled)
 	{

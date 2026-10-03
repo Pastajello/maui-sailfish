@@ -7,7 +7,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// IFontRegistrar: GetFont returns the file behind an alias for Qt's font database. File fonts resolve to fonts/ next
 /// to the binary; embedded fonts are extracted once to the user cache.
 /// </summary>
-public sealed class SailfishFontRegistrar : IFontRegistrar
+internal sealed class SailfishFontRegistrar : IFontRegistrar
 {
 	private readonly Dictionary<string, string> _fonts = new(StringComparer.Ordinal);
 

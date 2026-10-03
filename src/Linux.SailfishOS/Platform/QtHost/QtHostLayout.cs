@@ -9,7 +9,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// carry the arrange down (PlatformArrange → CrossPlatformArrange), as native containers do on the other platforms.
 /// Afterwards every element's Bounds is parent-relative in dp.
 /// </summary>
-public static class QtHostLayout
+internal static class QtHostLayout
 {
 	/// <summary>Handler types whose SetVirtualView threw, warned once each.</summary>
 	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, byte> FailedHandlerTypes = new();

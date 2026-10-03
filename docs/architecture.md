@@ -20,7 +20,7 @@ Sailfish handlers (SailfishViewHandler<TVirtual> : ViewHandler<TVirtual, NativeE
     │  choose the adapter and its state, push changes, arrange their children (PlatformArrange)
     ▼
 QtHostPageRenderer: materializes the host tree (create / destroy / order ops, back cache), runs the requested
-layout passes, mirrors navigation onto the Silica pageStack, routes input; a 250 ms poll remains as safety net
+layout passes, mirrors navigation onto the Silica pageStack, routes input; a 2 s heartbeat only verifies
     │  generic native ABI: batched property + geometry ops (JSON over the shim bridge)
     ▼
 libsailfishhost.so (C++ shim, Qt 5.6) ── Silica QML adapters (qml/controls, qml/containers, …)
@@ -32,8 +32,9 @@ Qt Quick scene graph → Wayland → lipstick → GPU → display
 
 **Handlers are the MAUI-facing layer, as on the other platforms.** Each control's handler
 (`SailfishViewHandler<TVirtual>`, platform view `NativeElementHost`) decides its QML adapter and state, publishes a
-static `Mapper`/`CommandMapper` chained from `SailfishViewMapper.Mapper` → `ViewHandler.ViewMapper`, and is resolved
-like any MAUI handler (an app or library `AddHandler` wins; stock MAUI handlers give way to the Sailfish table).
+static `Mapper` chained from `SailfishViewMapper.Mapper` → `ViewHandler.ViewMapper` and a `CommandMapper` chained
+from `SailfishViewMapper.CommandMapper` → `ViewHandler.ViewCommandMapper` (Focus/Unfocus/InvalidateMeasure live
+there, so a custom handler must chain from it too), and is resolved like any MAUI handler (an app or library `AddHandler` wins; stock MAUI handlers give way to the Sailfish table).
 Controls reach native **only** through the handler: mapper keys push the family snapshot, the generic view state or
 transient input; `InvalidateMeasure` requests the layout pass; layout commands and `Content` request the host-tree
 sync. Library controls bring their own adapters (`QtHostAdapters.Register`, [`custom-controls.md`](custom-controls.md)).

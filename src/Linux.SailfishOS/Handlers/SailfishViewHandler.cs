@@ -15,7 +15,7 @@ namespace Microsoft.Maui.SailfishOS.Handlers;
 /// into one batch: the adapter's state plus the generic view state.</para>
 /// </summary>
 public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualView, NativeElementHost>,
-	ISailfishAdapterHandler, ISailfishViewHandler
+	ISailfishAdapterHandler, ISailfishViewHandler, ISailfishNativeFocus
 	where TVirtualView : class, IView
 {
 	private readonly Func<IView, double, double, Size>? _measure;
@@ -25,7 +25,7 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 	/// the generic measure.</param>
 	protected SailfishViewHandler(IPropertyMapper mapper, CommandMapper? commandMapper = null,
 		Func<IView, double, double, Size>? measure = null)
-		: base(mapper, commandMapper)
+		: base(mapper, commandMapper ?? SailfishViewMapper.CommandMapper)
 	{
 		_measure = measure;
 	}
@@ -62,12 +62,15 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 
 	bool ISailfishAdapterHandler.WalksChildren => WalksChildren;
 
-	protected override NativeElementHost CreatePlatformView() => SailfishHandlerCore.HostFor(VirtualView, AdapterUri);
+	/// <summary>The renderer of this handler's window, once it runs (the session of the MAUI context).</summary>
+	private protected QtHostPageRenderer? Renderer => SailfishHandlerCore.SessionOf(this)?.Renderer;
+
+	protected override NativeElementHost CreatePlatformView() => SailfishHandlerCore.HostFor(this, VirtualView, AdapterUri);
 
 	/// <summary>As a native view goes with its handler: a host whose element left the page is destroyed now.</summary>
 	protected override void DisconnectHandler(NativeElementHost platformView)
 	{
-		QtHostPageRenderer.Current?.OnHandlerDisconnected(platformView);
+		Renderer?.OnHandlerDisconnected(platformView);
 		base.DisconnectHandler(platformView);
 	}
 
@@ -95,20 +98,7 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 		base.UpdateValue(property);
 	}
 
-	public override void Invoke(string command, object? args = null)
-	{
-		if (command is nameof(IView.Focus) or nameof(IView.Unfocus) &&
-		    FocusNatively(command == nameof(IView.Focus)) is { } granted)
-		{
-			// Qt decided: IsFocused follows it, as the platforms write it back from their focus change.
-			if (ConnectedView is VisualElement visual)
-				visual.SetValue(VisualElement.IsFocusedPropertyKey, command == nameof(IView.Focus) && granted);
-			(args as FocusRequest)?.TrySetResult(granted);
-			return;
-		}
-		if (!SailfishHandlerCore.TryInvoke(this, command, args))
-			base.Invoke(command, args);
-	}
+	bool? ISailfishNativeFocus.FocusNatively(bool focus) => FocusNatively(focus);
 
 	/// <summary>Asks the adapter for native focus and returns whether Qt granted it; null when the control has no
 	/// native focus (the request is then answered as before, by writing IsFocused).</summary>
@@ -116,7 +106,7 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 
 	/// <summary>Native focus of a text adapter (mauiFocus → activeFocus).</summary>
 	protected bool? FocusTextInput(bool focus) =>
-		((IElementHandler)this).PlatformView is NativeElementHost host ? QtHostPageRenderer.Current?.FocusHost(host, focus) : null;
+		((IElementHandler)this).PlatformView is NativeElementHost host ? Renderer?.FocusHost(host, focus) : null;
 
 	/// <summary>Records nothing itself (the geometry pass reads the arranged Bounds) and arranges the children, as a
 	/// native container's layout pass would.</summary>
@@ -132,18 +122,30 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 	/// <summary>Pushes adapter props (transient commands, snapshots) to this handler's host.</summary>
 	/// <param name="yieldToNative">Skip the push while native state is being written back into MAUI (the value
 	/// came from native, so pushing it would fight the adapter, e.g. a scroll in flight).</param>
+	/// <summary>
+	/// Sends a one-shot command to the adapter (its <c>mauiCommand(json)</c> function, called directly): a scroll, a
+	/// script, a navigation step — anything that is an action, not state. False when the adapter object does not exist
+	/// yet (an action before the first render has nothing to act on) or does not take commands.
+	/// </summary>
+	protected bool SendCommand(string name, Dictionary<string, object?>? args = null)
+	{
+		if (((IElementHandler)this).PlatformView is not NativeElementHost { IsAttached: true } host)
+			return false;
+		return AdapterCommands.Send(host, name, args);
+	}
+
 	protected void PushProps(Dictionary<string, object?> props, bool yieldToNative = false)
 	{
 		// The typed PlatformView throws once disconnected.
 		if (((IElementHandler)this).PlatformView is NativeElementHost host)
-			QtHostPageRenderer.Current?.PushHostProps(host, props, yieldToNative);
+			Renderer?.PushHostProps(host, props, yieldToNative);
 	}
 
 	/// <summary>Pushes transient native state (focus, caret) atomically; skipped while native writes it back.</summary>
 	protected void PushTransient(params (string Name, object? Value)[] values)
 	{
 		if (((IElementHandler)this).PlatformView is NativeElementHost host)
-			QtHostPageRenderer.Current?.PushTransient(host, values);
+			Renderer?.PushTransient(host, values);
 	}
 
 	/// <summary>Whether the handler's mapper pushes <paramref name="propertyName"/> (the handler-parity measure).</summary>
@@ -193,6 +195,19 @@ public static class SailfishViewMapper
 	/// <summary>Chained from <see cref="ViewHandler.ViewMapper"/>; every Sailfish handler mapper chains from it.</summary>
 	public static readonly PropertyMapper<IView, IViewHandler> Mapper = Build();
 
+	/// <summary>
+	/// Chained from <see cref="ViewHandler.ViewCommandMapper"/>; every Sailfish handler's <c>CommandMapper</c> chains
+	/// from it (a custom handler too, or Focus() goes unanswered). Focus/Unfocus are decided by Qt where the control
+	/// has native focus (a text adapter), else written to IsFocused; InvalidateMeasure asks for a layout pass, as a
+	/// native view would request one.
+	/// </summary>
+	public static readonly CommandMapper<IView, IViewHandler> CommandMapper = new(ViewHandler.ViewCommandMapper)
+	{
+		[nameof(IView.InvalidateMeasure)] = SailfishHandlerCore.MapInvalidateMeasure,
+		[nameof(IView.Focus)] = SailfishHandlerCore.MapFocus,
+		[nameof(IView.Unfocus)] = SailfishHandlerCore.MapUnfocus,
+	};
+
 	private static PropertyMapper<IView, IViewHandler> Build()
 	{
 		var mapper = new PropertyMapper<IView, IViewHandler>(ViewHandler.ViewMapper);
@@ -210,14 +225,14 @@ public static class SailfishViewMapper
 	}
 
 	/// <summary>Asks for a layout pass (visibility changes what the page measures).</summary>
-	public static void MapGeometry(IViewHandler handler, IView view) => QtHostPageRenderer.Current?.RequestLayout();
+	public static void MapGeometry(IViewHandler handler, IView view) => SailfishHandlerCore.SessionOf(handler)?.RequestLayout();
 
 	/// <summary>A transform (TranslationX/Y, Scale*, Rotation*, Anchor*) changes no measure in MAUI, so outside list
 	/// rows it asks for a geometry pass only: an animation (TranslateTo, RotateTo, ScaleTo, a spinner) moves its host
 	/// each frame without the whole page being measured and arranged. Row content is placed by its list's own pass.</summary>
 	public static void MapTransform(IViewHandler handler, IView view)
 	{
-		if (QtHostPageRenderer.Current is not { } renderer)
+		if (SailfishHandlerCore.SessionOf(handler)?.Renderer is not { } renderer)
 			return;
 		if (view is Element element && !InListRow(element))
 			renderer.RequestScrollGeometry();
@@ -225,10 +240,11 @@ public static class SailfishViewMapper
 			renderer.RequestLayout();
 	}
 
+	// CollectionView/CarouselView rows and the legacy ListView's cells.
 	private static bool InListRow(Element element)
 	{
 		for (var e = element.Parent; e is not null; e = e.Parent)
-			if (e is ItemsView)
+			if (e is ItemsView or ItemsView<Cell>)
 				return true;
 		return false;
 	}

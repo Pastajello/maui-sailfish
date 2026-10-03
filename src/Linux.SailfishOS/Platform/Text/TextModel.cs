@@ -6,7 +6,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.Text;
 // Backend-neutral text model used by the measure pass (LabelTextMapper → QtHostTextMetrics).
 
 /// <summary>One styled run of text (a label's text or a single formatted span).</summary>
-public sealed class TextSpan
+internal sealed class TextSpan
 {
 	public string Text { get; init; } = string.Empty;
 
@@ -14,7 +14,7 @@ public sealed class TextSpan
 
 	public FontAttributes Attributes { get; init; }
 
-	public int FontSize { get; init; } = 14;
+	public int FontSize { get; init; } = (int)Handlers.SailfishMeasure.DefaultFontSize;
 
 	/// <summary>Extra tracking between characters, in device units.</summary>
 	public double CharacterSpacing { get; init; }
@@ -28,7 +28,7 @@ public sealed class TextSpan
 }
 
 /// <summary>Paragraph-level layout options for a block of text.</summary>
-public sealed class TextParagraphStyle
+internal sealed class TextParagraphStyle
 {
 	public LineBreakMode LineBreakMode { get; init; } = LineBreakMode.WordWrap;
 

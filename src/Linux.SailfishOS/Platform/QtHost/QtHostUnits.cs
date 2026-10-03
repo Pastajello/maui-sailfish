@@ -6,13 +6,17 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// The single dp → Qt scene unit conversion point: scene units = dp × Density ÷ devicePixelRatio
 /// (dpr is 1 on Sailfish). Values are converted once here; the shim and QML adapters must not scale again.
 /// </summary>
-public static class QtHostUnits
+internal static class QtHostUnits
 {
 	/// <summary>Qt devicePixelRatio reported by the host; 1.0 means no HiDPI scaling.</summary>
 	public static double DevicePixelRatio { get; internal set; } = 1.0;
 
+	/// <summary>Qt scene units per dp: the factor adapter snapshots scale sizes by (font pixels, stroke widths,
+	/// spacing), so props and geometry use one conversion.</summary>
+	public static double ScenePerDp => SailfishDisplay.Density / DevicePixelRatio;
+
 	/// <summary>dp → Qt scene units.</summary>
-	public static double ToQtUnits(double dp) => dp * SailfishDisplay.Density / DevicePixelRatio;
+	public static double ToQtUnits(double dp) => dp * ScenePerDp;
 
 	/// <summary>Converts a dp rectangle (root space) to Qt scene units.</summary>
 	public static Rect ToQtUnits(Rect dp) =>

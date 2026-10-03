@@ -33,7 +33,7 @@ internal sealed class SailfishDrawnViewHandler : NullViewHandler, ISailfishAdapt
 		if (frame.Width > 0 && frame.Height > 0 && frame.Size != _arranged)
 		{
 			_arranged = frame.Size;
-			QtHostPageRenderer.RequestPoll();
+			SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 		}
 	}
 }

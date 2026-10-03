@@ -120,9 +120,9 @@ public class SampleAppRegressionTests
 	[Fact]
 	public void An_entry_centres_its_text_by_default_and_an_editor_does_not()
 	{
-		Assert.Equal("center", QtHostPageRenderer.TextStyleProps(new Entry())["mauiVAlign"]);
-		Assert.Equal(string.Empty, QtHostPageRenderer.TextStyleProps(new Editor())["mauiVAlign"]);
-		Assert.Equal("bottom", QtHostPageRenderer.TextStyleProps(new Editor { VerticalTextAlignment = TextAlignment.End })["mauiVAlign"]);
+		Assert.Equal("center", AdapterSnapshots.TextStyleProps(new Entry())["mauiVAlign"]);
+		Assert.Equal(string.Empty, AdapterSnapshots.TextStyleProps(new Editor())["mauiVAlign"]);
+		Assert.Equal("bottom", AdapterSnapshots.TextStyleProps(new Editor { VerticalTextAlignment = TextAlignment.End })["mauiVAlign"]);
 	}
 
 	// WeightTracker: UraniumUI registers StatefulButtonHandler : ButtonHandler for every Button (and Plainer an
@@ -210,6 +210,29 @@ public class SampleAppRegressionTests
 		Assert.True(unset.DesiredSize.Width > small.DesiredSize.Width);
 	}
 
+	// Measure and paint share one Label rule (SailfishMeasure.LabelFontSize): a never-sized Label, one at MAUI's 18
+	// and one at 0 are each measured at the size their adapter paints. The device reads 18 for a never-sized Label
+	// and paints 18 dp; measuring it at the theme size pushed the controls page down by a screen's tail.
+	[Fact]
+	public void A_label_is_measured_at_the_size_it_paints()
+	{
+		var never = new Label { Text = "Y = 1234" };
+		var eighteen = new Label { Text = "Y = 1234", FontSize = 18 };
+		var zero = new Label { Text = "Y = 1234", FontSize = 0 };
+		using var h = new RendererHarness(Page(never, eighteen, zero));
+
+		foreach (var label in new[] { never, eighteen, zero })
+		{
+			var native = h.Shim.ByUri("label").Single(o => h.Renderer.CurrentHosts.Any(x =>
+				ReferenceEquals(x.Element, label) && x.Id == o.Id));
+			var px = double.Parse(native.Text("mauiPixelSize")!, System.Globalization.CultureInfo.InvariantCulture);
+			var paintedDp = px > 0 ? px / SailfishDisplay.Density : Microsoft.Maui.SailfishOS.Handlers.SailfishMeasure.SilicaMediumFontDp();
+			var (width, _) = QtHostTextMetrics.Measure("Y = 1234", null, FontAttributes.None, (int)Math.Round(paintedDp),
+				0, QtHostTextMetrics.WordWrap, 1.0, 0, 0);
+			Assert.Equal(width, label.DesiredSize.Width, 3);
+		}
+	}
+
 	// WeatherTwentyOne Settings: theme RadioButtons with a ControlTemplate showed a Silica radio labelled
 	// "Microsoft.Maui.Controls.Grid" (the content's ToString()).
 	[Fact]
@@ -232,8 +255,8 @@ public class SampleAppRegressionTests
 	public void An_unset_size_button_may_shrink_its_label_down_to_the_maui_default()
 	{
 		var density = SailfishDisplay.Density;
-		var unset = Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.ButtonProps(new Button { Text = "Sign Out" });
-		var sized = Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.ButtonProps(new Button { Text = "Sign Out", FontSize = 20 });
+		var unset = Microsoft.Maui.SailfishOS.Handlers.AdapterSnapshots.ButtonProps(new Button { Text = "Sign Out" });
+		var sized = Microsoft.Maui.SailfishOS.Handlers.AdapterSnapshots.ButtonProps(new Button { Text = "Sign Out", FontSize = 20 });
 
 		Assert.Equal(SailfishMeasure.DefaultFontSize * density, (double)unset["mauiFitPixelSize"]!, 3);
 		Assert.Equal(0.0, (double)sized["mauiFitPixelSize"]!);
@@ -261,12 +284,12 @@ public class SampleAppRegressionTests
 			var top = new Button { Text = "Breakfast", ImageSource = icon, ContentLayout = new Button.ButtonContentLayout(Button.ButtonContentLayout.ImagePosition.Top, 4) };
 			var left = new Button { Text = "Breakfast", ImageSource = icon };
 			var plain = new Button { Text = "Breakfast" };
-			var props = Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.ButtonProps(top);
+			var props = Microsoft.Maui.SailfishOS.Handlers.AdapterSnapshots.ButtonProps(top);
 			Assert.Equal("top", props["mauiIconPosition"]);
 			Assert.Equal(4 * SailfishDisplay.Density, (double)props["mauiIconSpacing"]!, 3);
 			Assert.True((bool)props["mauiFillPlate"]!);
-			Assert.False((bool)Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.ButtonProps(left)["mauiFillPlate"]!);
-			Assert.True((bool)Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostPageRenderer.ButtonProps(new Button { Text = "x", MinimumHeightRequest = 150 })["mauiFillPlate"]!);
+			Assert.False((bool)Microsoft.Maui.SailfishOS.Handlers.AdapterSnapshots.ButtonProps(left)["mauiFillPlate"]!);
+			Assert.True((bool)Microsoft.Maui.SailfishOS.Handlers.AdapterSnapshots.ButtonProps(new Button { Text = "x", MinimumHeightRequest = 150 })["mauiFillPlate"]!);
 
 			var row = new HorizontalStackLayout { Children = { plain, top, left } };
 			using var h = new RendererHarness(new ContentPage { Title = "T", Content = row });
@@ -775,9 +798,9 @@ public class SampleAppRegressionTests
 		var button = h.Shim.ByUri("button").Single();
 		Assert.False(button.Props["enabled"].GetBoolean());
 		var kicks = 0;
-		var previous = QtHostPageRenderer.NavigationKick;
+		var previous = h.Renderer.PollKick;
 		var loop = SailfishDispatcherProvider.BindLoopThread();
-		QtHostPageRenderer.NavigationKick = () => { kicks++; loop.Dispatch(h.Renderer.KickedPoll); };
+		h.Renderer.PollKick = () => { kicks++; loop.Dispatch(h.Renderer.KickedPoll); };
 		try
 		{
 			h.Renderer.HandleNativeEvent("text-changed", $"{{\"id\":\"{h.Shim.ByUri("entry").Single().Id}\",\"text\":\"T\"}}");
@@ -789,7 +812,7 @@ public class SampleAppRegressionTests
 		}
 		finally
 		{
-			QtHostPageRenderer.NavigationKick = previous;
+			h.Renderer.PollKick = previous;
 		}
 	}
 
@@ -798,10 +821,10 @@ public class SampleAppRegressionTests
 	[Fact]
 	public void A_plain_button_keeps_the_Silica_plate()
 	{
-		Assert.Equal(false, QtHostPageRenderer.ButtonProps(new Button { Text = "Plain" })["mauiPlateSet"]);
-		var flat = QtHostPageRenderer.ButtonProps(new Button { Text = "Flat", Background = Colors.Transparent });
+		Assert.Equal(false, AdapterSnapshots.ButtonProps(new Button { Text = "Plain" })["mauiPlateSet"]);
+		var flat = AdapterSnapshots.ButtonProps(new Button { Text = "Flat", Background = Colors.Transparent });
 		Assert.Equal((true, Colors.Transparent), ((bool)flat["mauiPlateSet"]!, (Color)flat["mauiPlateColor"]!));
-		Assert.Equal(Colors.Red, QtHostPageRenderer.ButtonProps(new Button { Text = "Red", BackgroundColor = Colors.Red })["mauiPlateColor"]);
+		Assert.Equal(Colors.Red, AdapterSnapshots.ButtonProps(new Button { Text = "Red", BackgroundColor = Colors.Red })["mauiPlateColor"]);
 	}
 
 	// Setting a Button's TextColor or BackgroundColor back to null must give Silica's theme colours back: the snapshot

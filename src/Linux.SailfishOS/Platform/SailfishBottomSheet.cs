@@ -20,8 +20,8 @@ public sealed class SailfishBottomSheet : IDisposable
 	/// <summary>Label text shown in the panel.</summary>
 	public string Text { get; set; } = string.Empty;
 
-	/// <summary>Dock edge: "bottom" (default), "top", "left" or "right".</summary>
-	public string Dock { get; set; } = "bottom";
+	/// <summary>Dock edge; the bottom by default.</summary>
+	public SailfishDockEdge Dock { get; set; } = SailfishDockEdge.Bottom;
 
 	/// <summary>Panel extent in Qt scene units along the dock axis; 0 uses the adapter default.</summary>
 	public double Size { get; set; }
@@ -32,12 +32,12 @@ public sealed class SailfishBottomSheet : IDisposable
 	/// <summary>Raised when the native panel open state changes.</summary>
 	public event EventHandler<bool>? OpenChanged;
 
-	private static QtHostPageRenderer Renderer => QtHostPageRenderer.Current
+	private static QtHostPageRenderer Renderer => SailfishRenderSession.OfApp?.Renderer
 		?? throw new InvalidOperationException(
 			"SailfishBottomSheet requires the Qt host (MAUI_SAILFISH_QT_HOST=1) with an active page renderer.");
 
 	/// <summary>Creates or re-opens the panel with the current properties.</summary>
-	public void Show()
+	public void Show() => QtThread.Run(() =>
 	{
 		var renderer = Renderer;
 		if (_hostId is null)
@@ -50,41 +50,47 @@ public sealed class SailfishBottomSheet : IDisposable
 			renderer.UpdateInteractionHost(_hostId, Props(open: true));
 		}
 		IsOpen = true;
-	}
+	});
 
 	/// <summary>Slides the panel closed, keeping the host for a later <see cref="Show"/>.</summary>
-	public void Hide()
+	public void Hide() => QtThread.Run(() =>
 	{
 		if (_hostId is null)
 			return;
 		Renderer.UpdateInteractionHost(_hostId, Props(open: false));
 		IsOpen = false;
-	}
+	});
 
 	/// <summary>Pushes changed properties to the live panel in place.</summary>
-	public void Update()
+	public void Update() => QtThread.Run(() =>
 	{
 		if (_hostId is not null)
 			Renderer.UpdateInteractionHost(_hostId, Props(open: IsOpen));
-	}
+	});
 
 	/// <summary>Releases the native host; the panel is destroyed on the next reconcile.</summary>
-	public void Close()
+	public void Close() => QtThread.Run(() =>
 	{
 		if (_hostId is null)
 			return;
-		if (QtHostPageRenderer.Current is { } renderer)
+		if (SailfishRenderSession.OfApp?.Renderer is { } renderer)
 		{
 			renderer.RemoveInteractionHost(_hostId);
 			renderer.PanelOpenChanged -= OnNativePanelOpenChanged;
 		}
 		_hostId = null;
 		IsOpen = false;
-	}
+	});
 
 	private Dictionary<string, object?> Props(bool open) => new()
 	{
-		["mauiDock"] = Dock,
+		["mauiDock"] = Dock switch
+		{
+			SailfishDockEdge.Top => "top",
+			SailfishDockEdge.Left => "left",
+			SailfishDockEdge.Right => "right",
+			_ => "bottom",
+		},
 		["mauiOpen"] = open,
 		["mauiSize"] = Size,
 		["mauiText"] = Text,

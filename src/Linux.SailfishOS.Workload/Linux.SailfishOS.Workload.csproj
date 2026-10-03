@@ -20,10 +20,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.json" LogicalName="WorkloadManifest.json" />
-    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.targets" LogicalName="WorkloadManifest.targets" />
+    <SailfishVersioned Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.json.in" TargetPath="WorkloadManifest.json" />
+    <SailfishVersioned Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.targets.in" TargetPath="WorkloadManifest.targets" />
     <AssemblyMetadata Include="SailfishWorkloadBand" Value="$(SailfishWorkloadBand)" />
     <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
   </ItemGroup>
+
+  <!-- The same versioned manifest files the manifest package ships, embedded (written to obj/ first). -->
+  <Import Project="../Linux.SailfishOS.WorkloadManifest/SailfishVersionedFiles.targets" />
+  <Target Name="_SailfishEmbedVersionedManifest" AfterTargets="SailfishCollectVersioned" BeforeTargets="PrepareForBuild">
+    <ItemGroup>
+      <EmbeddedResource Include="@(SailfishVersionedOutput)" LogicalName="%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

@@ -8,29 +8,33 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// the renderer shows the top modal on the Silica pageStack, and PushModalAsync/PopModalAsync complete once the native
 /// stack shows it, as the other platforms complete after their presentation transition.
 /// </summary>
-internal sealed class SailfishModalNavigationPlatformFactory : IModalNavigationPlatformFactory
+/// <param name="session">The overlay passes its session; DI (UseMauiAppSailfish registers this type) does not, and the
+/// app's session is looked up when a modal is shown.</param>
+internal sealed class SailfishModalNavigationPlatformFactory(SailfishRenderSession? session = null) : IModalNavigationPlatformFactory
 {
 	public IModalNavigationPlatform? CreateModalNavigationPlatform(IModalNavigationHost host) =>
-		new SailfishModalNavigationPlatform();
+		new SailfishModalNavigationPlatform(session);
 }
 
-internal sealed class SailfishModalNavigationPlatform : IModalNavigationPlatform
+internal sealed class SailfishModalNavigationPlatform(SailfishRenderSession? session) : IModalNavigationPlatform
 {
+	private QtHostPageRenderer? Renderer => (session ?? SailfishRenderSession.OfApp)?.Renderer;
+
 	/// <summary>The native stack exists once the renderer runs; until then MAUI keeps the modals logical.</summary>
-	public bool IsReady => QtHostPageRenderer.Current is not null;
+	public bool IsReady => Renderer is not null;
 
 	public Task PushModalAsync(Page modal, bool animated) => Settled();
 
 	public Task PopModalAsync(Page modal, bool animated) => Settled();
 
-	public void PageAttached() => QtHostPageRenderer.RequestPoll();
+	public void PageAttached() => Renderer?.RequestPoll();
 
-	private static Task Settled()
+	private Task Settled()
 	{
-		if (QtHostPageRenderer.Current is not { } renderer)
+		if (Renderer is not { } renderer)
 			return Task.CompletedTask;
 		var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		QtHostPageRenderer.RequestPoll();
+		renderer.RequestPoll();
 		renderer.WhenNavigationSettled(() => done.TrySetResult());
 		return done.Task;
 	}

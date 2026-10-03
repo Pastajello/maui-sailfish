@@ -118,6 +118,22 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 
 	private static readonly List<HandlerRow> LibraryReplacements = new();
 
+	/// <summary>Tests: captures the library replacements and returns the action that puts them back.</summary>
+	internal static Action CaptureLibraryReplacementsForTests()
+	{
+		HandlerRow[] saved;
+		lock (LibraryReplacements)
+			saved = LibraryReplacements.ToArray();
+		return () =>
+		{
+			lock (LibraryReplacements)
+			{
+				LibraryReplacements.Clear();
+				LibraryReplacements.AddRange(saved);
+			}
+		};
+	}
+
 	/// <summary>
 	/// Serves every registration of <typeparamref name="TLibraryHandler"/> (or a subclass of it) with
 	/// <typeparamref name="TSailfishHandler"/>. For a library whose plain-<c>net</c> handler is a stub with no platform
@@ -156,11 +172,21 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 
 	private static readonly HandlerRow PageRow = Row<Page, SailfishPageHandler>();
 
-	/// <summary>Attaches the handler of a window's root page, resolved from this registry's rows (so a NavigationPage
-	/// root answers the navigation handshake).</summary>
+	/// <summary>Attaches the handler of a window's root page (or a nested container) through the context's handler
+	/// factory, as WindowHandler.MapContent does elsewhere, so an app registration for the page type wins; the
+	/// Sailfish rows serve a context without a factory.</summary>
 	internal static IViewHandler AttachRootHandler(IView root, IMauiContext context)
 	{
-		var handler = (IViewHandler)Activator.CreateInstance(ResolveViewHandlerType(root.GetType()))!;
+		IViewHandler? handler = null;
+		try
+		{
+			handler = context.Handlers.GetHandler(root.GetType()) as IViewHandler;
+		}
+		catch (InvalidOperationException)
+		{
+			// no factory in this context: the rows below
+		}
+		handler ??= (IViewHandler)ResolveViewRow(root.GetType()).Create();
 		handler.SetMauiContext(context);
 		handler.SetVirtualView(root);
 		return handler;
@@ -200,12 +226,14 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 	}
 
 	/// <summary>The Sailfish handler type for a view type with no registrations (also used by the parity test).</summary>
-	internal static Type ResolveViewHandlerType(Type type)
+	internal static Type ResolveViewHandlerType(Type type) => ResolveViewRow(type).Handler;
+
+	private static HandlerRow ResolveViewRow(Type type)
 	{
 		foreach (var row in ViewHandlers)
 			if (row.View.IsAssignableFrom(type))
-				return row.Handler;
-		return FallbackRow(type).Handler;
+				return row;
+		return FallbackRow(type);
 	}
 
 	/// <summary>View type → Sailfish handler; derived types precede their bases.</summary>

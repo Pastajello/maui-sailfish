@@ -196,7 +196,7 @@ public static class Program
 
 	private static string EmbeddedBand() => Metadata("SailfishWorkloadBand");
 
-	private static string EmbeddedVersion()
+	internal static string EmbeddedVersion()
 	{
 		using var reader = new StreamReader(Embedded("WorkloadManifest.json"));
 		return PackVersion(reader.ReadToEnd()) ?? "?";

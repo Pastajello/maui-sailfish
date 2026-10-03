@@ -33,14 +33,24 @@ public abstract class SailfishSnapshotHandler<TVirtualView> : SailfishViewHandle
 	}
 
 	/// <summary>A mapper chained from <see cref="SailfishViewMapper.Mapper"/> whose <paramref name="keys"/> all push
-	/// the snapshot (<see cref="MapSnapshot"/>); they win over the generic keys of the same name.</summary>
+	/// the snapshot (<see cref="MapSnapshot"/>). A key the generic view mapper handles too (Background on an Entry)
+	/// runs both: the handler's key replaces the generic one in the mapper, and a snapshot that does not carry the
+	/// generic state (the shim-applied background fill) would otherwise leave it until the next full reconcile.</summary>
 	protected static PropertyMapper<TVirtualView, THandler> SnapshotMapper<THandler>(IEnumerable<string> keys)
 		where THandler : SailfishSnapshotHandler<TVirtualView>
 	{
 		var mapper = new PropertyMapper<TVirtualView, THandler>(SailfishViewMapper.Mapper);
 		foreach (var key in keys)
-			mapper[key] = MapSnapshot;
+			mapper[key] = Array.IndexOf(SailfishViewMapper.Keys, key) >= 0 ? MapSnapshotAndViewState : MapSnapshot;
 		return mapper;
+	}
+
+	/// <summary>An owned key the generic view mapper handles too: the snapshot, then the generic view state (diffed,
+	/// so what the snapshot already carried is not pushed twice).</summary>
+	public static void MapSnapshotAndViewState(SailfishSnapshotHandler<TVirtualView> handler, TVirtualView view)
+	{
+		handler.PushSnapshot();
+		SailfishViewMapper.MapViewState(handler, view);
 	}
 
 	/// <summary>The action of every owned key: pushes the family's snapshot to the host.</summary>
@@ -59,7 +69,7 @@ public abstract class SailfishSnapshotHandler<TVirtualView> : SailfishViewHandle
 			PushSnapshot();
 		// A new content view or template changes which hosts exist: its subtree follows on the next loop turn.
 		if (property is nameof(IContentView.Content) or nameof(TemplatedView.ControlTemplate) && ConnectedView is { } view)
-			QtHostPageRenderer.RequestSubtree(view);
+			SailfishHandlerCore.SessionOf(this)?.RequestSubtree(view);
 	}
 
 	/// <summary>Pushes the snapshot now; during the connect pass it joins the connect batch instead.</summary>
@@ -126,7 +136,7 @@ public abstract class SailfishSnapshotHandler<TVirtualView> : SailfishViewHandle
 
 	/// <summary>The transient text-input keys count as covered (the handler-parity measure).</summary>
 	protected static bool IsTransientInputKey(string propertyName) =>
-		Array.IndexOf(QtHostPageRenderer.TransientInputProperties, propertyName) >= 0;
+		Array.IndexOf(SailfishViewKeys.TransientInput, propertyName) >= 0;
 }
 
 /// <summary>
@@ -173,7 +183,7 @@ public class SailfishLabelHandler : SailfishSnapshotHandler<ILabel>
 
 	public static readonly PropertyMapper<ILabel, SailfishLabelHandler> Mapper = SnapshotMapper<SailfishLabelHandler>(Keys);
 
-	public static readonly CommandMapper<ILabel, SailfishLabelHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ILabel, SailfishLabelHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishLabelHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Label)
 	{
@@ -182,7 +192,7 @@ public class SailfishLabelHandler : SailfishSnapshotHandler<ILabel>
 	protected override string? AdapterUri => "label";
 
 	protected override Dictionary<string, object?>? Snapshot(ILabel view) =>
-		view is Label label ? QtHostPageRenderer.LabelProps(label) : null;
+		view is Label label ? AdapterSnapshots.LabelProps(label) : null;
 }
 
 /// <summary>Silica Button handler.</summary>
@@ -203,7 +213,7 @@ public class SailfishButtonHandler : SailfishSnapshotHandler<IButton>
 
 	public static readonly PropertyMapper<IButton, SailfishButtonHandler> Mapper = SnapshotMapper<SailfishButtonHandler>(Keys);
 
-	public static readonly CommandMapper<IButton, SailfishButtonHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IButton, SailfishButtonHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishButtonHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Button)
 	{
@@ -212,7 +222,7 @@ public class SailfishButtonHandler : SailfishSnapshotHandler<IButton>
 	protected override string? AdapterUri => "button";
 
 	protected override Dictionary<string, object?>? Snapshot(IButton view) =>
-		view is Button button ? QtHostPageRenderer.ButtonProps(button) : null;
+		view is Button button ? AdapterSnapshots.ButtonProps(button) : null;
 }
 
 /// <summary>Entry handler; focus, cursor and selection stay transient pushes from the renderer.</summary>
@@ -233,7 +243,7 @@ public class SailfishEntryHandler : SailfishSnapshotHandler<IEntry>
 
 	public static readonly PropertyMapper<IEntry, SailfishEntryHandler> Mapper = WithTransientInput(SnapshotMapper<SailfishEntryHandler>(Keys));
 
-	public static readonly CommandMapper<IEntry, SailfishEntryHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IEntry, SailfishEntryHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishEntryHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.TextInput)
 	{
@@ -247,8 +257,8 @@ public class SailfishEntryHandler : SailfishSnapshotHandler<IEntry>
 
 	protected override Dictionary<string, object?>? Snapshot(IEntry view) =>
 		view is Entry entry
-			? QtHostPageRenderer.TextInputProps(entry, entry.IsPassword ? 2 : 0,
-				QtHostPageRenderer.ClampMaxLength(entry.MaxLength))
+			? AdapterSnapshots.TextInputProps(entry, entry.IsPassword ? 2 : 0,
+				AdapterSnapshots.ClampMaxLength(entry.MaxLength))
 			: null;
 }
 
@@ -269,7 +279,7 @@ public class SailfishEditorHandler : SailfishSnapshotHandler<IEditor>
 
 	public static readonly PropertyMapper<IEditor, SailfishEditorHandler> Mapper = WithTransientInput(SnapshotMapper<SailfishEditorHandler>(Keys));
 
-	public static readonly CommandMapper<IEditor, SailfishEditorHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IEditor, SailfishEditorHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishEditorHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Editor)
 	{
@@ -282,7 +292,7 @@ public class SailfishEditorHandler : SailfishSnapshotHandler<IEditor>
 	protected override string? AdapterUri => "editor";
 
 	protected override Dictionary<string, object?>? Snapshot(IEditor view) =>
-		view is Editor editor ? QtHostPageRenderer.TextInputProps(editor, null, null) : null;
+		view is Editor editor ? AdapterSnapshots.TextInputProps(editor, null, null) : null;
 }
 
 /// <summary>SearchBar handler; focus stays transient.</summary>
@@ -302,7 +312,7 @@ public class SailfishSearchBarHandler : SailfishSnapshotHandler<ISearchBar>
 
 	public static readonly PropertyMapper<ISearchBar, SailfishSearchBarHandler> Mapper = WithTransientInput(SnapshotMapper<SailfishSearchBarHandler>(Keys));
 
-	public static readonly CommandMapper<ISearchBar, SailfishSearchBarHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ISearchBar, SailfishSearchBarHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishSearchBarHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.TextInput)
 	{
@@ -315,7 +325,7 @@ public class SailfishSearchBarHandler : SailfishSnapshotHandler<ISearchBar>
 	protected override string? AdapterUri => "search-bar";
 
 	protected override Dictionary<string, object?>? Snapshot(ISearchBar view) =>
-		view is SearchBar bar ? QtHostPageRenderer.SearchBarProps(bar) : null;
+		view is SearchBar bar ? AdapterSnapshots.SearchBarProps(bar) : null;
 }
 
 /// <summary>Switch handler (Silica Switch adapter).</summary>
@@ -329,7 +339,7 @@ public class SailfishSwitchHandler : SailfishSnapshotHandler<ISwitch>
 
 	public static readonly PropertyMapper<ISwitch, SailfishSwitchHandler> Mapper = SnapshotMapper<SailfishSwitchHandler>(Keys);
 
-	public static readonly CommandMapper<ISwitch, SailfishSwitchHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ISwitch, SailfishSwitchHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishSwitchHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Switch)
 	{
@@ -338,7 +348,7 @@ public class SailfishSwitchHandler : SailfishSnapshotHandler<ISwitch>
 	protected override string? AdapterUri => "switch";
 
 	protected override Dictionary<string, object?>? Snapshot(ISwitch view) =>
-		view is Switch sw ? QtHostPageRenderer.SwitchProps(sw) : null;
+		view is Switch sw ? AdapterSnapshots.SwitchProps(sw) : null;
 }
 
 /// <summary>CheckBox handler: a framed check box, not the Silica Switch.</summary>
@@ -351,7 +361,7 @@ public class SailfishCheckBoxHandler : SailfishSnapshotHandler<ICheckBox>
 
 	public static readonly PropertyMapper<ICheckBox, SailfishCheckBoxHandler> Mapper = SnapshotMapper<SailfishCheckBoxHandler>(Keys);
 
-	public static readonly CommandMapper<ICheckBox, SailfishCheckBoxHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ICheckBox, SailfishCheckBoxHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishCheckBoxHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Check)
 	{
@@ -360,7 +370,7 @@ public class SailfishCheckBoxHandler : SailfishSnapshotHandler<ICheckBox>
 	protected override string? AdapterUri => "check-box";
 
 	protected override Dictionary<string, object?>? Snapshot(ICheckBox view) =>
-		view is CheckBox cb ? QtHostPageRenderer.CheckBoxProps(cb) : null;
+		view is CheckBox cb ? AdapterSnapshots.CheckBoxProps(cb) : null;
 }
 
 /// <summary>Slider handler; bounds must precede the value because QML clamps on assignment.</summary>
@@ -375,7 +385,7 @@ public class SailfishSliderHandler : SailfishSnapshotHandler<ISlider>
 
 	public static readonly PropertyMapper<ISlider, SailfishSliderHandler> Mapper = SnapshotMapper<SailfishSliderHandler>(Keys);
 
-	public static readonly CommandMapper<ISlider, SailfishSliderHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ISlider, SailfishSliderHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishSliderHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Slider)
 	{
@@ -384,7 +394,7 @@ public class SailfishSliderHandler : SailfishSnapshotHandler<ISlider>
 	protected override string? AdapterUri => "slider";
 
 	protected override Dictionary<string, object?>? Snapshot(ISlider view) =>
-		view is Slider slider ? QtHostPageRenderer.SliderProps(slider) : null;
+		view is Slider slider ? AdapterSnapshots.SliderProps(slider) : null;
 }
 
 /// <summary>ProgressBar handler.</summary>
@@ -394,7 +404,7 @@ public class SailfishProgressBarHandler : SailfishSnapshotHandler<IProgress>
 
 	public static readonly PropertyMapper<IProgress, SailfishProgressBarHandler> Mapper = SnapshotMapper<SailfishProgressBarHandler>(Keys);
 
-	public static readonly CommandMapper<IProgress, SailfishProgressBarHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IProgress, SailfishProgressBarHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishProgressBarHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Progress)
 	{
@@ -403,7 +413,7 @@ public class SailfishProgressBarHandler : SailfishSnapshotHandler<IProgress>
 	protected override string? AdapterUri => "progress-bar";
 
 	protected override Dictionary<string, object?>? Snapshot(IProgress view) =>
-		view is ProgressBar progress ? QtHostPageRenderer.ProgressBarProps(progress) : null;
+		view is ProgressBar progress ? AdapterSnapshots.ProgressBarProps(progress) : null;
 }
 
 /// <summary>ActivityIndicator handler (Silica BusyIndicator).</summary>
@@ -413,7 +423,7 @@ public class SailfishActivityIndicatorHandler : SailfishSnapshotHandler<IActivit
 
 	public static readonly PropertyMapper<IActivityIndicator, SailfishActivityIndicatorHandler> Mapper = SnapshotMapper<SailfishActivityIndicatorHandler>(Keys);
 
-	public static readonly CommandMapper<IActivityIndicator, SailfishActivityIndicatorHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IActivityIndicator, SailfishActivityIndicatorHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishActivityIndicatorHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Activity)
 	{
@@ -422,7 +432,7 @@ public class SailfishActivityIndicatorHandler : SailfishSnapshotHandler<IActivit
 	protected override string? AdapterUri => "activity-indicator";
 
 	protected override Dictionary<string, object?>? Snapshot(IActivityIndicator view) =>
-		view is ActivityIndicator indicator ? QtHostPageRenderer.ActivityIndicatorProps(indicator) : null;
+		view is ActivityIndicator indicator ? AdapterSnapshots.ActivityIndicatorProps(indicator) : null;
 }
 
 /// <summary>Picker handler; items must precede the index so the QML index sync sees the full list.</summary>
@@ -439,7 +449,7 @@ public class SailfishPickerHandler : SailfishSnapshotHandler<IPicker>
 
 	public static readonly PropertyMapper<IPicker, SailfishPickerHandler> Mapper = SnapshotMapper<SailfishPickerHandler>(Keys);
 
-	public static readonly CommandMapper<IPicker, SailfishPickerHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IPicker, SailfishPickerHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishPickerHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.ValueBox)
 	{
@@ -448,7 +458,7 @@ public class SailfishPickerHandler : SailfishSnapshotHandler<IPicker>
 	protected override string? AdapterUri => "picker";
 
 	protected override Dictionary<string, object?>? Snapshot(IPicker view) =>
-		view is Picker picker ? QtHostPageRenderer.PickerProps(picker) : null;
+		view is Picker picker ? AdapterSnapshots.PickerProps(picker) : null;
 }
 
 /// <summary>DatePicker handler (dates cross as local-midnight epoch ms).</summary>
@@ -464,7 +474,7 @@ public class SailfishDatePickerHandler : SailfishSnapshotHandler<IDatePicker>
 
 	public static readonly PropertyMapper<IDatePicker, SailfishDatePickerHandler> Mapper = SnapshotMapper<SailfishDatePickerHandler>(Keys);
 
-	public static readonly CommandMapper<IDatePicker, SailfishDatePickerHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IDatePicker, SailfishDatePickerHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishDatePickerHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.ValueBox)
 	{
@@ -473,7 +483,7 @@ public class SailfishDatePickerHandler : SailfishSnapshotHandler<IDatePicker>
 	protected override string? AdapterUri => "date-picker";
 
 	protected override Dictionary<string, object?>? Snapshot(IDatePicker view) =>
-		view is DatePicker picker ? QtHostPageRenderer.DatePickerProps(picker) : null;
+		view is DatePicker picker ? AdapterSnapshots.DatePickerProps(picker) : null;
 }
 
 /// <summary>TimePicker handler; hour and minute travel in one snapshot so no half-updated time is applied.</summary>
@@ -489,7 +499,7 @@ public class SailfishTimePickerHandler : SailfishSnapshotHandler<ITimePicker>
 
 	public static readonly PropertyMapper<ITimePicker, SailfishTimePickerHandler> Mapper = SnapshotMapper<SailfishTimePickerHandler>(Keys);
 
-	public static readonly CommandMapper<ITimePicker, SailfishTimePickerHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<ITimePicker, SailfishTimePickerHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishTimePickerHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.ValueBox)
 	{
@@ -498,7 +508,7 @@ public class SailfishTimePickerHandler : SailfishSnapshotHandler<ITimePicker>
 	protected override string? AdapterUri => "time-picker";
 
 	protected override Dictionary<string, object?>? Snapshot(ITimePicker view) =>
-		view is TimePicker picked ? QtHostPageRenderer.TimePickerProps(picked) : null;
+		view is TimePicker picked ? AdapterSnapshots.TimePickerProps(picked) : null;
 }
 
 /// <summary>RadioButton handler; group exclusivity stays in MAUI.</summary>
@@ -516,7 +526,7 @@ public class SailfishRadioButtonHandler : SailfishSnapshotHandler<IRadioButton>
 
 	public static readonly PropertyMapper<IRadioButton, SailfishRadioButtonHandler> Mapper = SnapshotMapper<SailfishRadioButtonHandler>(Keys);
 
-	public static readonly CommandMapper<IRadioButton, SailfishRadioButtonHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IRadioButton, SailfishRadioButtonHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishRadioButtonHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Radio)
 	{
@@ -533,8 +543,8 @@ public class SailfishRadioButtonHandler : SailfishSnapshotHandler<IRadioButton>
 
 	protected override Dictionary<string, object?>? Snapshot(IRadioButton view) =>
 		view is not RadioButton radio ? null
-		: Templated ? QtHostPageRenderer.ContainerProps(radio)
-		: QtHostPageRenderer.RadioButtonProps(radio);
+		: Templated ? AdapterSnapshots.ContainerProps(radio)
+		: AdapterSnapshots.RadioButtonProps(radio);
 }
 
 /// <summary>WebView handler on the Gecko adapter; navigation and JS commands go out as transient props,
@@ -545,12 +555,10 @@ public class SailfishWebViewHandler : SailfishSnapshotHandler<IWebView>
 
 	public static readonly PropertyMapper<IWebView, SailfishWebViewHandler> Mapper = SnapshotMapper<SailfishWebViewHandler>(Keys);
 
-	private int _navTick;
-	private int _jsTick;
 	private int _jsSeq;
 	private readonly Dictionary<string, EvaluateJavaScriptAsyncRequest> _pendingJs = new(StringComparer.Ordinal);
 
-	public static readonly CommandMapper<IWebView, SailfishWebViewHandler> CommandMapper = new(ViewCommandMapper)
+	public static readonly CommandMapper<IWebView, SailfishWebViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper)
 	{
 		[nameof(IWebView.GoBack)] = (h, _, _) => h.Nav("back"),
 		[nameof(IWebView.GoForward)] = (h, _, _) => h.Nav("forward"),
@@ -580,13 +588,9 @@ public class SailfishWebViewHandler : SailfishSnapshotHandler<IWebView>
 	protected override bool WalksChildren => false;
 
 	protected override Dictionary<string, object?>? Snapshot(IWebView view) =>
-		view is WebView web ? QtHostPageRenderer.WebViewProps(web) : null;
+		view is WebView web ? AdapterSnapshots.WebViewProps(web) : null;
 
-	private void Nav(string command) => PushProps(new Dictionary<string, object?>
-	{
-		["mauiNavCommand"] = command,
-		["mauiNavTick"] = ++_navTick,
-	});
+	private void Nav(string command) => SendCommand("nav", new() { ["action"] = command });
 
 	private void RunJs(string? script, EvaluateJavaScriptAsyncRequest? request)
 	{
@@ -597,20 +601,34 @@ public class SailfishWebViewHandler : SailfishSnapshotHandler<IWebView>
 		}
 		var id = "js" + (++_jsSeq).ToString(System.Globalization.CultureInfo.InvariantCulture);
 		if (request is not null)
-			_pendingJs[id] = request;
-		PushProps(new Dictionary<string, object?>
-		{
-			["mauiJs"] = script,
-			["mauiJsId"] = id,
-			["mauiJsTick"] = ++_jsTick,
-		});
+			lock (_pendingJs)
+				_pendingJs[id] = request;
+		if (!SendCommand("js", new() { ["req"] = id, ["script"] = script }))
+			CompleteJs(id, ok: false, null);   // no page to run it in: the caller gets null, as for a script error
 	}
 
 	/// <summary>Completes a pending EvaluateJavaScriptAsync (null on a script error, as MAUI does).</summary>
 	internal void CompleteJs(string requestId, bool ok, string? result)
 	{
-		if (_pendingJs.Remove(requestId, out var request))
-			request.SetResult(ok ? result! : null!);
+		EvaluateJavaScriptAsyncRequest? request;
+		lock (_pendingJs)
+			_pendingJs.Remove(requestId, out request);
+		request?.SetResult(ok ? result! : null!);
+	}
+
+	/// <summary>The page went away with scripts in flight: their callers get null (as for a script error) instead of
+	/// waiting forever for a result the destroyed Gecko view will never send.</summary>
+	protected override void DisconnectHandler(NativeElementHost platformView)
+	{
+		EvaluateJavaScriptAsyncRequest[] pending;
+		lock (_pendingJs)
+		{
+			pending = _pendingJs.Values.ToArray();
+			_pendingJs.Clear();
+		}
+		foreach (var request in pending)
+			request.SetResult(null!);
+		base.DisconnectHandler(platformView);
 	}
 }
 
@@ -627,9 +645,8 @@ public class SailfishSwipeViewHandler : SailfishSnapshotHandler<ISwipeView>
 
 	public static readonly PropertyMapper<ISwipeView, SailfishSwipeViewHandler> Mapper = SnapshotMapper<SailfishSwipeViewHandler>(Keys);
 
-	private int _openTick;
 
-	public static readonly CommandMapper<ISwipeView, SailfishSwipeViewHandler> CommandMapper = new(ViewCommandMapper)
+	public static readonly CommandMapper<ISwipeView, SailfishSwipeViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper)
 	{
 		[nameof(ISwipeView.RequestOpen)] = (h, _, args) => h.Open(args is SwipeViewOpenRequest open ? SideOf(open.OpenSwipeItem) : "right"),
 		[nameof(ISwipeView.RequestClose)] = (h, _, _) => h.Open(string.Empty),
@@ -642,7 +659,7 @@ public class SailfishSwipeViewHandler : SailfishSnapshotHandler<ISwipeView>
 	protected override string? AdapterUri => "swipe-view";
 
 	protected override Dictionary<string, object?>? Snapshot(ISwipeView view) =>
-		view is SwipeView swipe ? QtHostPageRenderer.SwipeProps(swipe) : null;
+		view is SwipeView swipe ? AdapterSnapshots.SwipeProps(swipe) : null;
 
 	private static string SideOf(OpenSwipeItem item) => item switch
 	{
@@ -651,11 +668,7 @@ public class SailfishSwipeViewHandler : SailfishSnapshotHandler<ISwipeView>
 		_ => "right",   // top/bottom items are not rendered yet
 	};
 
-	private void Open(string side) => PushProps(new Dictionary<string, object?>
-	{
-		["mauiOpenSide"] = side,
-		["mauiOpenTick"] = ++_openTick,
-	});
+	private void Open(string side) => SendCommand("open", new() { ["side"] = side });
 }
 
 /// <summary>Stepper handler (minus/plus IconButton pair).</summary>
@@ -669,7 +682,7 @@ public class SailfishStepperHandler : SailfishSnapshotHandler<IStepper>
 
 	public static readonly PropertyMapper<IStepper, SailfishStepperHandler> Mapper = SnapshotMapper<SailfishStepperHandler>(Keys);
 
-	public static readonly CommandMapper<IStepper, SailfishStepperHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IStepper, SailfishStepperHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishStepperHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Stepper)
 	{
@@ -678,7 +691,7 @@ public class SailfishStepperHandler : SailfishSnapshotHandler<IStepper>
 	protected override string? AdapterUri => "stepper";
 
 	protected override Dictionary<string, object?>? Snapshot(IStepper view) =>
-		view is Stepper stepper ? QtHostPageRenderer.StepperProps(stepper) : null;
+		view is Stepper stepper ? AdapterSnapshots.StepperProps(stepper) : null;
 }
 
 /// <summary>IndicatorView dot strip; with an IndicatorTemplate MAUI lays out the template and no adapter is used.</summary>
@@ -694,7 +707,7 @@ public class SailfishIndicatorViewHandler : SailfishSnapshotHandler<IIndicatorVi
 
 	public static readonly PropertyMapper<IIndicatorView, SailfishIndicatorViewHandler> Mapper = SnapshotMapper<SailfishIndicatorViewHandler>(Keys);
 
-	public static readonly CommandMapper<IIndicatorView, SailfishIndicatorViewHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IIndicatorView, SailfishIndicatorViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishIndicatorViewHandler() : base(Mapper, CommandMapper, Keys)
 	{
@@ -712,7 +725,7 @@ public class SailfishIndicatorViewHandler : SailfishSnapshotHandler<IIndicatorVi
 	protected override bool WalksChildren => ConnectedView is not IndicatorView { IndicatorTemplate: null };
 
 	protected override Dictionary<string, object?>? Snapshot(IIndicatorView view) =>
-		view is IndicatorView { IndicatorTemplate: null } indicator ? QtHostPageRenderer.IndicatorProps(indicator) : null;
+		view is IndicatorView { IndicatorTemplate: null } indicator ? AdapterSnapshots.IndicatorProps(indicator) : null;
 }
 
 /// <summary>Image handler: the source resolves to a URL Qt loads itself; an unresolvable source gets no host.</summary>
@@ -729,7 +742,7 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 
 	public static readonly PropertyMapper<IImage, SailfishImageHandler> Mapper = SnapshotMapper<SailfishImageHandler>(Keys);
 
-	public static readonly CommandMapper<IImage, SailfishImageHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IImage, SailfishImageHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishImageHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Image)
 	{
@@ -745,14 +758,19 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 	protected override Dictionary<string, object?>? Snapshot(IImage view) =>
 		view is IImage image ? QtHostImages.Props(image) : null;
 
-	// A remote image measured 0 × 0 until it loaded; now its own size is known.
+	// A remote image measured 0 × 0 until it loaded; now its own size is known. A failed load has no MAUI event (Image
+	// exposes none on any platform): it is reported in the device log once per source, instead of nowhere.
 	protected override void OnAdapterEvent(string name, JsonElement payload)
 	{
-		if (name == "image-natural" &&
-		    payload.TryGetProperty("source", out var source) && source.GetString() is { } url &&
+		var url = payload.TryGetProperty("source", out var source) ? source.GetString() : null;
+		if (name == "image-natural" && url is not null &&
 		    QtHostImages.ReportNaturalSize(url, (int)BridgeJson.Num(payload, "width"), (int)BridgeJson.Num(payload, "height")))
 			ConnectedView?.InvalidateMeasure();
+		else if (name == "image-failed" && url is not null && FailedSources.Add(url))
+			QtHostDiag.Warn(QtHostDiagChannel.QmlLoad, $"image failed to load: {url} ({VirtualView?.GetType().Name})");
 	}
+
+	private static readonly HashSet<string> FailedSources = new(StringComparer.Ordinal);
 }
 
 /// <summary>Border handler; the obsolete Frame uses the same adapter.</summary>
@@ -773,7 +791,7 @@ public class SailfishBorderHandler : SailfishSnapshotHandler<IContentView>
 
 	public static readonly PropertyMapper<IContentView, SailfishBorderHandler> Mapper = SnapshotMapper<SailfishBorderHandler>(Keys);
 
-	public static readonly CommandMapper<IContentView, SailfishBorderHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IContentView, SailfishBorderHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishBorderHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Boxed)
 	{
@@ -782,7 +800,7 @@ public class SailfishBorderHandler : SailfishSnapshotHandler<IContentView>
 	protected override string? AdapterUri => "border";
 
 	public override bool OwnsProperty(string propertyName) =>
-		base.OwnsProperty(propertyName) || QtHostPageRenderer.IsBorderVisualProperty(propertyName);
+		base.OwnsProperty(propertyName) || AdapterSnapshots.IsBorderVisualProperty(propertyName);
 
 	/// <summary>The path/drawing is built for the arranged size.</summary>
 	protected override bool SnapshotDependsOnSize => true;
@@ -790,9 +808,9 @@ public class SailfishBorderHandler : SailfishSnapshotHandler<IContentView>
 	protected override Dictionary<string, object?>? Snapshot(IContentView view) =>
 		view switch
 		{
-			Border border => QtHostPageRenderer.BorderProps(border),
+			Border border => AdapterSnapshots.BorderProps(border),
 #pragma warning disable CS0618 // Frame is obsolete but must stay paintable.
-			Frame frame => QtHostPageRenderer.FrameProps(frame),
+			Frame frame => AdapterSnapshots.FrameProps(frame),
 #pragma warning restore CS0618
 			_ => null,
 		};
@@ -805,7 +823,7 @@ public class SailfishShapeHandler : SailfishSnapshotHandler<IShapeView>
 
 	public static readonly PropertyMapper<IShapeView, SailfishShapeHandler> Mapper = SnapshotMapper<SailfishShapeHandler>(Keys);
 
-	public static readonly CommandMapper<IShapeView, SailfishShapeHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IShapeView, SailfishShapeHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	// A bare Shape measures 0x0: its path derives from the arranged size.
 	public SailfishShapeHandler() : base(Mapper, CommandMapper, Keys,
@@ -837,7 +855,7 @@ public class SailfishGraphicsHandler : SailfishSnapshotHandler<IGraphicsView>
 	public static readonly PropertyMapper<IGraphicsView, SailfishGraphicsHandler> Mapper = SnapshotMapper<SailfishGraphicsHandler>(Keys);
 
 	/// <summary>GraphicsView.Invalidate re-records the drawable.</summary>
-	public static readonly CommandMapper<IGraphicsView, SailfishGraphicsHandler> CommandMapper = new(ViewCommandMapper)
+	public static readonly CommandMapper<IGraphicsView, SailfishGraphicsHandler> CommandMapper = new(SailfishViewMapper.CommandMapper)
 	{
 		[nameof(IGraphicsView.Invalidate)] = static (handler, view, _) => MapSnapshot(handler, view),
 	};
@@ -865,7 +883,7 @@ public class SailfishContentViewHandler : SailfishSnapshotHandler<IContentView>
 
 	public static readonly PropertyMapper<IContentView, SailfishContentViewHandler> Mapper = SnapshotMapper<SailfishContentViewHandler>(Keys);
 
-	public static readonly CommandMapper<IContentView, SailfishContentViewHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IContentView, SailfishContentViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishContentViewHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Content)
 	{
@@ -875,7 +893,7 @@ public class SailfishContentViewHandler : SailfishSnapshotHandler<IContentView>
 	protected override string? AdapterUri => VirtualView is RefreshView ? null : "content-view";
 
 	protected override Dictionary<string, object?>? Snapshot(IContentView view) =>
-		view is VisualElement ve ? QtHostPageRenderer.ContainerProps(ve) : null;
+		view is VisualElement ve ? AdapterSnapshots.ContainerProps(ve) : null;
 }
 
 /// <summary>Grid container handler.</summary>
@@ -899,7 +917,7 @@ public class SailfishGridHandler : SailfishLayoutHandlerBase<IGridLayout>
 	protected override string? AdapterUri => "grid";
 
 	protected override Dictionary<string, object?>? Snapshot(IGridLayout view) =>
-		view is Grid grid ? QtHostPageRenderer.GridProps(grid) : null;
+		view is Grid grid ? AdapterSnapshots.GridProps(grid) : null;
 }
 
 /// <summary>Stack container handler (StackBase covers the oriented stacks and StackLayout).</summary>
@@ -923,7 +941,7 @@ public class SailfishStackHandler : SailfishLayoutHandlerBase<IStackLayout>
 	protected override string? AdapterUri => "stack-layout";
 
 	protected override Dictionary<string, object?>? Snapshot(IStackLayout view) =>
-		view is StackBase stack ? QtHostPageRenderer.StackProps(stack) : null;
+		view is StackBase stack ? AdapterSnapshots.StackProps(stack) : null;
 }
 
 /// <summary>CollectionView handler: hosting only; <see cref="QtHostCollectionBridge"/> owns rows and selection.</summary>
@@ -970,7 +988,7 @@ public class SailfishListViewHandler : SailfishSnapshotHandler<IView>
 	/// the list and cleared when the list retires; the mapper hands it every ItemsView change.</summary>
 	internal QtHostListAdapter? Adapter { get; set; }
 
-	public static readonly CommandMapper<IView, SailfishListViewHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IView, SailfishListViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	public SailfishListViewHandler() : base(Mapper, CommandMapper, Keys, SailfishMeasure.Collection)
 	{
@@ -991,7 +1009,7 @@ public class SailfishContainerHandler : SailfishSnapshotHandler<IView>
 
 	public static readonly PropertyMapper<IView, SailfishContainerHandler> Mapper = SnapshotMapper<SailfishContainerHandler>(Keys);
 
-	public static readonly CommandMapper<IView, SailfishContainerHandler> CommandMapper = new(ViewCommandMapper);
+	public static readonly CommandMapper<IView, SailfishContainerHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	// The generic measure, as the NullViewHandler these views had before.
 	public SailfishContainerHandler() : base(Mapper, CommandMapper, Keys)
@@ -999,7 +1017,7 @@ public class SailfishContainerHandler : SailfishSnapshotHandler<IView>
 	}
 
 	protected override Dictionary<string, object?>? Snapshot(IView view) =>
-		view is VisualElement ve ? QtHostPageRenderer.ContainerProps(ve) : null;
+		view is VisualElement ve ? AdapterSnapshots.ContainerProps(ve) : null;
 }
 
 /// <summary>
@@ -1019,7 +1037,7 @@ public abstract class SailfishLayoutHandlerBase<TLayout> : SailfishSnapshotHandl
 	/// <summary>A command mapper answering the layout commands Controls raises.</summary>
 	protected static CommandMapper<TLayout, THandler> LayoutCommands<THandler>()
 		where THandler : SailfishLayoutHandlerBase<TLayout> =>
-		new(ViewCommandMapper)
+		new(SailfishViewMapper.CommandMapper)
 		{
 			[nameof(ILayoutHandler.Add)] = static (handler, _, args) => handler.Add(ChildOf(args)!),
 			[nameof(ILayoutHandler.Insert)] = static (handler, _, args) =>
@@ -1055,7 +1073,7 @@ public abstract class SailfishLayoutHandlerBase<TLayout> : SailfishSnapshotHandl
 	private void ChildrenChanged()
 	{
 		if (ConnectedView is { } layout)
-			QtHostPageRenderer.RequestSubtree(layout);
+			SailfishHandlerCore.SessionOf(this)?.RequestSubtree(layout);
 	}
 
 	ILayout IElementHandler<ILayout, NativeElementHost>.VirtualView => VirtualView;
@@ -1084,5 +1102,5 @@ public class SailfishLayoutHandler : SailfishLayoutHandlerBase<ILayout>
 	}
 
 	protected override Dictionary<string, object?>? Snapshot(ILayout view) =>
-		view is VisualElement ve ? QtHostPageRenderer.ContainerProps(ve) : null;
+		view is VisualElement ve ? AdapterSnapshots.ContainerProps(ve) : null;
 }

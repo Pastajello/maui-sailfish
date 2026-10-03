@@ -89,8 +89,13 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="11.0.0-*" />
 	</ItemGroup>
 
+	<PropertyGroup>
+		<!-- The Microsoft.Maui.SailfishOS version this app builds with (written in when the project was created). -->
+		<PlatformMauiSailfishVersion Condition="'$(PlatformMauiSailfishVersion)' == ''">SAILFISH_PACKAGE_VERSION</PlatformMauiSailfishVersion>
+	</PropertyGroup>
+
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
-		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="SAILFISH_PACKAGE_VERSION" />
+		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
 	</ItemGroup>
 
 </Project>

@@ -8,7 +8,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// <summary>
 /// Battery on Nemo.Mce; changes arrive on the service channel and readers get the last snapshot.
 /// </summary>
-public sealed class SailfishBattery : IBattery
+internal sealed class SailfishBattery : IBattery
 {
 	private const string Service = "battery";
 	private double _level = -1;
@@ -46,14 +46,22 @@ public sealed class SailfishBattery : IBattery
 		""";
 
 	/// <summary>Started on first use. MCE answers asynchronously, so the first read comes from the kernel until it does.</summary>
-	internal void Start()
+	internal void Start() => QtThread.Run(() =>
 	{
-		if (_started || !QtHostRuntime.IsQtThread)
+		if (_started)
 			return;
 		if (!QtHostServices.Ensure(Service, Qml))
+		{
+			// MCE missing while the host runs: the kernel's power_supply is the answer from now on.
+			if (QtHostServices.IsUnavailable(Service))
+			{
+				_started = true;
+				ReadKernel();
+			}
 			return;
+		}
 		_started = true;
-		QtHostServices.Subscribe("svc-battery-changed", Apply);
+		QtHostServices.Subscribe(ShellEvents.BatteryChanged, Apply);
 		var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
 		if (snapshot.Length > 0)
 		{
@@ -63,7 +71,7 @@ public sealed class SailfishBattery : IBattery
 			else
 				ReadKernel();
 		}
-	}
+	});
 
 	/// <summary>Reads battery state and the online supply from /sys/class/power_supply.</summary>
 	private void ReadKernel()
@@ -161,7 +169,7 @@ public sealed class SailfishBattery : IBattery
 /// <summary>
 /// Connectivity on Connman's NetworkManager: manager state plus the default route's technology.
 /// </summary>
-public sealed class SailfishConnectivity : IConnectivity
+internal sealed class SailfishConnectivity : IConnectivity
 {
 	private const string Service = "connectivity";
 	private NetworkAccess _access = NetworkAccess.Unknown;
@@ -185,14 +193,14 @@ public sealed class SailfishConnectivity : IConnectivity
 		""";
 
 	/// <summary>Started on first use, since NetworkManager follows all Connman D-Bus traffic.</summary>
-	internal void Start()
+	internal void Start() => QtThread.Run(() =>
 	{
-		if (_started || !QtHostRuntime.IsQtThread)
+		if (_started)
 			return;
 		if (!QtHostServices.Ensure(Service, Qml))
 			return;
 		_started = true;
-		QtHostServices.Subscribe("svc-connectivity-changed", e => Apply(e, raise: true));
+		QtHostServices.Subscribe(ShellEvents.ConnectivityChanged, e => Apply(e, raise: true));
 		var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
 		if (snapshot.Length > 0)
 		{
@@ -202,7 +210,7 @@ public sealed class SailfishConnectivity : IConnectivity
 		// Connman's first answer can say offline for seconds on an online phone, so kernel routes decide until it changes.
 		if (_access != NetworkAccess.Internet)
 			ReadInterfaces();
-	}
+	});
 
 	/// <summary>Fallback: an up interface with a gateway means Internet; its name gives the technology.</summary>
 	private void ReadInterfaces()
@@ -275,7 +283,7 @@ public sealed class SailfishConnectivity : IConnectivity
 }
 
 /// <summary>Vibration on QtFeedback's HapticsEffect.</summary>
-public sealed class SailfishVibration : IVibration
+internal sealed class SailfishVibration : IVibration
 {
 	private const string Service = "vibration";
 
@@ -285,7 +293,7 @@ public sealed class SailfishVibration : IVibration
 		HapticsEffect { intensity: 1.0; duration: 500 }
 		""";
 
-	public bool IsSupported => QtHostRuntime.IsQtThread && QtHostServices.Ensure(Service, Qml);
+	public bool IsSupported => QtHostServices.Ensure(Service, Qml);
 
 	public void Vibrate() => Vibrate(TimeSpan.FromMilliseconds(500));
 
@@ -312,7 +320,7 @@ public sealed class SailfishVibration : IVibration
 }
 
 /// <summary>HapticFeedback on QtFeedback theme effects: Click is Press, LongPress is PressStrong.</summary>
-public sealed class SailfishHapticFeedback : IHapticFeedback
+internal sealed class SailfishHapticFeedback : IHapticFeedback
 {
 	private const string Service = "haptics";
 
@@ -322,7 +330,7 @@ public sealed class SailfishHapticFeedback : IHapticFeedback
 		ThemeEffect { effect: ThemeEffect.Press }
 		""";
 
-	public bool IsSupported => QtHostRuntime.IsQtThread && QtHostServices.Ensure(Service, Qml);
+	public bool IsSupported => QtHostServices.Ensure(Service, Qml);
 
 	public void Perform(HapticFeedbackType type)
 	{
@@ -377,7 +385,7 @@ public static class SailfishNotifications
 	/// <paramref name="preview"/>); returns its id, 0 when unavailable.</summary>
 	public static uint Show(string summary, string body, bool preview = true, string? icon = null)
 	{
-		if (!QtHostRuntime.IsQtThread || !QtHostServices.Ensure(Service, Qml))
+		if (!QtHostServices.Ensure(Service, Qml))
 			return 0;
 		var app = Microsoft.Maui.ApplicationModel.AppInfo.Current.Name;
 		var json = "{\"appName\":" + QtHostServices.Js(app) + ",\"icon\":" + QtHostServices.Js(icon ?? "icon-lock-information") +
@@ -388,5 +396,5 @@ public static class SailfishNotifications
 
 	/// <summary>Removes a published notification; false when unknown.</summary>
 	public static bool Close(uint id) =>
-		QtHostRuntime.IsQtThread && QtHostServices.Eval(Service, $"s.close({id})") == "closed";
+		QtHostServices.Eval(Service, $"s.close({id})") == "closed";
 }

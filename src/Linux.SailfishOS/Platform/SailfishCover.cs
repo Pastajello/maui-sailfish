@@ -54,7 +54,7 @@ public static class SailfishCover
 		if (!_subscribed)
 		{
 			_subscribed = true;
-			QtHostServices.Subscribe("svc-cover-action", e =>
+			QtHostServices.Subscribe(ShellEvents.CoverAction, e =>
 			{
 				SailfishCoverAction? action;
 				lock (Sync)
@@ -65,7 +65,7 @@ public static class SailfishCover
 				Triggered++;
 				action?.Triggered();
 			});
-			QtHostServices.Subscribe("svc-cover-status", e =>
+			QtHostServices.Subscribe(ShellEvents.CoverStatus, e =>
 			{
 				var active = e.TryGetProperty("active", out var a) && a.ValueKind == JsonValueKind.True;
 				if (active == IsActive)

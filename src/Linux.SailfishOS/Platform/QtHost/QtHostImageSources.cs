@@ -12,6 +12,17 @@ public static class QtHostImageSources
 {
 	private static readonly List<Func<ImageSource, string?>> Resolvers = new();
 
+	/// <summary>Tests: captures the resolvers and returns the action that puts them back.</summary>
+	internal static Action CaptureForTests()
+	{
+		var saved = Resolvers.ToArray();
+		return () =>
+		{
+			Resolvers.Clear();
+			Resolvers.AddRange(saved);
+		};
+	}
+
 	/// <summary>Adds a resolver; the first one that returns a URL wins.</summary>
 	public static void Register(Func<ImageSource, string?> resolver)
 	{

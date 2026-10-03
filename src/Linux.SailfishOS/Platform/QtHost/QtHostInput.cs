@@ -14,7 +14,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// taps, pans and swipes, the second one a pinch; wheel is not routed (Silica's flickables take it natively), and
 /// gestures are dispatched to the MAUI main thread.
 /// </summary>
-public sealed class QtHostInputRouter
+internal sealed class QtHostInputRouter
 {
 	/* Pointer kinds exactly as the shim emits them (sailfish_host.h). */
 	private const int MousePress = 0;
@@ -325,7 +325,7 @@ public sealed class QtHostInputRouter
 			return;
 		if (host is not null)
 		{
-			if (QmlConsumedUris.Contains(host.QmlUri) || host.QmlUri == "scroll-view")
+			if (QmlConsumedUris.Contains(host.QmlUri) || host.QmlUri == QtHostAdapters.ScrollView)
 				return;
 			if (host.Element is VisualElement target && TryFindRecognizers(target, out _, out _, out var pans, out var swipes, out _, out _, out var pinches)
 			    && (pans is not null || swipes is not null || pinches is not null))

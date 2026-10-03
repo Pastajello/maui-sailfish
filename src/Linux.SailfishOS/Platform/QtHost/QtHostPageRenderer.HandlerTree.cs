@@ -2,20 +2,17 @@ using Microsoft.Maui.Controls;
 
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
-// Handler-driven host tree (alignment stage A3): as a native container adds or removes its child
+// Handler-driven host tree: as a native container adds or removes its child
 // views, a Sailfish container handler reports its own child changes (the layout commands Add/Insert/Remove/Update/
 // UpdateZIndex/Clear, a Content or ControlTemplate swap) and only that subtree is diffed on the next loop turn: its
 // hosts are created, destroyed, re-parented and ordered in one op batch, then laid out. The full page reconcile stays
 // as the verifier (navigation, page switch, the safety-net poll); what it still changes on a steady page is counted
 // as a fixup. Subtrees that need the page around them (lists, scroll views, refresh, context menus) fall back to it.
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer
 {
 	/// <summary>MAUI_SAILFISH_HANDLER_TREE=0 leaves handler tree changes to the full page reconcile (A/B).</summary>
 	internal static bool HandlerTree { get; set; } = SailfishEnv.Get("MAUI_SAILFISH_HANDLER_TREE") != "0";
 
-	private readonly object _subtreeSync = new();
-	private readonly List<Element> _dirtySubtrees = new();
-	private bool _subtreePosted;
 	private bool _subtreeRetry;
 
 	/// <summary>Subtree passes that applied a handler's tree change.</summary>
@@ -40,38 +37,19 @@ public sealed partial class QtHostPageRenderer
 	public long TreeFixups { get; private set; }
 
 	/// <summary>A container handler changed its children (any thread); the subtree is diffed on the next loop turn.</summary>
-	internal static void RequestSubtree(IView container)
+	internal void RequestSubtree(IView container)
 	{
-		if (!HandlerTree || Current is not { } renderer || container is not Element element)
+		if (!HandlerTree || container is not Element element)
 		{
 			RequestPoll();
 			return;
 		}
-		renderer.QueueSubtree(element);
-	}
-
-	private void QueueSubtree(Element element)
-	{
-		lock (_subtreeSync)
-		{
-			if (!_dirtySubtrees.Contains(element))
-				_dirtySubtrees.Add(element);
-			if (_subtreePosted)
-				return;
-			_subtreePosted = true;
-		}
-		QtHostRuntime.Post(RunSubtreeReconciles);
+		_scheduler.QueueSubtree(element);
 	}
 
 	private void RunSubtreeReconciles()
 	{
-		List<Element> roots;
-		lock (_subtreeSync)
-		{
-			_subtreePosted = false;
-			roots = new List<Element>(_dirtySubtrees);
-			_dirtySubtrees.Clear();
-		}
+		var roots = _scheduler.TakeSubtrees();
 		if (roots.Count == 0)
 			return;
 		var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -102,7 +80,7 @@ public sealed partial class QtHostPageRenderer
 	/// as one op batch plus a layout pass. Returns null when done, else why the full reconcile must run instead.</summary>
 	private string? ReconcileSubtrees(List<Element> containers)
 	{
-		if (_navStackBusy || _nativePopUnsynced || _navOp is not null || _fullResetPending || _resetHoldUntilMs > Environment.TickCount64 ||
+		if (_navStackBusy || _stack.PopUnsynced || _navOp is not null || _fullResetPending || _resetHoldUntilMs > Environment.TickCount64 ||
 		    !_windowGeometryKnown || CreationDeferred || _pendingAppearing is not null)
 			return "navigation or page creation in progress";
 		if (_rendered is not { } page || !ReferenceEquals(ResolveReconcilePage(), page))
@@ -162,71 +140,36 @@ public sealed partial class QtHostPageRenderer
 			}
 		}
 
-		static string ParentKey(NativeElementHost? parent) => parent?.Id ?? string.Empty;
-		var qmlChildren = new Dictionary<string, List<string>>();
-		foreach (var host in _current)
-		{
-			var key = host.AppliedParentId ?? string.Empty;
-			if (!qmlChildren.TryGetValue(key, out var list))
-				qmlChildren[key] = list = new List<string>();
-			list.Add(host.Id);
-		}
-
-		var ops = new List<Dictionary<string, object?>>();
+		var diff = new HostTreeDiff(_current);
 		// Destroy descendants before ancestors.
 		var destroyed = _current.Where(h => oldHosts.Contains(h) && !newHosts.Contains(h)).Reverse().ToList();
 		foreach (var host in destroyed)
 		{
-			ops.Add(BridgeOps.Destroy(host.Id));
+			diff.Destroy(host);
 			ReleaseHost(host);
 			_byId.Remove(host.Id);
-			if (qmlChildren.TryGetValue(host.AppliedParentId ?? string.Empty, out var siblings))
-				siblings.Remove(host.Id);
-			host.AppliedParentId = null;
 		}
-		var created = new List<NativeElementHost>();
+		// In pre-order per root: a survivor is re-attached where it moved and updated in place, a new host is created.
 		var updates = 0;
 		foreach (var (_, desired) in desiredByRoot)
 		{
 			foreach (var host in desired)
 			{
-				var want = ParentKey(host.Parent);
 				if (oldHosts.Contains(host))
 				{
-					var have = host.AppliedParentId ?? string.Empty;
-					if (want != have)
-					{
-						ops.Add(BridgeOps.Reparent(host.Id, want));
-						if (qmlChildren.TryGetValue(have, out var oldSiblings))
-							oldSiblings.Remove(host.Id);
-						if (!qmlChildren.TryGetValue(want, out var newSiblings))
-							qmlChildren[want] = newSiblings = new List<string>();
-						newSiblings.Add(host.Id);
-						host.AppliedParentId = want;
-					}
+					diff.Reparent(host);
 					updates += ApplyUpdates(host, props.TryGetValue(host, out var p) ? p : EmptyProps, "subtree-diff");
 					continue;
 				}
-				ops.Add(CreateOp(host, props.TryGetValue(host, out var cp) ? cp : EmptyProps, want));
-				host.AppliedParentId = want;
-				if (!qmlChildren.TryGetValue(want, out var siblings))
-					qmlChildren[want] = siblings = new List<string>();
-				siblings.Add(host.Id);
-				created.Add(host);
+				diff.Create(host, props.TryGetValue(host, out var cp) ? cp : EmptyProps, CreateOp);
 				_awaitingArrange.Remove(host.Element);
 			}
 		}
 		// Child order (stacking order) of the roots and every host under them.
 		foreach (var (_, desired) in desiredByRoot)
-		{
-			foreach (var group in desired.GroupBy(h => ParentKey(h.Parent)))
-			{
-				var want = group.Select(h => h.Id).ToList();
-				var have = qmlChildren.TryGetValue(group.Key, out var list) ? list : new List<string>();
-				if (!have.SequenceEqual(want))
-					ops.Add(BridgeOps.Order(group.Key, want));
-			}
-		}
+			diff.Order(desired);
+		var ops = diff.Ops;
+		var created = diff.Created;
 
 		// _current keeps the page pre-order: each root's new subtree follows it.
 		_current.RemoveAll(oldHosts.Contains);
@@ -310,7 +253,7 @@ public sealed partial class QtHostPageRenderer
 				if (h.Parent is { } parent && inside.Contains(parent))
 					inside.Add(h);
 			var doomed = _current.Where(inside.Contains).Reverse().ToList();
-			DestroyHosts(doomed, pageJs: null, unroute: true);
+			DestroyHosts(doomed, pageId: null, unroute: true);
 			foreach (var h in doomed)
 				h.AppliedParentId = null;
 			_current.RemoveAll(inside.Contains);
@@ -327,12 +270,7 @@ public sealed partial class QtHostPageRenderer
 	/// <summary>The full reconcile takes over the reported changes still queued (it applies them itself).</summary>
 	private bool TakePendingSubtrees()
 	{
-		lock (_subtreeSync)
-		{
-			var any = _dirtySubtrees.Count > 0;
-			_dirtySubtrees.Clear();
-			return any;
-		}
+		return _scheduler.DropPendingSubtrees();
 	}
 
 	/// <summary>Shapes the walk skipped until their first arrange; their later create is expected, not a fixup.</summary>

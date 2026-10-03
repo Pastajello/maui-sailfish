@@ -21,6 +21,7 @@ internal sealed class RendererHarness : IDisposable
 	/// <param name="appServices">An app's services (handler registrations); none = an empty container.</param>
 	public RendererHarness(Page page, IServiceProvider? appServices = null)
 	{
+		_statics = new TestStatics();
 		QtHostRuntime.TestShim = Shim;
 		_loop = SailfishDispatcherProvider.BindLoopThread();   // this thread plays the Qt loop
 		QtHostTextMetrics.Enable();
@@ -56,8 +57,18 @@ internal sealed class RendererHarness : IDisposable
 	}
 
 	private readonly SailfishDispatcher _loop;
+	private readonly TestStatics _statics;
 
-	public void Dispose() => QtHostRuntime.TestShim = null;
+	/// <summary>Restores the process-wide state and fails the test when the renderer sent an eval the fake does not
+	/// model (<see cref="FakeShim.Strict"/>).</summary>
+	public void Dispose()
+	{
+		_statics.Dispose();
+		if (Shim.Strict && Shim.UnhandledEvals.Count > 0)
+			throw new Xunit.Sdk.XunitException(
+				$"FakeShim: {Shim.UnhandledEvals.Count} unmodelled eval(s); model them in FakeShim or list them in " +
+				$"FakeShim.AllowedUnanswered. First: {Shim.UnhandledEvals[0][..Math.Min(200, Shim.UnhandledEvals[0].Length)]}");
+	}
 }
 
 [Collection("renderer")]

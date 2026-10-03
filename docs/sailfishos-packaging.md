@@ -1,8 +1,8 @@
 # Sailfish OS Packaging (harbour RPM)
 
 This document describes how to build and package a .NET MAUI app for
-Sailfish OS as a harbour-compliant RPM, using the `Linux.SailfishOS` platform
-project and its MSBuild packaging targets.
+Sailfish OS as a harbour-compliant RPM, using the `Microsoft.Maui.SailfishOS` package (project
+`src/Linux.SailfishOS`) and its MSBuild packaging targets.
 
 ## Overview
 

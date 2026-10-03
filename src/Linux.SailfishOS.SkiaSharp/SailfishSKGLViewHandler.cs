@@ -19,7 +19,7 @@ public class SailfishSKGLViewHandler : SailfishViewHandler<ISKGLView>
 {
 	public static readonly PropertyMapper<ISKGLView, SailfishSKGLViewHandler> Mapper = BuildMapper();
 
-	public static readonly CommandMapper<ISKGLView, SailfishSKGLViewHandler> CommandMapper = new(ViewCommandMapper)
+	public static readonly CommandMapper<ISKGLView, SailfishSKGLViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper)
 	{
 		[nameof(ISKGLView.InvalidateSurface)] = OnInvalidateSurface,
 	};

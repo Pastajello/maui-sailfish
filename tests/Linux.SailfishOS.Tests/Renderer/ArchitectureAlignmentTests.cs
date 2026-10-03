@@ -190,6 +190,7 @@ public class ArchitectureAlignmentTests
 	[Fact]
 	public void A_library_control_renders_on_its_registered_adapter_and_hears_its_events()
 	{
+		using var statics = new TestStatics();
 		QtHostAdapters.Register("test-rating", "file:///opt/lib/RatingView.qml");
 		var builder = MauiApp.CreateBuilder(useDefaults: false);
 		builder.UseMauiAppSailfish<TestApp>();
@@ -291,8 +292,8 @@ public class ArchitectureAlignmentTests
 		var page = new ContentPage { Title = "Tree", Content = stack };
 		using var h = new RendererHarness(page);
 		var kicks = 0;
-		var previous = QtHostPageRenderer.NavigationKick;
-		QtHostPageRenderer.NavigationKick = () => { kicks++; h.Renderer.KickedPoll(); };
+		var previous = h.Renderer.PollKick;
+		h.Renderer.PollKick = () => { kicks++; h.Renderer.KickedPoll(); };
 		try
 		{
 			Assert.IsAssignableFrom<ILayoutHandler<NativeElementHost>>(stack.Handler);
@@ -310,7 +311,7 @@ public class ArchitectureAlignmentTests
 		}
 		finally
 		{
-			QtHostPageRenderer.NavigationKick = previous;
+			h.Renderer.PollKick = previous;
 		}
 	}
 
@@ -498,8 +499,8 @@ public class ArchitectureAlignmentTests
 		windowHandler.SetMauiContext(h.Renderer.MauiContext);
 		windowHandler.SetVirtualView(h.Window);
 		var kicks = 0;
-		var previous = QtHostPageRenderer.NavigationKick;
-		QtHostPageRenderer.NavigationKick = () => { kicks++; h.Renderer.KickedPoll(); };
+		var previous = h.Renderer.PollKick;
+		h.Renderer.PollKick = () => { kicks++; h.Renderer.KickedPoll(); };
 		try
 		{
 			var tabbed = new TabbedPage { Children = { Page(new Label { Text = "tab A" }), Page(new Label { Text = "tab B" }) } };
@@ -514,7 +515,7 @@ public class ArchitectureAlignmentTests
 		}
 		finally
 		{
-			QtHostPageRenderer.NavigationKick = previous;
+			h.Renderer.PollKick = previous;
 		}
 	}
 

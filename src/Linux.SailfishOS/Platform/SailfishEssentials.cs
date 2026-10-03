@@ -19,52 +19,16 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// during Build (<see cref="AddSailfishEssentials"/>); <see cref="Install"/> covers plain <c>UseMauiApp</c> through
 /// the internal SetDefault/SetCurrent hooks (reflection, kept by DynamicDependency). App-registered services win.
 /// </summary>
-public static class SailfishEssentials
+internal static class SailfishEssentials
 {
 	private static bool _installed;
 
-	/// <summary>Registers every Sailfish Essentials implementation unless the app registered its own.</summary>
+	/// <summary>Registers every Sailfish Essentials implementation (SailfishEssentialsRegistry) unless the app registered
+	/// its own. The container's singleton is the registry's default instance, the one the facades get too.</summary>
 	internal static IServiceCollection AddSailfishEssentials(this IServiceCollection services)
 	{
-		services.TryAddSingleton<IClipboard, SailfishClipboard>();
-		services.TryAddSingleton<IBrowser, SailfishBrowser>();
-		services.TryAddSingleton<ILauncher, SailfishLauncher>();
-		services.TryAddSingleton<IAppInfo, SailfishAppInfo>();
-		services.TryAddSingleton<IPreferences, SailfishPreferences>();
-		services.TryAddSingleton<ISecureStorage, SailfishSecureStorage>();
-		services.TryAddSingleton<IFileSystem, SailfishFileSystem>();
-		services.TryAddSingleton<IDeviceInfo, SailfishDeviceInfo>();
-		services.TryAddSingleton<IDeviceDisplay, SailfishDeviceDisplay>();
-		services.TryAddSingleton<IBattery, SailfishBattery>();
-		services.TryAddSingleton<Microsoft.Maui.Networking.IConnectivity, SailfishConnectivity>();
-		services.TryAddSingleton<IVibration, SailfishVibration>();
-		services.TryAddSingleton<IHapticFeedback, SailfishHapticFeedback>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IAccelerometer, SailfishAccelerometer>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IGyroscope, SailfishGyroscope>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IMagnetometer, SailfishMagnetometer>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.ICompass, SailfishCompass>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IBarometer, SailfishBarometer>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IOrientationSensor, SailfishOrientationSensor>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IGeolocation, SailfishGeolocation>();
-		services.TryAddSingleton<IShare, SailfishShare>();
-		services.TryAddSingleton<IPermissions, SailfishPermissions>();
-		services.TryAddSingleton<Microsoft.Maui.Media.IScreenshot, SailfishScreenshot>();
-		services.TryAddSingleton<IFlashlight, SailfishFlashlight>();
-		services.TryAddSingleton<Microsoft.Maui.Media.ITextToSpeech, SailfishTextToSpeech>();
-		services.TryAddSingleton<Microsoft.Maui.Devices.Sensors.IGeocoding, SailfishGeocoding>();
-		services.TryAddSingleton<Microsoft.Maui.Authentication.IPasskeys, SailfishPasskeys>();
-		services.TryAddSingleton<IAppActions, SailfishAppActions>();
-		services.TryAddSingleton<Microsoft.Maui.Authentication.IWebAuthenticator, SailfishWebAuthenticator>();
-		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.IContacts, SailfishContacts>();
-		// One instance each serves several interfaces.
-		services.TryAddSingleton<SailfishPickers>();
-		services.TryAddSingleton<Microsoft.Maui.Media.IMediaPicker>(sp => sp.GetRequiredService<SailfishPickers>());
-		services.TryAddSingleton<IFilePicker>(sp => sp.GetRequiredService<SailfishPickers>());
-		services.TryAddSingleton<SailfishCommunication>();
-		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.IPhoneDialer>(sp => sp.GetRequiredService<SailfishCommunication>());
-		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.IEmail>(sp => sp.GetRequiredService<SailfishCommunication>());
-		services.TryAddSingleton<Microsoft.Maui.ApplicationModel.Communication.ISms>(sp => sp.GetRequiredService<SailfishCommunication>());
-		services.TryAddSingleton<IMap>(sp => sp.GetRequiredService<SailfishCommunication>());
+		foreach (var entry in SailfishEssentialsRegistry.Entries)
+			services.TryAddSingleton(entry.Service, _ => SailfishEssentialsRegistry.DefaultFor(entry));
 		// MAUI registers its reference-assembly reader (it throws on Announce) before this runs; an app's own wins.
 		var reader = services.FirstOrDefault(d => d.ServiceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader));
 		if (reader is null || IsMauiDefault(reader))
@@ -129,10 +93,8 @@ public static class SailfishEssentials
 	/// container nor the Qt loop belong here.</summary>
 	public static void InstallEarly()
 	{
-		Hook(typeof(FileSystem), "SetCurrent", new SailfishFileSystem());
-		Hook(typeof(Preferences), "SetDefault", new SailfishPreferences());
-		Hook(typeof(AppInfo), "SetCurrent", new SailfishAppInfo());
-		Hook(typeof(DeviceInfo), "SetCurrent", new SailfishDeviceInfo());
+		foreach (var entry in SailfishEssentialsRegistry.Entries.Where(e => e.Early))
+			Hook(entry.Facade, entry.Hook, SailfishEssentialsRegistry.DefaultFor(entry));
 	}
 
 	public static void Install(IServiceProvider services)
@@ -140,43 +102,10 @@ public static class SailfishEssentials
 		if (_installed)
 			return;
 		_installed = true;
-		Hook(typeof(Clipboard), "SetDefault", services.GetService(typeof(IClipboard)));
-		Hook(typeof(Preferences), "SetDefault", services.GetService(typeof(IPreferences)));
-		Hook(typeof(SecureStorage), "SetDefault", services.GetService(typeof(ISecureStorage)));
-		Hook(typeof(FileSystem), "SetCurrent", services.GetService(typeof(IFileSystem)));
-		Hook(typeof(Browser), "SetDefault", services.GetService(typeof(IBrowser)));
-		Hook(typeof(Launcher), "SetDefault", services.GetService(typeof(ILauncher)));
-		Hook(typeof(AppInfo), "SetCurrent", services.GetService(typeof(IAppInfo)));
-		Hook(typeof(DeviceInfo), "SetCurrent", services.GetService(typeof(IDeviceInfo)));
-		Hook(typeof(DeviceDisplay), "SetCurrent", services.GetService(typeof(IDeviceDisplay)));
-		Hook(typeof(Battery), "SetDefault", services.GetService(typeof(IBattery)));
-		Hook(typeof(Microsoft.Maui.Networking.Connectivity), "SetCurrent", services.GetService(typeof(Microsoft.Maui.Networking.IConnectivity)));
-		Hook(typeof(Vibration), "SetDefault", services.GetService(typeof(IVibration)));
-		Hook(typeof(HapticFeedback), "SetDefault", services.GetService(typeof(IHapticFeedback)));
-		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault", services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Accelerometer), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IAccelerometer)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Gyroscope), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IGyroscope)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Magnetometer), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IMagnetometer)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Compass), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.ICompass)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Barometer), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IBarometer)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.OrientationSensor), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IOrientationSensor)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Geolocation), "SetDefault", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IGeolocation)));
-		Hook(typeof(Share), "SetDefault", services.GetService(typeof(IShare)));
-		Hook(typeof(Microsoft.Maui.Media.MediaPicker), "SetDefault", services.GetService(typeof(Microsoft.Maui.Media.IMediaPicker)));
-		Hook(typeof(FilePicker), "SetDefault", services.GetService(typeof(IFilePicker)));
-		Hook(typeof(Permissions), "SetCurrent", services.GetService(typeof(IPermissions)));
-		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.PhoneDialer), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.IPhoneDialer)));
-		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.Email), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.IEmail)));
-		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.Sms), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.ISms)));
-		Hook(typeof(Map), "SetDefault", services.GetService(typeof(IMap)));
-		Hook(typeof(Microsoft.Maui.Media.Screenshot), "SetDefault", services.GetService(typeof(Microsoft.Maui.Media.IScreenshot)));
-		Hook(typeof(Flashlight), "SetDefault", services.GetService(typeof(IFlashlight)));
-		Hook(typeof(Microsoft.Maui.Media.TextToSpeech), "SetDefault", services.GetService(typeof(Microsoft.Maui.Media.ITextToSpeech)));
-		Hook(typeof(Microsoft.Maui.Devices.Sensors.Geocoding), "SetCurrent", services.GetService(typeof(Microsoft.Maui.Devices.Sensors.IGeocoding)));
-		Hook(typeof(Microsoft.Maui.Authentication.Passkeys), "SetDefault", services.GetService(typeof(Microsoft.Maui.Authentication.IPasskeys)));
-		Hook(typeof(AppActions), "SetCurrent", services.GetService(typeof(IAppActions)));
-		Hook(typeof(Microsoft.Maui.Authentication.WebAuthenticator), "SetDefault", services.GetService(typeof(Microsoft.Maui.Authentication.IWebAuthenticator)));
-		Hook(typeof(Microsoft.Maui.ApplicationModel.Communication.Contacts), "SetDefault", services.GetService(typeof(Microsoft.Maui.ApplicationModel.Communication.IContacts)));
+		foreach (var entry in SailfishEssentialsRegistry.Entries)
+			Hook(entry.Facade, entry.Hook, services.GetService(entry.Service));
+		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault",
+			services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
 	}
 
 	/// <summary>Installs one more static.</summary>
@@ -255,7 +184,7 @@ public static class SailfishTheme
 			}
 			"""))
 			return;
-		QtHostServices.Subscribe("svc-theme-changed", e =>
+		QtHostServices.Subscribe(ShellEvents.ThemeChanged, e =>
 			Apply(e.TryGetProperty("light", out var light) && light.ValueKind == JsonValueKind.True ? AppTheme.Light : AppTheme.Dark));
 		Apply(QtHostServices.Eval(Service, "s.light") == "true" ? AppTheme.Light : AppTheme.Dark);
 	}
@@ -272,9 +201,9 @@ public static class SailfishTheme
 }
 
 /// <summary>Device info from /etc/hw-release and /etc/sailfish-release.</summary>
-public sealed class SailfishDeviceInfo : IDeviceInfo
+internal sealed class SailfishDeviceInfo : IDeviceInfo
 {
-	public static readonly DevicePlatform SailfishOS = DevicePlatform.Create("SailfishOS");
+	public static DevicePlatform SailfishOS => SailfishPlatform.DevicePlatform;
 
 	private static readonly Lazy<Dictionary<string, string>> Hw = new(() => ReadRelease("/etc/hw-release"));
 	private static readonly Lazy<Dictionary<string, string>> Os = new(() => ReadRelease("/etc/sailfish-release"));
@@ -371,7 +300,7 @@ public sealed class SailfishDeviceInfo : IDeviceInfo
 }
 
 /// <summary>Display info from the Qt window; KeepScreenOn via Nemo.KeepAlive (allowed under Sailjail).</summary>
-public sealed class SailfishDeviceDisplay : IDeviceDisplay
+internal sealed class SailfishDeviceDisplay : IDeviceDisplay
 {
 	private const string Service = "display";
 	private static SailfishDeviceDisplay? _instance;

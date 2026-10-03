@@ -29,6 +29,10 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <!-- Per-file PackagePath: a directory-style one keeps the project-relative path and breaks the auto-import layout. -->
+    <!-- The MSBuild tasks of the targets, built first and packed beside them (buildTransitive/net11.0/tasks). -->
+    <ProjectReference Include="../Linux.SailfishOS.Build.Tasks/Linux.SailfishOS.Build.Tasks.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../../artifacts/build-tasks/Microsoft.Maui.SailfishOS.Build.Tasks.dll" Pack="true" Visible="false"
+          PackagePath="buildTransitive/net11.0/tasks/Microsoft.Maui.SailfishOS.Build.Tasks.dll" />
     <None Include="buildTransitive/**" Pack="true"
           PackagePath="buildTransitive/net11.0/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- The QML runtime payload: Content for in-repo outputs, packed once under qml/ (per file, as above) for package consumers. -->
@@ -72,7 +76,7 @@
           Condition="Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')"
           Pack="true" PackagePath="runtimes/linux-arm64/native/libsailfishsecretsbridge.so" />
   </ItemGroup>
-  <!-- Optional 32-bit ARM assets (SF_ARCH=armv7hl sf-native-build.sh) for -r linux-arm. -->
+  <!-- Optional 32-bit ARM assets (SF_ARCH=armv7hl tools/sf native-build) for -r linux-arm. -->
   <ItemGroup Condition="Exists('../../artifacts/native/armv7hl/libsailfishhost.so')">
     <None Include="../../artifacts/native/armv7hl/libsailfishhost.so"
           Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishhost.so" />
@@ -86,7 +90,7 @@
 
   <Target Name="_SailfishShimRequiredForPack" BeforeTargets="Pack"
           Condition="'$(SailfishAllowMissingShim)' != 'true' And !Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
-    <Error Text="libsailfishhost.so is missing - run ./tools/sf-native-build.sh before packing (override with -p:SailfishAllowMissingShim=true)." />
+    <Error Text="libsailfishhost.so is missing - run tools/sf native-build before packing (override with -p:SailfishAllowMissingShim=true)." />
   </Target>
 
 </Project>

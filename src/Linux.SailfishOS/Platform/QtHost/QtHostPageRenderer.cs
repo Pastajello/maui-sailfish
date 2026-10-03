@@ -17,11 +17,11 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// Adapter events come back through <see cref="HandleNativeEvent"/> under change suppression so echoes never
 /// loop, and pointer input is routed by <see cref="QtHostInputRouter"/>.
 /// </summary>
-public sealed partial class QtHostPageRenderer
+internal sealed partial class QtHostPageRenderer
 {
 	/// <summary>No hard cap on hosts per page; past this many a one-time warning names the page.</summary>
 	private const int LargePageHostWarning = 2000;
-	private readonly HashSet<Page> _largePageWarned = new();
+	private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Page, object> _largePageWarned = new();   // weak: a warned page may go
 	private readonly HashSet<Type> _unsupportedWarned = new();
 	private readonly HashSet<string> _missingImageWarned = new();
 	private bool _mappingRows;   // MapElement runs for a collection row subtree
@@ -44,12 +44,11 @@ public sealed partial class QtHostPageRenderer
 
 	private readonly Window _window;
 	private readonly IMauiContext _mauiContext;
-	private readonly NativeHostCache _cache = new();
+	private readonly NativeHostCache _cache;   // the session's: the same host objects the handlers hold
 	private readonly List<NativeElementHost> _current = new(); // mirror of the QML __order
 	private readonly Dictionary<string, NativeElementHost> _byId = new(); // event routing
 
 	private bool _navStackBusy;                          // pageStack.busy at the last nav snapshot
-	private bool _nativePopUnsynced;                     // this poll saw a native pop MAUI has not followed yet
 	private bool _strayScanPending;                      // a native pop asked for a stray sweep of the returned-to page
 	private readonly QtHostCollectionBridge _collection;                  // CollectionView ⇄ ListView bridge
 	private readonly HashSet<string> _bridgeFailLogged = new();            // error-report rate limit
@@ -57,19 +56,19 @@ public sealed partial class QtHostPageRenderer
 	private int _suppressPush;  // >0 while a native event is written back into MAUI
 
 	/// <summary>Scope for writing native state into MAUI without PropertyChanged pushing it straight back.</summary>
-	private SuppressScope SuppressPush()
+	internal SuppressScope SuppressPush()
 	{
 		_suppressPush++;
 		return new SuppressScope(this);
 	}
 
-	private readonly struct SuppressScope(QtHostPageRenderer owner) : IDisposable
+	internal readonly struct SuppressScope(QtHostPageRenderer owner) : IDisposable
 	{
 		public void Dispose() => owner._suppressPush--;
 	}
 
 	/// <summary>Resolves an adapter event's {"id"} to its live host.</summary>
-	private bool TryResolveHost(JsonElement root, out string? id,
+	internal bool TryResolveHost(JsonElement root, out string? id,
 		[System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NativeElementHost? host)
 	{
 		id = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("id", out var idEl) &&
@@ -155,7 +154,10 @@ public sealed partial class QtHostPageRenderer
 	// multi-level syncs use PageStackAction.Immediate (initialPage/animatorPush caveat: docs/architecture.md).
 	// Only the top page is reconciled; the outgoing page's hosts are parked in a one-level back cache so a
 	// pop-back repaints from live objects.
-	private readonly List<string> _nativePageIds = new();   // mirror of MauiShell.mauiPages
+	/// <summary>MAUI ⇄ pageStack operations, one at a time; owns the confirmed native stack.</summary>
+	private readonly NativeStackCoordinator _stack;
+	private List<string> _nativePageIds => _stack.Mirror;   // mirror of MauiShell.mauiPages
+	private NavOperation? _navOp => _stack.Operation;
 	private int _nativePageSeq;                              // "mp<N>" id generator (mp1 = shell root)
 	private bool _navStateAdopted;                           // first registry read adopted
 	private bool? _lastWindowActive;                         // activation-bridge state
@@ -178,54 +180,20 @@ public sealed partial class QtHostPageRenderer
 	private int _healedSinceReconcile;                       // dead-host burst counter (per reconcile)
 	private long _resetHoldUntilMs;                          // creation held after a full-page reset (deferred QML deletes)
 
-	/// <summary>Max consecutive polls host creation may wait for the native stack (≈10 s at 250 ms), so a
-	/// stuck depth sync can't leave the app blank forever.</summary>
-	/// <summary>Longest wait for a stable activation before hosts are created anyway (a stuck sync must not leave
-	/// the app blank); it was 40 polls of 250 ms.</summary>
+	/// <summary>Longest wait for a stable activation before hosts are created anyway, so a stuck depth sync cannot
+	/// leave the app blank.</summary>
 	private const int DeferredModelPageLimitMs = 10_000;
 
 	/// <summary>How long the application must stay Active before hosts are created: Silica rebuilds model pages in
-	/// the activation, and objects created meanwhile die (README #5). It was two polls. Tests set 0.</summary>
+	/// the activation, and objects created meanwhile die. Tests set 0.</summary>
 	internal static int ActivationSettleMs { get; set; } = 250;
 
 	/// <summary>The application is stably Active (see <see cref="ActivationSettleMs"/>).</summary>
 	private bool ActivationSettled =>
 		_activeSinceMs != 0 && Environment.TickCount64 - _activeSinceMs >= ActivationSettleMs;
 
-	private long _kickAtMs;   // the earliest scheduled kick (0 = none)
-
-	/// <summary>Runs a kicked poll in <paramref name="ms"/> (a deadline the renderer waits for: the activation gate,
-	/// a navigation operation's timeout). Earlier requests win; tests drive their polls themselves.</summary>
-	private void KickIn(long ms)
-	{
-		var now = Environment.TickCount64;
-		var at = now + Math.Max(1, ms);
-		// An earlier kick still pending covers this one; one whose time passed has run (or was lost) and covers nothing.
-		if (_kickAtMs > now && _kickAtMs <= at)
-		{
-			if (QtHostDiag.TraceEnabled)
-				QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick in {ms} ms covered by the one due in {_kickAtMs - now} ms");
-			return;
-		}
-		if (Microsoft.Maui.Dispatching.Dispatcher.GetForCurrentThread() is not { } dispatcher)
-		{
-			if (QtHostDiag.TraceEnabled)
-				QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick in {ms} ms dropped: no dispatcher on this thread " +
-					$"(provider {Microsoft.Maui.Dispatching.DispatcherProvider.Current?.GetType().FullName ?? "null"}, thread {Environment.CurrentManagedThreadId})");
-			return;
-		}
-		_kickAtMs = at;
-		if (QtHostDiag.TraceEnabled)
-			QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick scheduled in {ms} ms");
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(Math.Max(1, ms)), () =>
-		{
-			if (_kickAtMs == at)
-				_kickAtMs = 0;
-			if (QtHostDiag.TraceEnabled)
-				QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"kick fired ({Environment.TickCount64 - at:+0;-0} ms vs due)");
-			RequestPoll();
-		});
-	}
+	/// <summary>Runs a kicked poll in <paramref name="ms"/> (see <see cref="RenderScheduler.KickIn"/>).</summary>
+	private void KickIn(long ms) => _scheduler.KickIn(ms);
 
 	/// <summary>True while host creation is deferred: before the first window report or until the app is active.
 	/// Silica rebuilds model-page visuals around activation and hosts created earlier die en masse (which has
@@ -244,10 +212,10 @@ public sealed partial class QtHostPageRenderer
 	public long BridgeFailed { get; private set; }
 
 	/// <summary>Adapter events written back into MAUI.</summary>
-	public long NativeEventsDelivered { get; private set; }
+	public long NativeEventsDelivered => Events.NativeEventsDelivered;
 
 	/// <summary>Adapter event echoes dropped by change suppression.</summary>
-	public long NativeEventsSuppressed { get; private set; }
+	public long NativeEventsSuppressed => Events.NativeEventsSuppressed;
 
 	/// <summary>Geometry entries applied to native items.</summary>
 	public long GeometryApplied { get; private set; }
@@ -256,16 +224,16 @@ public sealed partial class QtHostPageRenderer
 	public long GeometryFailed { get; private set; }
 
 	/// <summary>Adapter "focus-changed" events that drove VisualElement.Focus/Unfocus.</summary>
-	public long FocusTransitions { get; private set; }
+	public long FocusTransitions => Events.FocusTransitions;
 
 	/// <summary>Entry/Editor completions fired from adapter "completed" events (hardware or VKB Return).</summary>
-	public long CompletedFired { get; private set; }
+	public long CompletedFired => Events.CompletedFired;
 
 	/// <summary>Native caret/selection reports written back into InputView.CursorPosition/SelectionLength.</summary>
-	public long CursorWriteBacks { get; private set; }
+	public long CursorWriteBacks => Events.CursorWriteBacks;
 
 	/// <summary>Native scroll reports written back into ScrollView.ScrollY.</summary>
-	public long ScrollWriteBacks { get; private set; }
+	public long ScrollWriteBacks => Events.ScrollWriteBacks;
 
 	/// <summary>ContextMenu item activations delivered to MAUI MenuFlyoutItems.</summary>
 	public long ContextMenuActivations { get; private set; }
@@ -274,10 +242,10 @@ public sealed partial class QtHostPageRenderer
 	public long ToolbarActivations { get; private set; }
 
 	/// <summary>Native DockedPanel open-state changes reported over the bridge.</summary>
-	public long PanelOpenChanges { get; private set; }
+	public long PanelOpenChanges => Events.PanelOpenChanges;
 
 	/// <summary>Native Drawer open-state changes reported over the bridge.</summary>
-	public long DrawerOpenChanges { get; private set; }
+	public long DrawerOpenChanges => Events.DrawerOpenChanges;
 
 	/// <summary>Managed-driven pageStack pushes.</summary>
 	public long NativePushes { get; private set; }
@@ -301,7 +269,6 @@ public sealed partial class QtHostPageRenderer
 
 	// Nav timeline (Navigation trace channel): one line per navigation splitting request → native push/pop →
 	// hosts → layout → Appearing → first list rows.
-	private static long s_navRequestTs;
 	private long _tlStart, _tlNative, _tlHosts, _tlLayout, _tlAppear;
 	private int _tlHostCount;
 	private double _tlOpsEvalMs;
@@ -316,36 +283,33 @@ public sealed partial class QtHostPageRenderer
 	private int _lastOpsCreated;
 	private string _tlKind = string.Empty;
 
-	/// <summary>The navigation handler saw a MAUI push/pop request (any thread).</summary>
-	internal static void NoteNavigationRequest()
-	{
-		Interlocked.Exchange(ref s_navRequestTs, System.Diagnostics.Stopwatch.GetTimestamp());
-		RequestPoll();
-	}
+	/// <summary>When the passes run: requests are latched there and reach the loop once.</summary>
+	private readonly RenderScheduler _scheduler;
 
-	/// <summary>
-	/// Runs the navigation sync + reconcile on the next loop turn instead of at the next 250 ms poll; repeated
-	/// requests before it runs collapse into one. A request before the host loop set the kick must not latch the flag.
-	/// </summary>
-	internal static void RequestPoll()
-	{
-		if (NavigationKick is { } kick && Interlocked.Exchange(ref s_navKickPending, 1) == 0)
-			kick();
-	}
+	/// <summary>The navigation handler saw a MAUI push/pop request (any thread).</summary>
+	internal void NoteNavigationRequest() => _scheduler.NoteNavigationRequest();
+
+	/// <summary>Runs the navigation sync + reconcile on the next loop turn instead of at the next heartbeat; repeated
+	/// requests before it runs collapse into one (any thread).</summary>
+	internal void RequestPoll() => _scheduler.RequestPoll();
 
 	/// <summary>Managed push/pop animate like native Silica navigation; MAUI_SAILFISH_QT_HOST_NAV_ANIMATION=0
 	/// restores Immediate transitions.</summary>
 	internal static bool NavAnimation { get; set; } = !string.Equals(
 		SailfishEnv.Get("MAUI_SAILFISH_QT_HOST_NAV_ANIMATION"), "0", StringComparison.Ordinal);
 
-	/// <summary>Set by the host loop: queues one immediate <see cref="Poll"/> on the Qt thread.</summary>
-	internal static Action? NavigationKick;
-	private static int s_navKickPending;
+	/// <summary>Set by the host loop: queues one <see cref="KickedPoll"/> on the Qt thread. Null until the loop runs
+	/// (requests before it are dropped); tests set their own.</summary>
+	internal Action? PollKick
+	{
+		get => _scheduler.Kick;
+		set => _scheduler.Kick = value;
+	}
 
-	/// <summary>The kicked poll (see <see cref="NoteNavigationRequest"/>).</summary>
+	/// <summary>The kicked poll (see <see cref="RequestPoll"/>).</summary>
 	internal void KickedPoll()
 	{
-		Interlocked.Exchange(ref s_navKickPending, 0);
+		_scheduler.PollStarted();
 		PollCore(kicked: true);
 	}
 
@@ -357,7 +321,7 @@ public sealed partial class QtHostPageRenderer
 		if (_tlStart != 0)
 			return;
 		var now = System.Diagnostics.Stopwatch.GetTimestamp();
-		var request = Interlocked.Exchange(ref s_navRequestTs, 0);
+		var request = _scheduler.TakeNavigationRequestTs();
 		_tlStart = request != 0 && TlMs(request, now) < 5000 ? request : now;
 		_tlNative = now;
 		_tlKind = kind;
@@ -390,29 +354,24 @@ public sealed partial class QtHostPageRenderer
 
 	/// <summary>MAUI_SAILFISH_NAV_IDLE_KICK=0 leaves the transition-end and native depth events to the next poll (A/B).</summary>
 	private static readonly bool NavIdleKick = SailfishEnv.Get("MAUI_SAILFISH_NAV_IDLE_KICK") != "0";
-	private static bool s_navEventsSubscribed;
-
 	/// <summary>The shell reports the end of a pageStack transition and a native depth change (a back gesture): the
-	/// sync runs then, not at the next 250 ms poll (MauiShell.qml).</summary>
-	private static void SubscribeNavigationEvents()
+	/// sync runs then, not at the next heartbeat (MauiShell.qml). One renderer per window, so once per renderer.</summary>
+	private void SubscribeNavigationEvents()
 	{
-		if (s_navEventsSubscribed)
-			return;
-		s_navEventsSubscribed = true;
-		QtHostServices.Subscribe("svc-nav-idle", e =>
+		QtHostServices.Subscribe(ShellEvents.NavIdle, e =>
 		{
-			if (Current is { } renderer && e.TryGetProperty("t", out var t) && t.TryGetInt64(out var ms))
-				renderer._navIdleWallMs = ms;
+			if (e.TryGetProperty("t", out var t) && t.TryGetInt64(out var ms))
+				_navIdleWallMs = ms;
 			if (NavIdleKick)
 				RequestPoll();
 		});
-		QtHostServices.Subscribe("svc-nav-depth", _ =>
+		QtHostServices.Subscribe(ShellEvents.NavDepth, _ =>
 		{
 			if (NavIdleKick)
 				RequestPoll();
 		});
 		// Lifecycle (Resumed/Stopped/Activated) and the activation gate follow the application state at once.
-		QtHostServices.Subscribe("svc-app-state", _ => RequestPoll());
+		QtHostServices.Subscribe(ShellEvents.AppState, _ => RequestPoll());
 	}
 
 	/// <summary>Op batches that followed a pageStack transition end, and their total delay (ms).</summary>
@@ -427,10 +386,10 @@ public sealed partial class QtHostPageRenderer
 	public long LayoutPasses { get; private set; }
 
 	/// <summary>Layout passes requested by handlers (InvalidateMeasure, geometry keys); 0 at rest.</summary>
-	public long LayoutRequests { get; private set; }
+	public long LayoutRequests => _scheduler.LayoutRequests;
 
 	/// <summary>_layoutDirty arms from native write-backs (text/scroll/date/time).</summary>
-	public long LayoutDirtyFromWriteback { get; private set; }
+	public long LayoutDirtyFromWriteback => Events.LayoutDirtyFromWriteback;
 
 	private System.Diagnostics.Stopwatch? _navStopwatch;
 
@@ -438,14 +397,26 @@ public sealed partial class QtHostPageRenderer
 	public long NativePops { get; private set; }
 
 	/// <summary>Native-side pops (Silica back gesture) synced back into MAUI.</summary>
-	public long NativePopSyncs { get; private set; }
+	public long NativePopSyncs => _stack.NativePopSyncs;
 
 	/// <summary>Native stack mutations rejected by the pageStack. The mirror is rolled back each time, so a
 	/// non-zero value means the retry path ran, not that the stacks diverged.</summary>
 	public long NativeOpFailures { get; private set; }
 
 	/// <summary>Depth-sync pushes suppressed because a native→MAUI pop was still in flight (the pop-vs-push race).</summary>
-	public long NativePopRacesBlocked { get; private set; }
+	public long NativePopRacesBlocked => _stack.NativePopRacesBlocked;
+
+	/// <summary>Navigation operations the native stack confirmed.</summary>
+	public long NavOpsCompleted => _stack.NavOpsCompleted;
+
+	/// <summary>Operations that timed out or failed verification (each followed by a resync).</summary>
+	public long NavOpsFailed => _stack.NavOpsFailed;
+
+	/// <summary>Times the coordinator adopted a native stack no operation explained.</summary>
+	public long NavResyncs => _stack.NavResyncs;
+
+	/// <summary>The operation in flight, for diagnostics.</summary>
+	internal string? NavOperationInFlight => _stack.Operation?.ToString();
 
 	/// <summary>Top-model-page changes that re-armed the page-instance-scoped render state.</summary>
 	public long ModelPageSwitches { get; private set; }
@@ -496,21 +467,58 @@ public sealed partial class QtHostPageRenderer
 		ArgumentNullException.ThrowIfNull(mauiContext);
 		_window = window;
 		_mauiContext = mauiContext;
+		// The window's session exists before the renderer (handlers connect first); a context without one (a bare
+		// service provider in a test) gets its own.
+		var session = SailfishRenderSession.Of(mauiContext.Services) ?? new SailfishRenderSession();
+		session.Renderer = this;
+		_cache = session.Cache;
+		_scheduler = new RenderScheduler(RunRequestedLayout, RunRequestedGeometry, RunSubtreeReconciles);
+		_stack = new NativeStackCoordinator(this);
 		_collection = new QtHostCollectionBridge(this);
 		// View children arrive through their layout handler (Add/Insert/Remove) or a content mapper, which reconcile
 		// right away; pages (a Shell section, a tab, a modal) still announce themselves through the window.
 		window.DescendantAdded += (_, e) => { if (e.Element is Page) RequestPoll(); };
 		window.DescendantRemoved += (_, e) => { if (e.Element is Page) RequestPoll(); };
-		// The alert manager and SailfishBottomSheet resolve the live surface through this (one renderer per run).
-		Current = this;
 		SubscribeNavigationEvents();
 	}
 
-	/// <summary>The renderer of the current window (set on construction).</summary>
-	public static QtHostPageRenderer? Current { get; private set; }
-
 	/// <summary>The CollectionView ⇄ native ListView bridge.</summary>
 	internal QtHostCollectionBridge Collection => _collection;
+
+	// Adapter events (QML → MAUI write-backs) are decoded by the router; these are the renderer's entry points.
+	private AdapterEventRouter? _events;
+	internal AdapterEventRouter Events => _events ??= new AdapterEventRouter(this);
+
+	/// <summary>Delivers a QML tap ({"id"}) to the mapped MAUI button or image button.</summary>
+	public void HandleTap(string payload) => Events.HandleTap(payload);
+
+	/// <summary>Routes a semantic adapter event to the mapped MAUI element (main thread). Handler failures are logged,
+	/// never rethrown toward the Qt loop.</summary>
+	public void HandleNativeEvent(string name, string payload) => Events.Handle(name, payload);
+
+	/// <summary>Gecko navigations reported into MAUI (diagnostics).</summary>
+	public long WebViewNavigations => Events.WebViewNavigations;
+
+	/// <summary>Asks for a layout pass on the next loop turn (e.g. a stream image became ready; any thread).</summary>
+	internal void InvalidateLayout() => QtHostRuntime.RunOnQtThread(RequestLayout);
+
+	/// <summary>A native write-back may change measured sizes: the next pass lays out.</summary>
+	internal void MarkLayoutDirty() => _layoutDirty = true;
+
+	/// <summary>The live host registered under <paramref name="id"/>.</summary>
+	internal bool TryGetHost(string id, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NativeElementHost? host) =>
+		_byId.TryGetValue(id, out host);
+
+	/// <summary>A fresh navigation timeline (a tab switch): the last one stays open when its page builds no list rows.</summary>
+	internal void RestartTimeline(string kind)
+	{
+		_tlStart = 0;
+		TimelineStart(kind);
+	}
+
+	/// <summary>The RefreshView a pull on the hosted scroll view refreshes, and the page-armed one.</summary>
+	internal RefreshView? ScrollRefreshView => _scrollRefresh.View;
+	internal RefreshView? PageRefreshView => _pageRefresh.View;
 
 	/// <summary>The id of the nearest attached host at or above <paramref name="element"/> (a flattened layout has
 	/// none of its own), or null.</summary>
@@ -533,10 +541,10 @@ public sealed partial class QtHostPageRenderer
 	/// </summary>
 	public void Poll() => PollCore(kicked: false);
 
-	/// <summary>How long creation waits after a full-page reset for QML's deferred deletes (it was two 250 ms polls).</summary>
+	/// <summary>How long creation waits after a full-page reset for QML's deferred deletes.</summary>
 	private const int ResetHoldMs = 300;
 
-	/// <summary>The heartbeat poll interval (ms) when MAUI_SAILFISH_POLL_MS is unset; it was 250 ms.</summary>
+	/// <summary>The heartbeat poll interval (ms) when MAUI_SAILFISH_POLL_MS is unset.</summary>
 	public const int DefaultHeartbeatMs = 2000;
 
 	private void PollCore(bool kicked)
@@ -553,13 +561,11 @@ public sealed partial class QtHostPageRenderer
 		if (_navOp is not null && QtHostDiag.TraceEnabled)
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"poll ({(kicked ? "kicked" : "heartbeat")}) with {_navOp} in flight");
 		// Navigation sync runs before the reconcile so teardown/creation targets the actual top page.
-		_nativePopUnsynced = false;
+		_stack.PopUnsynced = false;
 		SyncNativeNavigation();
 		CompleteSettledNavigation();
 		var t1 = t0 != 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-		// Skip the reconcile during an animated transition (its geometry flush would count the dying page's hosts
-		// dead and wipe the revealed page) and in a poll with an unfollowed native pop (it would flash the old page).
-		if (!_navStackBusy && !_nativePopUnsynced && ResolveReconcilePage() is not null)
+		if (CanReconcile)
 			Reconcile();
 		var t2 = t0 != 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 		// Deferred row builds, slots, resync; the heartbeat leaves scheduled list work to the lists' own clock, so
@@ -583,7 +589,7 @@ public sealed partial class QtHostPageRenderer
 					$"heartbeat poll found work no event announced (#{_timerPollsWithWork}, page " +
 					$"'{(_rendered is null ? "-" : TitleOf(_rendered))}', ops +{_opsEvals - ops0}, geometry +{QtHostRuntime.GeometryBatches - geo0}, " +
 					$"sets +{QtHostRuntime.PropertySets - sets0}) — see the timer-poll work trace");
-			// What only the safety net did (A7 of the architecture plan removes the timer once this is empty).
+			// What only the heartbeat did: work no event scheduled (target: none).
 			if (QtHostDiag.TraceEnabled)
 				QtHostDiag.Trace(QtHostDiagChannel.QtHost,
 					$"timer-poll work: ops +{_opsEvals - ops0} geometry +{QtHostRuntime.GeometryBatches - geo0} " +
@@ -607,21 +613,30 @@ public sealed partial class QtHostPageRenderer
 				return false;
 			case BackTarget.Modal:
 				QtHostDiag.Trace(QtHostDiagChannel.Navigation, "hardware Back → MAUI PopModalAsync");
-				_ = PopModalTopAsync();
+				Observe(PopModalTopAsync(), "hardware Back → PopModalAsync");
 				return true;
 			default:
 				QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"hardware Back → MAUI PopAsync ({target})");
-				_ = nav!();
+				Observe(nav!(), "hardware Back → PopAsync");
 				return true;
 		}
 	}
+
+	/// <summary>A navigation task nothing awaits: its failure is logged instead of going unobserved.</summary>
+	private static void Observe(Task task, string what) =>
+		task.ContinueWith(t => QtHostDiag.Error(QtHostDiagChannel.Navigation, $"{what} failed: {t.Exception?.GetBaseException()}"),
+			CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+
+	/// <summary>The one condition every reconcile outside a pass of its own waits for: no animated transition (its
+	/// geometry flush would count the dying page's hosts dead), no native pop MAUI has not followed (it would flash
+	/// the old page), and a page to render.</summary>
+	private bool CanReconcile => !_navStackBusy && !_stack.PopUnsynced && ResolveReconcilePage() is not null;
 
 	// --- Layout requests ---
 	// As a native view requests a layout pass, a handler asks for one: MAUI's InvalidateMeasure reaches it through
 	// Handler.Invoke, and the geometry keys (transforms, visibility, flow direction, scroll position) through its
 	// mapper. Requests coalesce into one pass on the next loop turn; the pass's own arrange writes are not requests.
 
-	private bool _layoutPosted;   // a RunRequestedLayout is queued
 	private bool _inLayoutPass;   // RunLayoutPass is running: its Bounds writes invalidate nothing
 
 	/// <summary>Row building: its item views (logical children of their list) re-measure as they are built; the list's
@@ -634,16 +649,11 @@ public sealed partial class QtHostPageRenderer
 		if (_inLayoutPass || LayoutRequestHold > 0)
 			return;
 		_layoutDirty = true;
-		LayoutRequests++;
-		if (_layoutPosted)
-			return;
-		_layoutPosted = true;
-		QtHostRuntime.Post(RunRequestedLayout);
+		_scheduler.RequestLayout();
 	}
 
 	private void RunRequestedLayout()
 	{
-		_layoutPosted = false;
 		// The reconcile lays out itself; during a transition or before the first frame the next poll does.
 		if (!_layoutDirty || _navStackBusy || _rendered is not { } page || CreationDeferred)
 			return;
@@ -651,23 +661,20 @@ public sealed partial class QtHostPageRenderer
 	}
 
 	private bool _geometryDirty;    // root rects are stale (a scroll moved) but MAUI's layout is not
-	private bool _geometryPosted;   // a RunRequestedGeometry is queued
 
 	/// <summary>A ScrollView's position moved (a native flick or ScrollX/ScrollY): MAUI's layout does not depend on it,
 	/// only the content's root rects do (hit-testing, the viewport clip). Queues a geometry pass without measure and
-	/// arrange (F5: a full layout pass per native scroll report cost 100+ ms of the GUI thread while flicking).</summary>
+	/// arrange (a full layout pass per native scroll report cost 100+ ms of the GUI thread while flicking).</summary>
 	internal void RequestScrollGeometry()
 	{
 		_geometryDirty = true;
-		if (_geometryPosted || _inLayoutPass)
+		if (_inLayoutPass)
 			return;
-		_geometryPosted = true;
-		QtHostRuntime.Post(RunRequestedGeometry);
+		_scheduler.RequestGeometry();
 	}
 
 	private void RunRequestedGeometry()
 	{
-		_geometryPosted = false;
 		if (!_geometryDirty || _navStackBusy || _rendered is not { } page || CreationDeferred || !_windowGeometryKnown)
 			return;
 		if (_layoutDirty)
@@ -676,94 +683,6 @@ public sealed partial class QtHostPageRenderer
 			return;
 		}
 		RunGeometryPass(page);
-	}
-
-	/// <summary>
-	/// Focus decided by Qt, as requestFocus is by the Android view: pushes the focus request to a text adapter and reads
-	/// its activeFocus back (a disabled or hidden field refuses). Null when the host is not native yet. Qt thread.
-	/// </summary>
-	internal bool? FocusHost(NativeElementHost host, bool focus)
-	{
-		if (!QtHostRuntime.IsQtThread || !host.IsAttached)
-			return null;
-		bool Active() => QtHostRuntime.GetProperty(host.NativeHandle, "activeFocus") == "true";
-		var json = BridgeValue.Serialize(focus);
-		if (Active() == focus)
-		{
-			host.AppliedProperties["mauiFocus"] = json;   // already there (e.g. the native focus-changed follow-up)
-			return true;
-		}
-		// The adapter acts on a change: re-arm a stale "true" first.
-		if (focus && host.IsApplied("mauiFocus", json))
-			PushBatch(host, new[] { ("mauiFocus", BridgeValue.Serialize(false)) });
-		PushBatch(host, new[] { ("mauiFocus", json) });
-		var granted = Active() == focus;
-		if (focus && !granted)
-			PushBatch(host, new[] { ("mauiFocus", BridgeValue.Serialize(false)) });   // refused: stay consistent
-		return granted;
-	}
-
-	/// <summary>Text-input properties the handlers leave out of their snapshots, so native focus and caret
-	/// survive the reconcile poll; their mappers push them on their own (<see cref="PushTransient"/>).</summary>
-	internal static readonly string[] TransientInputProperties =
-		{ nameof(VisualElement.IsFocused), nameof(InputView.CursorPosition), nameof(InputView.SelectionLength) };
-
-	/// <summary>
-	/// Pushes transient native state from a handler mapper (focus; caret and selection as one atomic pair, so the
-	/// managed set order cannot leave a wrong selection natively). Skipped while native state is written back into
-	/// MAUI, and when native already holds every value.
-	/// </summary>
-	internal void PushTransient(NativeElementHost host, IReadOnlyList<(string Name, object? Value)> values)
-	{
-		void Apply()
-		{
-			if (_suppressPush > 0 || !host.IsAttached)
-				return;
-			var batch = new (string Name, string ValueJson)[values.Count];
-			var changed = false;
-			for (var i = 0; i < values.Count; i++)
-			{
-				batch[i] = (values[i].Name, BridgeValue.Serialize(values[i].Value));
-				changed |= !host.IsApplied(batch[i].Name, batch[i].ValueJson);
-			}
-			if (changed && PushBatch(host, batch))
-				_handlerPropertyPushes += batch.Length;
-		}
-		QtHostRuntime.RunOnQtThread(Apply);
-	}
-
-	/// <summary>Sends one ordered, suppressed batch through the shim and records the applied state; failures are
-	/// logged once per host/context.</summary>
-	private bool PushBatch(NativeElementHost host, IReadOnlyList<(string Name, string ValueJson)> changed)
-	{
-		var batch = QtHostBridge.BuildBatch(changed, suppress: true);
-		var failed = QtHostRuntime.ApplyProperties(host.NativeHandle, batch);
-		if (failed < 0)
-		{
-			BridgeFailed++;
-			LogBridgeFailure(host, "batch", failed);
-			return false;
-		}
-		if (failed > 0)
-		{
-			// The shim reports only the count, not which properties it rejected: record nothing as applied so the
-			// whole batch is diffed again on the next push (as FlushGeometry does for a partial geometry failure).
-			BridgeFailed += failed;
-			LogBridgeFailure(host, "batch", failed);
-			HealIfDead(host);   // dead handle → recreate
-			return true;
-		}
-		foreach (var (name, json) in changed)
-			host.AppliedProperties[name] = json;
-		BridgeApplied += changed.Count;
-		return true;
-	}
-
-	private void LogBridgeFailure(NativeElementHost host, string what, int rc)
-	{
-		if (!_bridgeFailLogged.Add($"{host.Id}:{what}:{rc}"))
-			return;
-		QtHostDiag.Error(QtHostDiagChannel.QmlProperty, $"apply failed on {host} ({what}) rc={rc}: {QtHostRuntime.LastErrorText}");
 	}
 
 	/// <summary>The walk skipped a shape that is not arranged yet (retried after the layout pass).</summary>
@@ -801,20 +720,51 @@ public sealed partial class QtHostPageRenderer
 		}
 	}
 
+	/// <summary>
+	/// One pass from the MAUI page to its native hosts, in steps: the gate (a page, no reset hold), the walk (desired hosts
+	/// and their props), the page switch, the creation gate (window geometry, activation), the page chrome ops, the
+	/// host-tree diff, its op batch, then layout and Appearing.
+	/// </summary>
 	private void ReconcileCore()
 	{
 		if (!_adapterPreloadArmed && _current.Count > 0)
 			ArmAdapterPreload();   // the first page is up: the rest of the adapters can load behind it
 		_createDeferred = false;
+		if (BeginPass(out var handlerReported) is not { } page)
+			return;
+		var (desired, props, awaitedBefore) = WalkPage(page);
+		var pageChanged = SwitchRenderedPage(page, desired, props, out var previousPage);
+		if (!CreationAllowed())
+			return;
+		var ops = PageChromeOps(page, out var title);
+		if (desired.Count > LargePageHostWarning && _largePageWarned.TryAdd(page, page))
+			QtHostDiag.Warn(QtHostDiagChannel.QtHost,
+				$"'{TitleOf(page)}' needs {desired.Count} hosts (> {LargePageHostWarning}) — consider a CollectionView for long content");
+
+		// A tab, section or detail switch keeps the page switched away from, and brings the page switched to back.
+		if (pageChanged)
+			SwitchPageInPlace(previousPage, page);
+		ReclaimParked(desired);
+
+		var change = DiffHostTree(desired, props, awaitedBefore, pageChanged, ops);
+		ApplyTreeChange(title, ops, change, props, pageChanged, handlerReported);
+		FinishPass(page);
+	}
+
+	/// <summary>The page to reconcile, unless a dead-host burst's reset is still holding creation. Takes the subtree
+	/// changes handlers reported (the full pass applies them).</summary>
+	private Page? BeginPass(out bool handlerReported)
+	{
+		handlerReported = false;
 		var page = ResolveReconcilePage();
 		if (page is null)
 		{
 			QtHostDiag.Warn(QtHostDiagChannel.QtHost, "no MAUI page to render yet");
-			return;
+			return null;
 		}
 
 		_healedSinceReconcile = 0;
-		var handlerReported = TakePendingSubtrees();
+		handlerReported = TakePendingSubtrees();
 		// A burst of dead hosts means a Silica rebuild took the page's visuals: wipe the top page's hosts and
 		// rebuild from current MAUI state.
 		if (_fullResetPending)
@@ -832,9 +782,15 @@ public sealed partial class QtHostPageRenderer
 		}
 		if (_resetHoldUntilMs > Environment.TickCount64)
 		{
-			return;
+			return null;
 		}
+		return page;
+	}
 
+	/// <summary>The walk: every desired host of the page in pre-order with its props (generic visual state and clip
+	/// merged), the routing table, the stray sweep, and pull-to-refresh armed where it belongs.</summary>
+	private (List<NativeElementHost> Desired, Dictionary<NativeElementHost, Dictionary<string, object?>> Props, HashSet<Element>? AwaitedBefore) WalkPage(Page page)
+	{
 		_byId.Clear();
 		var desired = new List<NativeElementHost>();
 		var props = new Dictionary<NativeElementHost, Dictionary<string, object?>>();
@@ -869,7 +825,7 @@ public sealed partial class QtHostPageRenderer
 			// Home lost all 78 hosts here after a back gesture on Settings, and the next tab switch reset the page).
 			var known = BridgeValue.Serialize(_byId.Keys.Concat(_parkedHosts.Select(h => h.Id))
 				.Concat(_collection.PooledHostIds).Distinct().ToList());
-			QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "__destroyHostsNotIn", BridgeValue.Quote(known)));
+			CallPage(null, "__destroyHostsNotIn", known);
 		}
 		// Page-level pull-to-refresh, unless a hosted list or scroll view consumes it or a page pulley owns the overscroll.
 		ArmRefresh(_refreshWalk is not null && !_collection.ConsumesRefresh(_refreshWalk)
@@ -878,6 +834,14 @@ public sealed partial class QtHostPageRenderer
 			? _refreshWalk
 			: null);
 		ArmScrollRefresh(_scrollRefreshWalk, _scrollRefreshHostWalk);
+		return (desired, props, awaitedBefore);
+	}
+
+	/// <summary>Records the rendered page; on a switch re-arms the page-instance state and sends Disappearing to the
+	/// previous page (Appearing follows once the new hosts are live).</summary>
+	private bool SwitchRenderedPage(Page page, List<NativeElementHost> desired,
+		Dictionary<NativeElementHost, Dictionary<string, object?>> props, out Page? previousPage)
+	{
 		var pageChanged = !ReferenceEquals(page, _rendered);
 		// Trace button state on every page swap.
 		if (pageChanged)
@@ -886,7 +850,7 @@ public sealed partial class QtHostPageRenderer
 					QtHostDiag.Trace(QtHostDiagChannel.QtHost,
 						$"button witness '{witnessButton.Text}' enabled={witnessProps.GetValueOrDefault("enabled")} color={witnessProps.GetValueOrDefault("mauiTextColor")} plate={witnessProps.GetValueOrDefault("mauiPlateColor")} " +
 						$"(Background {witnessButton.Background?.GetType().Name ?? "null"} {QtHostPaint.Solid(witnessButton.Background)}, BackgroundColor {witnessButton.BackgroundColor}) on '{TitleOf(page)}'");
-		var previousPage = _rendered;
+		previousPage = _rendered;
 		_rendered = page;
 		if (pageChanged)
 			_renderedPageSeq++;   // diag trigger (MAUI_SAILFISH_OPEN_PULLEY page seq)
@@ -914,11 +878,17 @@ public sealed partial class QtHostPageRenderer
 			}
 			_pendingAppearing = page;
 		}
+		return pageChanged;
+	}
 
+	/// <summary>Whether hosts may be created now: the window geometry is known and the app is stably active (bounded,
+	/// so a stuck sync cannot leave the app blank).</summary>
+	private bool CreationAllowed()
+	{
 		// Before the first window report Silica still rebuilds model pages and hosts created then keep dead handles.
 		// Defer all creation until the geometry is known; ApplyWindowGeometry reconciles again.
 		if (!_windowGeometryKnown)
-			return;
+			return false;
 
 		// Until the app is active the Silica stack is in motion: hosts would attach to a model page about to be
 		// replaced or die in the activation rebuild. Defer creation until ApplicationActive (or the native stack
@@ -931,25 +901,31 @@ public sealed partial class QtHostPageRenderer
 			{
 				_deferredSinceMs = Environment.TickCount64;
 				QtHostDiag.Warn(QtHostDiagChannel.Navigation,
-					$"README #5: app not stably active yet (Qt.application.state={_lastAppState}, MAUI depth {ExpectedNativeDepth()} vs native {_nativePageIds.Count}) — " +
+					$"activation: app not stably active yet (Qt.application.state={_lastAppState}, MAUI depth {ExpectedNativeDepth()} vs native {_nativePageIds.Count}) — " +
 					"deferring host creation until the Silica stack settles at activation");
 			}
 			// Come back when the gate opens (the app-state event covers the not-yet-active case).
 			KickIn(_activeSinceMs != 0
 				? ActivationSettleMs - (Environment.TickCount64 - _activeSinceMs)
 				: DeferredModelPageLimitMs - (Environment.TickCount64 - _deferredSinceMs));
-			return;
+			return false;
 		}
 		if (_deferredModelPageTicks > 0)
 		{
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation,
-				$"README #5: native stack caught up after {_deferredModelPageTicks} deferred reconcile(s), " +
+				$"activation: native stack caught up after {_deferredModelPageTicks} deferred reconcile(s), " +
 				$"{Environment.TickCount64 - _deferredSinceMs} ms — creating the page now");
 			_deferredModelPageTicks = 0;
 		}
 		_deferredSinceMs = 0;
+		return true;
+	}
 
-		var title = HeaderTitleOf(page);
+	/// <summary>The model page's own state as ops (title, busy, palette, back navigation, orientations, background);
+	/// the tab bar goes by its own page call. Only what changed since the last pass.</summary>
+	private List<Dictionary<string, object?>> PageChromeOps(Page page, out string title)
+	{
+		title = HeaderTitleOf(page);
 		var ops = new List<Dictionary<string, object?>>();
 		if (title != _renderedTitle)
 		{
@@ -1001,7 +977,7 @@ public sealed partial class QtHostPageRenderer
 		if (tabsJson != _renderedTabs)
 		{
 			_renderedTabs = tabsJson;
-			QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "setMauiTabs", BridgeValue.Quote(tabsJson)));
+			CallPage(null, "setMauiTabs", tabsJson);
 		}
 
 		// The model page paints the page background (colour, then BackgroundImageSource cropped to fill) behind the
@@ -1014,16 +990,15 @@ public sealed partial class QtHostPageRenderer
 			_renderedBackground = background;
 			ops.Add(BridgeOps.Background(backgroundColor, backgroundImage));
 		}
+		return ops;
+	}
 
-		if (desired.Count > LargePageHostWarning && _largePageWarned.Add(page))
-			QtHostDiag.Warn(QtHostDiagChannel.QtHost,
-				$"'{TitleOf(page)}' needs {desired.Count} hosts (> {LargePageHostWarning}) — consider a CollectionView for long content");
-
-		// A tab, section or detail switch keeps the page switched away from, and brings the page switched to back.
-		if (pageChanged)
-			SwitchPageInPlace(previousPage, page);
-		ReclaimParked(desired);
-
+	/// <summary>The host tree's change from the current hosts to the desired ones: destroys (descendants first),
+	/// re-parents, creates (chunked for a big page), in-place property updates and the child order, appended to
+	/// <paramref name="ops"/>.</summary>
+	private TreeChange DiffHostTree(List<NativeElementHost> desired, Dictionary<NativeElementHost, Dictionary<string, object?>> props,
+		HashSet<Element>? awaitedBefore, bool pageChanged, List<Dictionary<string, object?>> ops)
+	{
 		var desiredSet = new HashSet<NativeElementHost>(desired);
 		// Retire lists that left the tree, except those of the parked page: its rows must stay materialized for the
 		// back gesture. DropRetention retires them later.
@@ -1057,16 +1032,8 @@ public sealed partial class QtHostPageRenderer
 			}
 		}
 
-		// QML child order of every host (canvas key "") before this batch: the diff basis for "order" ops.
-		static string ParentKey(NativeElementHost? parent) => parent?.Id ?? string.Empty;
-		var qmlChildren = new Dictionary<string, List<string>>();
-		foreach (var host in _current)
-		{
-			var key = host.AppliedParentId ?? string.Empty;
-			if (!qmlChildren.TryGetValue(key, out var list))
-				qmlChildren[key] = list = new List<string>();
-			list.Add(host.Id);
-		}
+		// The host tree's change as one op batch, after the page ops above (HostTreeDiff keeps the native child order).
+		var diff = new HostTreeDiff(_current);
 
 		// Destroy descendants before ancestors so no op addresses an item its parent's teardown already took.
 		var destroyCount = _current.Count - survivors.Count;
@@ -1074,43 +1041,23 @@ public sealed partial class QtHostPageRenderer
 		destroyed.Reverse();
 		foreach (var host in destroyed)
 		{
-			ops.Add(BridgeOps.Destroy(host.Id));
+			diff.Destroy(host);
 			ReleaseHost(host);
 			_current.Remove(host);
 			// A destroyed synthetic host drops its slot so a reappearance gets a fresh object (a stale diff would swallow the first push).
 			ReleaseSyntheticSlot(host);
-			if (qmlChildren.TryGetValue(host.AppliedParentId ?? string.Empty, out var siblings))
-				siblings.Remove(host.Id);
-			host.AppliedParentId = null;
 		}
 
 		// A survivor that moved to another container keeps its QML object and is re-attached in the new parent;
 		// the order ops below settle its position.
 		foreach (var host in survivors)
-		{
-			var want = ParentKey(host.Parent);
-			var have = host.AppliedParentId ?? string.Empty;
-			if (want == have)
-				continue;
-			ops.Add(BridgeOps.Reparent(host.Id, want));
-			if (qmlChildren.TryGetValue(have, out var oldSiblings))
-				oldSiblings.Remove(host.Id);
-			if (!qmlChildren.TryGetValue(want, out var newSiblings))
-				qmlChildren[want] = newSiblings = new List<string>();
-			newSiblings.Add(host.Id);
-			host.AppliedParentId = want;
-		}
+			diff.Reparent(host);
 
 		var createCount = created.Count;
 		_createdInPass = createCount > 0;
 		foreach (var host in created)
 		{
-			var parentKey = ParentKey(host.Parent);
-			ops.Add(CreateOp(host, props.TryGetValue(host, out var p) ? p : EmptyProps, parentKey));
-			host.AppliedParentId = parentKey;
-			if (!qmlChildren.TryGetValue(parentKey, out var siblings))
-				qmlChildren[parentKey] = siblings = new List<string>();
-			siblings.Add(host.Id);
+			diff.Create(host, props.TryGetValue(host, out var p) ? p : EmptyProps, CreateOp);
 			_current.Add(host);
 		}
 
@@ -1120,23 +1067,13 @@ public sealed partial class QtHostPageRenderer
 		{
 			var pushed = ApplyUpdates(host, props.TryGetValue(host, out var p) ? p : EmptyProps, "reconcile-diff");
 			updateCount += pushed;
-			// Synthetic surfaces (pulleys, panels) have no handler yet: the reconcile is their only channel until A3.
+			// Synthetic surfaces (pulleys, panels) have no handler: the reconcile is their only channel.
 			if (host.Element.Handler is Handlers.ISailfishViewHandler)
 				_reconcileDiffPropertyPushes += pushed;
 		}
 
-		// Where appending cannot express a parent's desired child order, an "order" op re-attaches the same QObjects
-		// in sequence. Child order is the stacking order among siblings.
-		var reordered = false;
-		foreach (var group in desired.GroupBy(h => ParentKey(h.Parent)))
-		{
-			var want = group.Select(h => h.Id).ToList();
-			var have = qmlChildren.TryGetValue(group.Key, out var list) ? list : new List<string>();
-			if (have.SequenceEqual(want))
-				continue;
-			ops.Add(BridgeOps.Order(group.Key, want));
-			reordered = true;
-		}
+		var reordered = diff.Order(desired);
+		ops.AddRange(diff.Ops);
 		// _current mirrors the desired pre-order (hit-test tie order: later = painted above).
 		_current.Clear();
 		_current.AddRange(deferredCreate is null ? desired : desired.Where(h => !deferredCreate.Contains(h)));
@@ -1146,7 +1083,16 @@ public sealed partial class QtHostPageRenderer
 		// Tree or property changes can move geometry.
 		if (ops.Count > 0 || updateCount > 0)
 			_layoutDirty = true;
+		return new TreeChange(created, createCount, destroyCount, updateCount, reordered);
+	}
 
+	private readonly record struct TreeChange(List<NativeElementHost> Created, int CreateCount, int DestroyCount, int UpdateCount, bool Reordered);
+
+	/// <summary>Sends the pass's op batch to the top model page and attaches the created objects.</summary>
+	private void ApplyTreeChange(string title, List<Dictionary<string, object?>> ops, TreeChange change,
+		Dictionary<NativeElementHost, Dictionary<string, object?>> props, bool pageChanged, bool handlerReported)
+	{
+		var (created, createCount, destroyCount, updateCount, reordered) = change;
 		if (ops.Count > 0)
 		{
 			NoteTreeFixup(ops, pageChanged || createCount == _current.Count, handlerReported);
@@ -1161,9 +1107,9 @@ public sealed partial class QtHostPageRenderer
 				PushScrollState();
 				_pulleyReattachPending = true;   // after the layout pass shows this page's hosts
 			}
-			// Addressed by the top model-page id (see TopModelPageJs).
+			// Addressed to the top model page by its id.
 			var opsTs = System.Diagnostics.Stopwatch.GetTimestamp();
-			QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "applyMauiOps", BridgeValue.Quote(json)));
+			CallPage(null, "applyMauiOps", json);
 			_opsEvals++;
 			NoteOps(ops);
 			if (_navIdleWallMs != 0)
@@ -1198,7 +1144,11 @@ public sealed partial class QtHostPageRenderer
 			QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"'{title}' in-place update={updateCount} hosts={_current.Count} " +
 				"(no ops — QML tree untouched)");
 		}
+	}
 
+	/// <summary>The layout pass, the retry for shapes that just got their size, and Appearing once the page is live.</summary>
+	private void FinishPass(Page page)
+	{
 		RunLayoutPass(page);   // MAUI layout + SetGeometry batch
 		if (_tlStart != 0 && _tlLayout == 0 && (_tlHosts != 0 || _tlKind != "push"))
 			_tlLayout = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1286,13 +1236,16 @@ public sealed partial class QtHostPageRenderer
 		    viewports > 0)
 			QtHostRuntime.Eval("window.mauiListPrefetch=" + viewports.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		Reconcile();
-		ArmAdapterPreload();
+		// Behind the first page only: while creation is deferred (the activation gate) the preload would compete with
+		// it; ReconcileCore arms it once the first hosts exist.
+		if (!CreationDeferred)
+			ArmAdapterPreload();
 	}
 
 	/// <summary>MAUI_SAILFISH_ADAPTER_PRELOAD=0 leaves adapters to load and warm up on first use (A/B). Measured on the
 	/// Jolla phone 2026-10-02: a first push of the Controls page 54–61 → 44–45 ms to Appearing, the Kitchen detail
 	/// 183–203 → 166–170 ms stall, the catalog that opens meanwhile unchanged.</summary>
-	internal static readonly bool AdapterPreload = Environment.GetEnvironmentVariable("MAUI_SAILFISH_ADAPTER_PRELOAD") != "0";
+	internal static readonly bool AdapterPreload = SailfishEnv.Get("MAUI_SAILFISH_ADAPTER_PRELOAD") != "0";
 	private bool _adapterPreloadArmed;
 
 	/// <summary>A second after the first page showed, the shell loads the visual adapters in the background and makes one
@@ -1328,271 +1281,14 @@ public sealed partial class QtHostPageRenderer
 	/// <summary>MAUI_SAILFISH_IMAGE_TRACE=1 logs every image load (ms to Ready, on screen when it arrived).</summary>
 	private static readonly bool ImageTrace = SailfishEnv.Flag("MAUI_SAILFISH_IMAGE_TRACE");
 
-	/// <summary>
-	/// Property-push entry point for MAUI handler mappers: the same diffed apply plus a Qt-thread hop, since
-	/// Handler.UpdateValue runs on whichever thread wrote the property.
-	/// </summary>
-	/// <param name="yieldToNative">Skip while native state is written back into MAUI (the value came from native).</param>
-	internal void PushHostProps(NativeElementHost host, Dictionary<string, object?> want, bool yieldToNative = false)
-	{
-		// Trace distinguishes the mapper path from the reconcile diff.
-		void Apply()
-		{
-			if (yieldToNative && _suppressPush > 0)
-			{
-				// A native event is being written back: the reconcile diff pushes this on the next loop turn. Left to
-				// the heartbeat, WhatToEat's Save stayed disabled up to 2 s after the name was typed (Entry.Text →
-				// the view model → CanExecute → IsEnabled, all inside the write-back).
-				if (!_inLayoutPass)
-					RequestPoll();
-				return;
-			}
-			if (!host.IsAttached && host.Element is VisualElement flat && IsFlattened(flat))
-			{
-				OnFlattenedPush(flat);   // F4a: a row layout without a host may need one now
-				return;
-			}
-			_handlerSnapshots++;
-			host.HandlerSnapshots++;
-			var changed = ApplyUpdates(host, want);
-			_handlerPropertyPushes += changed;
-			if (changed > 0)
-				QtHostDiag.Trace(QtHostDiagChannel.QmlProperty, $"handler push {host} changed={changed}");
-		}
-		QtHostRuntime.RunOnQtThread(Apply);
-	}
-
-	/// <summary>Applies one host's property diff in place as a single typed, suppressed batch; returns the
-	/// number of changed properties pushed.</summary>
-	/// <param name="traceAs">Traces the pushed names under this source (the reconcile diff should push none).</param>
-	private int ApplyUpdates(NativeElementHost host, Dictionary<string, object?> want, string? traceAs = null)
-	{
-		if (!host.IsAttached)
-			return 0;
-		List<(string Name, string ValueJson)>? changed = null;
-		foreach (var kv in want)
-		{
-			// The diff basis is the serialized bridge JSON.
-			var json = BridgeValue.Serialize(kv.Value);
-			if (host.IsApplied(kv.Key, json))
-				continue;
-			(changed ??= new List<(string, string)>()).Add((kv.Key, json));
-		}
-		if (changed is null)
-			return 0;
-		if (traceAs is not null && QtHostDiag.TraceEnabled)
-			QtHostDiag.Trace(QtHostDiagChannel.QmlProperty, $"{traceAs} push {host} {host.Element.GetType().Name}: {string.Join(",", changed.Select(c => c.Name))}");
-		return PushBatch(host, changed) ? changed.Count : 0;
-	}
-
-	private static Dictionary<string, object?> CreateOp(NativeElementHost host, Dictionary<string, object?> props,
-	                                                   string parentId = "")
-	{
-		// Colors ride the op JSON as "#AARRGGBB": the QML create init assigns props directly to color-typed
-		// properties, and a serialized Color object would fail that.
-		Dictionary<string, object?>? normalized = null;
-		foreach (var kv in props)
-		{
-			if (kv.Value is Color color)
-			{
-				normalized ??= new Dictionary<string, object?>(props);
-				normalized[kv.Key] = BridgeValue.ColorString(color);
-			}
-		}
-		var op = new Dictionary<string, object?>
-		{
-			["op"] = "create",
-			["id"] = host.Id,
-			["uri"] = host.QmlUri,
-			["props"] = normalized ?? new Dictionary<string, object?>(props),
-		};
-		// The host of the nearest hosted MAUI ancestor ("" = page canvas).
-		if (parentId.Length > 0)
-			op["parent"] = parentId;
-		// QML instantiates the adapter file resolved from qml/adapters.json.
-		if (QtHostAdapters.TryGetSrc(host.QmlUri, out var src))
-			op["src"] = src;
-		else
-			QtHostDiag.Warn(QtHostDiagChannel.QmlLoad, $"no adapter src for uri '{host.QmlUri}' (fallback component)");
-		return op;
-	}
-
-	/// <summary>
-	/// Resolves the native handle of a freshly created host (objectName "maui_&lt;Id&gt;") and seeds the applied state.
-	/// </summary>
-	private static void AttachNative(NativeElementHost host, Dictionary<string, object?> props, long scopeHandle = 0)
-	{
-		// Collection rows re-create the same host id, and a ListView may keep a stale twin alive in a cached
-		// delegate, so resolve inside the placeholder first.
-		host.NativeHandle = scopeHandle != 0 ? QtHostRuntime.FindVisual(scopeHandle, $"maui_{host.Id}") : 0;
-		if (host.NativeHandle == 0)
-			host.NativeHandle = QtHostRuntime.FindObject($"maui_{host.Id}");
-		if (host.NativeHandle == 0)
-			// Hosts inside a ListView delegate hang in the visual tree only (the Qt 5.6 incubator never re-parents the
-			// QObject chain), so findChild misses them; BFS childItems like QML's __mauiFindByName.
-			host.NativeHandle = QtHostRuntime.FindVisual(0, $"maui_{host.Id}");
-		host.AppliedProperties.Clear();
-		host.AppliedGeometrySet = false;   // fresh QML object: geometry must be re-pushed
-		host.AppliedVisible = true;
-		foreach (var kv in props)
-			host.AppliedProperties[kv.Key] = BridgeValue.Serialize(kv.Value);
-		if (!host.IsAttached)
-			QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"native handle not resolved for {host}");
-		// Create props are plain QML assignments, so the shim's native QFont letter-spacing write never runs and the
-		// seeded diff would suppress later pushes. Re-push through set_property (Qt 5.6 QML only has PercentageSpacing).
-		if (host.IsAttached &&
-		    props.TryGetValue("mauiLetterSpacing", out var spacing) &&
-		    spacing is double spacingPx && spacingPx > 0)
-			QtHostRuntime.SetProperty(host.NativeHandle, "mauiLetterSpacing",
-				BridgeValue.Serialize(spacingPx));
-		// Generic view props (background fill, semantics, automation id) are shim-side special cases too; the
-		// defaults ("" and false) are what a fresh QML object already has.
-		if (host.IsAttached)
-			foreach (var key in GenericNativeKeys)
-				if (props.TryGetValue(key, out var generic) && generic is not ("" or false))
-					QtHostRuntime.SetProperty(host.NativeHandle, key, BridgeValue.Serialize(generic));
-		if (host.IsAttached)
-			host.RaiseAttached();
-	}
-
 	private static readonly string[] GenericNativeKeys =
 		{ "mauiBackgroundFill", "mauiAccessibleName", "mauiAccessibleDescription", "mauiAutomationId", "mauiLayerShadow", "mauiLayerClip",
 		  "mauiAccessibleRole", "mauiAccessibleIgnored", "mauiMirrored" };
-
-	/// <summary>
-	/// Deterministic destroy: shim deleteLater through the handle (revoking it in the QPointer registry), then
-	/// drop the handle and property state.
-	/// </summary>
-	private static void DetachNative(NativeElementHost host)
-	{
-		if (host.NativeHandle != 0)
-		{
-			// The shim hides and unparents a destroyed host at once; a page sliding out must keep painting.
-			if (_deferNativeDestroy)
-				PendingNativeDestroys.Add(host.NativeHandle);
-			else
-				QtHostRuntime.DestroyObject(host.NativeHandle);
-		}
-		host.NativeHandle = 0;
-		host.AppliedProperties.Clear();
-	}
 
 	// Animated pop: the popped page's hosts leave the managed mirror at once, but their native objects are released
 	// only after the transition (the pageStack deletes the page with them; the shim then just forgets the handles).
 	private static bool _deferNativeDestroy;
 	private static readonly List<long> PendingNativeDestroys = new();
-
-	private static void FlushDeferredNativeDestroys()
-	{
-		if (PendingNativeDestroys.Count == 0)
-			return;
-		foreach (var handle in PendingNativeDestroys)
-			QtHostRuntime.DestroyObject(handle);
-		PendingNativeDestroys.Clear();
-	}
-
-	/// <summary>Managed side of a destroy: property subscription off, native handle released.</summary>
-	private static void ReleaseHost(NativeElementHost host)
-	{
-		DetachNative(host);
-	}
-
-	/// <summary>A row host whose QML object moves to the row pool: the managed side forgets it, the object lives on.</summary>
-	internal void ReleaseToPool(NativeElementHost host)
-	{
-		host.NativeHandle = 0;
-		host.AppliedProperties.Clear();
-		host.AppliedGeometrySet = false;
-		_byId.Remove(host.Id);
-	}
-
-	/// <summary>
-	/// A pooled QML object takes <paramref name="host"/>'s place: the old property state seeds the diff, so only what
-	/// differs from the previous row is pushed. An image whose source changes is emptied first, so the previous row's
-	/// picture never shows while the new one loads (as RecyclerView image loaders clear a recycled view).
-	/// </summary>
-	internal void AdoptPooledHost(NativeElementHost host, long handle, Dictionary<string, string> applied,
-	                              Dictionary<string, object?> props)
-	{
-		host.NativeHandle = handle;
-		host.AppliedProperties.Clear();
-		foreach (var kv in applied)
-			host.AppliedProperties[kv.Key] = kv.Value;
-		host.AppliedGeometrySet = false;   // the new delegate: place it again
-		host.AppliedVisible = true;
-		if (host.QmlUri == "image" && props.TryGetValue("mauiSource", out var source) &&
-		    !host.IsApplied("mauiSource", BridgeValue.Serialize(source)))
-			ApplyUpdates(host, new Dictionary<string, object?> { ["mauiSource"] = string.Empty });
-		ApplyUpdates(host, props);
-		host.RaiseAttached();
-	}
-
-	/// <summary>Destroys pooled row hosts by id and handle (they have no managed host any more).</summary>
-	internal void DestroyPooledHosts(IReadOnlyList<(string Id, long Handle)> hosts, string? pageJs)
-	{
-		if (hosts.Count == 0)
-			return;
-		ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), pageJs);
-		foreach (var (_, handle) in hosts)
-			QtHostRuntime.DestroyObject(handle);
-	}
-
-	/// <summary>Frees the slot field a synthetic host (pulley, push-up menu, context menu, interaction) sat in.</summary>
-	private void ReleaseSyntheticSlot(NativeElementHost host)
-	{
-		if (ReferenceEquals(host, _pullHost)) _pullHost = null;
-		else if (ReferenceEquals(host, _pushHost)) _pushHost = null;
-		else if (ReferenceEquals(host, _ctxMenuHost)) _ctxMenuHost = null;
-		else _interactionHosts.Remove(host.Id);
-	}
-
-	/// <summary>
-	/// Destroys <paramref name="hosts"/> in list order on the page instance that owns them (<paramref name="pageJs"/>,
-	/// null = top model page) and releases their managed side; <paramref name="unroute"/> also drops event routes.
-	/// </summary>
-	internal void DestroyHosts(IReadOnlyList<NativeElementHost> hosts, string? pageJs, bool unroute = false)
-	{
-		if (hosts.Count == 0)
-			return;
-		ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), pageJs);
-		foreach (var host in hosts)
-		{
-			ReleaseHost(host);
-			if (unroute)
-				_byId.Remove(host.Id);
-		}
-	}
-
-	/// <summary>
-	/// Self-heal: hosts attached to a model page object that Silica later rebuilt look attached, but every push
-	/// dies silently. Probe liveness and drop the attachment so the next reconcile re-creates the host (rows
-	/// re-materialize through <see cref="QtHostCollectionBridge.OnHostHealed"/>).
-	/// </summary>
-	internal bool HealIfDead(NativeElementHost host)
-	{
-		if (!host.IsAttached)
-			return false;
-		if (QtHostRuntime.TryItemGeometry(host.NativeHandle, out _))
-			return false;   // handle alive: the failure was something else
-
-		// Classify before OnHostHealed, which drops the host from its delegate/slot registry.
-		var collectionCell = _collection.IsCollectionCellHost(host);
-		host.NativeHandle = 0;   // no DestroyObject: the QML object is already gone
-		host.AppliedProperties.Clear();
-		host.AppliedGeometrySet = false;
-		_current.Remove(host);   // next reconcile sees it as new → create op
-		_collection.OnHostHealed(host);
-		_layoutDirty = true;
-		if (!collectionCell)
-			RequestPoll();   // the next reconcile recreates it (a list's own resync re-materializes its cells)
-		// Deaths come in bursts when Silica rebuilds a page: three per reconcile ask for a full-page rebuild.
-		// Collection cells don't count, since ListView recycling kills them one at a time during normal scrolling.
-		if (!collectionCell && ++_healedSinceReconcile >= 3)
-			_fullResetPending = true;
-		QtHostDiag.Warn(QtHostDiagChannel.Geometry,
-			$"healed dead host {host} — QML object died before first window report; next reconcile recreates it");
-		return true;
-	}
 
 	// --- Collection bridge integration: the same create/attach/route/geometry machinery for hosts inside
 	// ListView delegates/slots ---
@@ -1600,28 +1296,15 @@ public sealed partial class QtHostPageRenderer
 	internal NativeHostCache Cache => _cache;
 	internal IMauiContext MauiContext => _mauiContext;
 
-	/// <summary>Applies a bridge op batch on the top model page. <paramref name="targetJs"/> overrides the address
-	/// for objects on another page instance (parked or popped); addressing them at the top would leak them.</summary>
-	internal void ApplyOps(IReadOnlyList<Dictionary<string, object?>> ops, string? targetJs = null)
-	{
-		if (ops.Count == 0)
-			return;
-		var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-		var json = BridgeValue.Serialize(ops);
-		var target = targetJs ?? TopModelPageJs;
-		var expression = QmlPage.Call(target, "applyMauiOps", BridgeValue.Quote(json));
-		var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
-		QtHostRuntime.Eval(expression);
-		var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-		_opsEvals++;
-		NoteOps(ops);
-		var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
-		static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-		LastApplyOpsSplit = (Ms(t0, t1), Ms(t1, t2), Ms(t2, t3), expression.Length);
-		LastOpsExpression = expression;
-	}
+	// --- Page calls: a model page's functions called directly (sailfish_host_invoke), by page id ---
 
-	/// <summary>The last op batch expression (diagnostics replay).</summary>
+	private readonly Dictionary<string, long> _pageHandles = new(StringComparer.Ordinal);
+
+	/// <summary>Page calls made through sailfish_host_invoke, and those that fell back to an eval.</summary>
+	public long PageInvokes { get; private set; }
+	public long PageCallFallbacks { get; private set; }
+
+	/// <summary>The last op batch (its JSON; diagnostics replay).</summary>
 	internal string LastOpsExpression { get; private set; } = string.Empty;
 
 	/// <summary>The last op batch in ms: JSON + expression build, the eval, the trace note; and the expression length.</summary>
@@ -1629,279 +1312,12 @@ public sealed partial class QtHostPageRenderer
 
 	private string _lastOps = string.Empty;   // "create:label:e12,order:…" of the last op batch (timer-poll trace)
 
-	private void NoteOps(IReadOnlyList<Dictionary<string, object?>> ops)
-	{
-		if (!QtHostDiag.TraceEnabled)
-			return;
-		_lastOps = string.Join(",", ops.Take(6).Select(o =>
-			$"{o.GetValueOrDefault("op")}:{o.GetValueOrDefault("uri") ?? string.Empty}:{o.GetValueOrDefault("id") ?? o.GetValueOrDefault("parent")}"))
-			+ (ops.Count > 6 ? $",+{ops.Count - 6}" : string.Empty);
-	}
-
-	internal static Dictionary<string, object?> CreateChildOp(NativeElementHost host,
-	                                                            Dictionary<string, object?> props, string parentObj)
-	{
-		// A row/slot root lands in the placeholder (parentObj, resolved by objectName); other hosts nest in their parent host.
-		if (host.Parent is { } parent)
-			return CreateOp(host, props, parent.Id);
-		var op = CreateOp(host, props);
-		op["parentObj"] = parentObj;   // MauiModelPage.__mauiFindByName re-parents the create
-		return op;
-	}
-
-	/// <summary>Attaches a row/slot host; <paramref name="scopeHandle"/> scopes the name lookup to its placeholder.</summary>
-	internal static void AttachHost(NativeElementHost host, Dictionary<string, object?> props, long scopeHandle = 0) =>
-		AttachNative(host, props, scopeHandle);
-
-
-	internal void RegisterRoute(string id, NativeElementHost host) => _byId[id] = host;
-
-	/// <summary>Lays out one row/slot subtree inside its placeholder, rooted at the cell offset. Nothing depends
-	/// on the delegate's scene position, so scrolling never re-pushes row geometry; row
-	/// <see cref="NativeElementHost.MauiLogicalBounds"/> are delegate-relative.</summary>
-	internal void PushItemGeometry(VisualElement root, double cellX, IReadOnlyCollection<NativeElementHost> hosts,
-	                               bool crossAlongY = false)
-	{
-		if (hosts.Count == 0)
-			return;
-		// The root's arranged position in its cell is its Margin (the cell is arranged at 0,0), as for the page root.
-		// cellX is the cell's offset across the scroll axis: x in a vertical grid, y in a horizontal one.
-		var rootMatrix = QtHostVisualState
-			.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
-			.Then(crossAlongY
-				? Affine2.Translation(root.Bounds.X, cellX + root.Bounds.Y)
-				: Affine2.Translation(cellX + root.Bounds.X, root.Bounds.Y));
-		CollectGeometry(root, rootMatrix, rootMatrix, hosts as HashSet<NativeElementHost> ?? new HashSet<NativeElementHost>(hosts),
-			parentVisible: true, hitClip: null);
-		FlushGeometry();
-	}
-
-	/// <summary>Maps one item template instantiation (root included) like the page Walk.</summary>
-	internal void MapItemSubtree(VisualElement root, List<NativeElementHost> desired,
-	                             Dictionary<NativeElementHost, Dictionary<string, object?>> props)
-	{
-		var first = desired.Count;
-		_mappingRows = true;
-		try
-		{
-			MapElement(root, desired, props);
-			// The row root has no host parent: it lands in the delegate/slot placeholder.
-			var rootHost = desired.Count > first && ReferenceEquals(desired[first].Element, root) ? desired[first] : null;
-			if (rootHost is not null)
-				rootHost.Parent = null;
-			Walk(root, desired, props, parentHost: rootHost, nest: true);
-		}
-		finally
-		{
-			_mappingRows = false;
-		}
-		// Visual state and corner clips join row snapshots here, since rows never pass through the page reconcile.
-		for (var i = first; i < desired.Count; i++)
-		{
-			if (!props.TryGetValue(desired[i], out var p))
-				continue;
-			if (desired[i].Element is VisualElement ve)
-				QtHostVisualState.Merge(p, ve);
-			// Row content isn't attached to the page tree, so the rendered page is the surround-colour fallback.
-			if (desired[i].QmlUri == "image")
-				QtHostClip.Merge(p, desired[i].Element as VisualElement, _rendered);
-		}
-	}
-
-	/// <summary>
-	/// Pre-order walk of the MAUI visual tree into the desired host list, keyed by element identity so hosts
-	/// survive MAUI rebuilds. With <paramref name="nest"/> each host records its nearest hosted ancestor
-	/// (<see cref="NativeElementHost.Parent"/>, null = page canvas), so the native tree mirrors MAUI's.
-	/// </summary>
-	private void Walk(IVisualTreeElement element, List<NativeElementHost> desired,
-	                  Dictionary<NativeElementHost, Dictionary<string, object?>> props,
-	                  NativeElementHost? parentHost = null, bool nest = true)
-	{
-		foreach (var child in element.GetVisualChildren())
-		{
-			// ContextFlyout registry (an attached property on FlyoutBase in .NET 11).
-			if (child is View flyoutView &&
-			    FlyoutBase.GetContextFlyout(flyoutView) is MenuFlyout flyout && flyout.Count > 0)
-				_contextFlyouts[flyoutView] = flyout;
-
-			var before = desired.Count;
-			var walkChildren = child is not Element childElement || MapElement(childElement, desired, props);
-			// The child's own host is the first one added for it; list/row bridges may append more.
-			var childHost = desired.Count > before && ReferenceEquals(desired[before].Element, child)
-				? desired[before]
-				: null;
-			if (nest && childHost is not null)
-				childHost.Parent = parentHost;
-			if (!walkChildren)
-				continue;   // the collection bridge owns the subtree
-
-			Walk(child, desired, props, childHost ?? parentHost, nest);
-		}
-	}
-
-	/// <summary>
-	/// Maps one element to its adapter host. The element's handler chooses the adapter and supplies its state, as a
-	/// MAUI handler creates its native view (<see cref="HostingOf"/>); the cases here only add what needs the page
-	/// around the element (collections, the refresh surface, the page's main scroll, image placeholders). Returns false
-	/// when the page reconcile must not walk the subtree (a collection's items are materialized per delegate by
-	/// <see cref="QtHostCollectionBridge"/>, a WebView or a drawn IndicatorView has no MAUI children to host).
-	/// </summary>
-	private bool MapElement(Element child, List<NativeElementHost> desired,
-	                        Dictionary<NativeElementHost, Dictionary<string, object?>> props)
-	{
-		switch (child)
-		{
-			case CollectionView collection:
-				// Native virtualized ListView: the bridge registers the host and materializes item trees per delegate.
-				_collection.RegisterList(collection, desired, props);
-				return false;
-			case CarouselView carousel:
-				// The same bridge in carousel mode: one snapped page per item (Position/CurrentItem sync).
-				_collection.RegisterList(carousel, desired, props);
-				return false;
-			case ScrollView rowScroll when _mappingRows:
-			{
-				// In collection rows the ListView delegate is the scroller, so a template ScrollView is a plain container.
-				var host = _cache.GetOrAdd(rowScroll, "content-view");
-				props[host] = ContainerProps(rowScroll);
-				desired.Add(host);
-				return true;
-			}
-			case ScrollView scrollView:
-			{
-				// Every ScrollView is its own SilicaFlickable host whose content scrolls natively (ScrollX/ScrollY sync both
-				// ways); Silica pulleys clone onto it like onto a hosted list.
-				var host = _cache.GetOrAdd(scrollView, "scroll-view");
-				props[host] = ScrollProps(scrollView);
-				if (_primaryScrollWalk is null && scrollView.Orientation == ScrollOrientation.Vertical)
-					_primaryScrollWalk = scrollView;
-				// The first ScrollView inside a RefreshView carries the pull gesture and spinner itself.
-				if (_scrollRefreshWalk is null && RefreshAncestorOf(scrollView) is { } refresh)
-				{
-					_scrollRefreshWalk = refresh;
-					_scrollRefreshHostWalk = host;
-					foreach (var kv in RefreshSurfaceProps(refresh))
-						props[host][kv.Key] = kv.Value;
-				}
-				desired.Add(host);
-				return true;
-			}
-			case IImage image when HostingOf((View)child) is { State: null }:
-			{
-				// QtHostImages resolves no URL: an unresolvable file keeps an empty placeholder (Android and iOS show
-				// nothing for a missing file; a visible "[Image]" read as app text) and a warning, a stream still being
-				// read hosts nothing yet, and a null source hosts nothing (a placeholder would lock the element to a label
-				// host in the first-URI-wins cache, so a later Source could never create the image host).
-				if (image.Source is not null && !QtHostImages.IsPending(image.Source as ImageSource))
-				{
-					if (_missingImageWarned.Add(image.Source.ToString() ?? string.Empty))
-						QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"image source not found, nothing shown: {image.Source}");
-					AddPlaceholder(child, string.Empty, desired, props);
-				}
-				else if (child.Parent is IView container)
-					// Read, the stream has a size: the image re-measures from 0 × 0 and the container gains its host.
-					QtHostImages.WhenReady(image.Source as ImageSource, child, () =>
-					{
-						image.InvalidateMeasure();
-						RequestSubtree(container);
-					});
-				return true;
-			}
-			case Microsoft.Maui.Controls.Shapes.Shape or BoxView when HostingOf((View)child) is { State: null }:
-				// A shape reduces to a path of its arranged size: no host before the first arrange, the poll retries.
-				_skippedUnarranged = true;
-				_awaitingArrange.Add(child);
-				return true;
-			case RefreshView refreshView:
-				// RefreshView modifies a scroll surface (the wrapped list or flickable arms the gesture); it still owns a
-				// plain container host for its content.
-				_refreshWalk ??= refreshView;
-				break;
-		}
-		if (child is not View view)
-			return true;
-		// F4a: in collection rows a layout that paints nothing gets no QML host of its own; its children go to the nearest
-		// hosted ancestor (CollectGeometry folds its offset into their rects). A push that makes it paint remaps the row.
-		if (_mappingRows && FlatRows && view is Grid or StackBase)
-		{
-			if (view.Handler is null)
-				QtHostLayout.AttachHandlers(view, _mauiContext);
-			if (CanFlatten(view))
-			{
-				_flatRowContainers.AddOrUpdate(view, s_flatMarker);
-				return true;
-			}
-		}
-		var hosting = HostingOf(view) ?? (Uri: "content-view", State: null, WalksChildren: true);
-		if (hosting.Uri == "content-view" && view is not (Layout or TemplatedView or IContentView) &&
-		    view.Handler is not Handlers.ISailfishAdapterHandler { AdapterUri: not null } && _unsupportedWarned.Add(view.GetType()))
-			QtHostDiag.Warn(QtHostDiagChannel.QtHost,
-				$"no Sailfish adapter for {view.GetType().FullName} — rendered as an empty container (its children still paint)");
-		var viewHost = _cache.GetOrAdd(view, hosting.Uri);
-		props[viewHost] = hosting.State ?? ContainerProps(view);
-		desired.Add(viewHost);
-		return hosting.WalksChildren;
-	}
-
-	/// <summary>F4a: transparent row layouts go without a host; MAUI_SAILFISH_FLAT_ROWS=0 gives every layout its host (A/B).</summary>
-	internal static readonly bool FlatRows = Environment.GetEnvironmentVariable("MAUI_SAILFISH_FLAT_ROWS") != "0";
+	/// <summary>Flat rows: transparent row layouts go without a host; MAUI_SAILFISH_FLAT_ROWS=0 gives every layout its host (A/B).</summary>
+	internal static readonly bool FlatRows = SailfishEnv.Get("MAUI_SAILFISH_FLAT_ROWS") != "0";
 	private static readonly object s_flatMarker = new();
 	private readonly System.Runtime.CompilerServices.ConditionalWeakTable<VisualElement, object> _flatRowContainers = new();
 
-	/// <summary>Row layouts mapped without a host (F4a).</summary>
-	internal bool IsFlattened(VisualElement element) => _flatRowContainers.TryGetValue(element, out _);
+	/// <summary>Hosts re-created because their handler chose another adapter.</summary>
+	public long AdapterRebinds { get; private set; }
 
-	/// <summary>True when the layout paints and does nothing a QML item would carry: no fill, clip, shadow, transform,
-	/// opacity, input, gesture, semantics or z-order of its own. Such a container is pure geometry.</summary>
-	internal static bool CanFlatten(View view)
-	{
-		if (view is not ILayout layout || layout.ClipsToBounds || view.Clip is not null || view.Shadow is not null)
-			return false;
-		if (QtHostPaint.Background(view) is { Alpha: > 0 })
-			return false;
-		if (view.Opacity < 1 || !view.IsVisible || !view.IsEnabled || view.InputTransparent || view.ZIndex != 0 ||
-		    view.GestureRecognizers.Count > 0 || FlyoutBase.GetContextFlyout(view) is not null)
-			return false;
-		if (view.Rotation != 0 || view.RotationX != 0 || view.RotationY != 0 || view.Scale != 1 || view.ScaleX != 1 ||
-		    view.ScaleY != 1 || view.TranslationX != 0 || view.TranslationY != 0)
-			return false;
-		if (!string.IsNullOrEmpty(view.AutomationId) || SemanticProperties.GetDescription(view) is not null ||
-		    SemanticProperties.GetHint(view) is not null || SemanticProperties.GetHeadingLevel(view) != SemanticHeadingLevel.None ||
-		    AutomationProperties.GetIsInAccessibleTree(view) == false || AutomationProperties.GetExcludedWithChildren(view) == true)
-			return false;
-		// Only the plain container adapters; anything with an adapter of its own keeps it.
-		return view.Handler is not Handlers.ISailfishAdapterHandler { AdapterUri: { } uri } ||
-		       uri is "grid" or "stack-layout" or "content-view";
-	}
-
-	/// <summary>A handler pushed to a flattened row layout (it has no live host): when the layout now paints, the row
-	/// is mapped again and the layout gets its host.</summary>
-	private void OnFlattenedPush(VisualElement element)
-	{
-		if (element is not View view || CanFlatten(view))
-			return;
-		_flatRowContainers.Remove(element);
-		_collection.RemapRowContaining(element);
-	}
-
-	/// <summary>The adapter the element's handler chose and its state (handlers attach on demand); null for a handler
-	/// that is not a Sailfish one (the element then gets a plain container host).</summary>
-	private (string Uri, Dictionary<string, object?>? State, bool WalksChildren)? HostingOf(View view)
-	{
-		if (view.Handler is null)
-			QtHostLayout.AttachHandlers(view, _mauiContext);
-		if (view.Handler is not Handlers.ISailfishAdapterHandler handler)
-			return null;
-		// A library adapter must be registered; an unknown URI would degrade to the fallback label.
-		var uri = handler.AdapterUri is { } chosen && QtHostAdapters.TryGetSrc(chosen, out _) ? chosen : "content-view";
-		return (uri, handler.AdapterState(), handler.WalksChildren);
-	}
-
-	private void AddPlaceholder(Element element, string text, List<NativeElementHost> desired,
-	                            Dictionary<NativeElementHost, Dictionary<string, object?>> props)
-	{
-		var host = _cache.GetOrAdd(element, "label");
-		props[host] = new Dictionary<string, object?> { ["text"] = text, ["mauiEmphasis"] = "secondary" };
-		desired.Add(host);
-	}
 }

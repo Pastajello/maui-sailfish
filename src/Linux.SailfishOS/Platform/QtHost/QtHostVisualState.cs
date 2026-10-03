@@ -212,8 +212,20 @@ internal static class QtHostVisualState
 	/// <summary>"on" for a leaf control under an effective RightToLeft FlowDirection, "off" for any other host
 	/// there (an explicit value stops a mirrored ancestor's inheritance), "" in left-to-right content.</summary>
 	public static string MirrorState(VisualElement element) =>
-		!QtHostPageRenderer.IsRightToLeft(element) ? string.Empty
+		!IsRightToLeft(element) ? string.Empty
 		: MirrorsNatively(element) ? "on" : "off";
+
+	/// <summary>Whether the effective flow direction is RTL: the nearest ancestor-or-self with an explicit
+	/// FlowDirection decides. MAUI resolves this through the platform view tree, which this host lacks.</summary>
+	public static bool IsRightToLeft(Element? element)
+	{
+		for (var e = element; e is not null; e = e.Parent)
+		{
+			if (e is VisualElement ve && ve.FlowDirection != FlowDirection.MatchParent)
+				return ve.FlowDirection == FlowDirection.RightToLeft;
+		}
+		return false;
+	}
 
 	/// <summary>MAUI Shadow → "#AARRGGBB|radius|x|y" in device px; "" means none.</summary>
 	public static string ShadowSpec(Shadow? shadow, double density)
@@ -256,7 +268,7 @@ internal static class QtHostVisualState
 	{
 		// A drawing surface (QtHostSurface) paints only its pixels; the view's background goes under them, as Android
 		// draws a View's background before its content.
-		if (element.Handler is Handlers.ISailfishAdapterHandler { AdapterUri: QtHostSurface.AdapterUri })
+		if (element.Handler?.PlatformView is NativeElementHost { QmlUri: QtHostSurface.AdapterUri })
 			return true;
 		var type = element.GetType();
 		foreach (var t in GenericBackgroundTypes)
@@ -385,20 +397,4 @@ internal static class QtHostVisualState
 	public static bool IsStateProperty(string propertyName) =>
 		propertyName is nameof(VisualElement.Opacity) or nameof(VisualElement.IsEnabled)
 			or nameof(VisualElement.ZIndex);
-
-	/// <summary>Generic view properties re-pushed on the fast path when no handler mapper owns them. Kept
-	/// apart from <see cref="IsStateProperty"/> because shape handlers own these (a BoxView's Background is its fill).</summary>
-	public static bool IsGenericViewProperty(string propertyName) =>
-		propertyName is nameof(VisualElement.Background) or nameof(VisualElement.BackgroundColor)
-			or nameof(Element.AutomationId) or "Description" or "Hint" or "HeadingLevel"
-			or "IsInAccessibleTree" or "ExcludedWithChildren" or nameof(VisualElement.FlowDirection)
-			or nameof(VisualElement.Shadow) or nameof(VisualElement.Clip);
-
-	/// <summary>Properties applied by the next geometry pass, which re-decomposes the accumulated matrix.</summary>
-	public static bool IsTransformProperty(string propertyName) =>
-		propertyName is nameof(VisualElement.Rotation) or nameof(VisualElement.RotationX)
-			or nameof(VisualElement.RotationY) or nameof(VisualElement.Scale)
-			or nameof(VisualElement.ScaleX) or nameof(VisualElement.ScaleY)
-			or nameof(VisualElement.TranslationX) or nameof(VisualElement.TranslationY)
-			or nameof(VisualElement.AnchorX) or nameof(VisualElement.AnchorY);
 }

@@ -82,9 +82,9 @@ public class NavigationCoordinatorTests
 		using var h = new RendererHarness(shell);
 		Settle(h);
 		var kicks = 0;
-		var previous = QtHostPageRenderer.NavigationKick;
+		var previous = h.Renderer.PollKick;
 		var loop = SailfishDispatcherProvider.BindLoopThread();
-		QtHostPageRenderer.NavigationKick = () => { kicks++; loop.Dispatch(h.Renderer.KickedPoll); };   // as the app loop
+		h.Renderer.PollKick = () => { kicks++; loop.Dispatch(h.Renderer.KickedPoll); };   // as the app loop
 		try
 		{
 			var navigation = shell.GoToAsync("loadeddetail");
@@ -99,7 +99,7 @@ public class NavigationCoordinatorTests
 		}
 		finally
 		{
-			QtHostPageRenderer.NavigationKick = previous;
+			h.Renderer.PollKick = previous;
 			Routing.UnRegisterRoute("loadeddetail");
 		}
 	}
@@ -194,7 +194,7 @@ public class NavigationCoordinatorTests
 		shell.CurrentItem.CurrentItem = transactions;
 		Settle(h);
 
-		var tabs = h.Shim.Evals.Last(e => e.Contains("setMauiTabs", StringComparison.Ordinal));
+		var tabs = h.Shim.PageCalls.Last(c => c.Method == "setMauiTabs").Arg;   // called on the page directly (invoke)
 		Assert.Contains("\\\"sub\\\":{\\\"titles\\\":[\\\"All\\\",\\\"Recurring\\\"],\\\"index\\\":0}", tabs);
 
 		h.Renderer.HandleNativeEvent("tab-selected", "{\"index\":1,\"level\":1}");
@@ -219,9 +219,10 @@ public class NavigationCoordinatorTests
 		h.Shim.StackBusy = true;                         // the back gesture's transition
 		h.Shim.Pages.RemoveAt(h.Shim.Pages.Count - 1);
 		h.Poll();
+		var reconciles = h.Renderer.ReconcileCount;
 		h.Renderer.HandleNativeEvent("window-geometry",
 			"{\"pageWidth\":1080,\"pageHeight\":2160,\"headerHeight\":230,\"statusHeight\":40}");
-		Assert.True(h.Renderer.ReconcilesDeferredForNativeTop > 0);
+		Assert.Equal(reconciles, h.Renderer.ReconcileCount);   // the report waits for the transition (one gate)
 
 		h.Shim.StackBusy = false;
 		Settle(h, 10);

@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
-    <InternalsVisibleTo Include="Microsoft.Maui.SailfishOS.SkiaSharp.Diagnostics" />
   </ItemGroup>
 
   <ItemGroup>

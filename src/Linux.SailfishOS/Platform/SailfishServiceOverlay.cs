@@ -15,27 +15,13 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private SailfishDispatcherProvider? _dispatcherProvider;
 	private SailfishHandlersFactory? _handlersFactory;
 	private SailfishFontManager? _fontManager;
-	private SailfishClipboard? _clipboard;
-	private SailfishBrowser? _browser;
-	private SailfishLauncher? _launcher;
-	private SailfishAppInfo? _appInfo;
-	private SailfishPreferences? _preferences;
-	private SailfishSecureStorage? _secureStorage;
-	private SailfishFileSystem? _fileSystem;
-	private SailfishDeviceInfo? _deviceInfo;
-	private SailfishDeviceDisplay? _deviceDisplay;
-	private SailfishBattery? _battery;
-	private SailfishConnectivity? _connectivity;
-	private SailfishVibration? _vibration;
-	private SailfishHapticFeedback? _haptics;
 	private SailfishSemanticScreenReader? _screenReader;
-	private readonly Dictionary<Type, object> _f4 = new();
 	private QtHostAlertSubscription? _alertSubscription;
 	private SailfishModalNavigationPlatformFactory? _modalFactory;
 
-	/// <summary>A Shell push or insert is under way (SailfishShellHandler, between Navigating and Navigated): the
-	/// route pages it builds get their handlers as they join the stack.</summary>
-	internal static bool RoutePageNavigation;
+	// The window's render session: the host cache handlers and the renderer share, the renderer once it runs, and the
+	// Shell route-page flag (SailfishShellHandler sets it between Navigating and Navigated).
+	private readonly SailfishRenderSession _session = new();
 
 	public SailfishServiceOverlay(IServiceProvider inner) =>
 		_inner = inner ?? throw new ArgumentNullException(nameof(inner));
@@ -47,6 +33,8 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	/// this overlay's, whichever provider asks.</summary>
 	internal object? Resolve(Type serviceType, IServiceProvider registered)
 	{
+		if (serviceType == typeof(SailfishRenderSession))
+			return _session;
 		// The dispatcher must be the Qt-loop-backed one: any other queue never drains. IDispatcher is not looked up in
 		// the registrations: MAUI's factory for it (AppHostBuilderExtensions.GetDispatcher) calls
 		// DispatcherProvider.SetCurrent with the registered provider, which under plain UseMauiApp is MAUI's own.
@@ -63,8 +51,8 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 		// MAUI's push and aborted it half way. Only during a pushed route navigation: a ShellContent whose page comes
 		// from the services marks it service-created and rebuilds it every time its section is shown again
 		// (DeveloperBalance's dashboard re-ran its selection command and crashed it).
-		if (existing is null && RoutePageNavigation && !serviceType.IsAbstract &&
-			typeof(Microsoft.Maui.Controls.Page).IsAssignableFrom(serviceType) && QtHostPageRenderer.Current is { } renderer)
+		if (existing is null && _session.RoutePageNavigation && !serviceType.IsAbstract &&
+			typeof(Microsoft.Maui.Controls.Page).IsAssignableFrom(serviceType) && _session.Renderer is { } renderer)
 			return CreatePage(serviceType, registered, renderer.MauiContext);
 
 		if (serviceType == typeof(IDispatcherProvider))
@@ -82,84 +70,22 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 		}
 		if (serviceType == typeof(IFontManager))
 			return _fontManager ??= new SailfishFontManager();
-		if (serviceType == typeof(Microsoft.Maui.ApplicationModel.DataTransfer.IClipboard))
-			return existing ?? (_clipboard ??= new SailfishClipboard());
-		if (serviceType == typeof(Microsoft.Maui.ApplicationModel.IBrowser))
-			return existing ?? (_browser ??= new SailfishBrowser());
-		if (serviceType == typeof(Microsoft.Maui.ApplicationModel.ILauncher))
-			return existing ?? (_launcher ??= new SailfishLauncher());
-		if (serviceType == typeof(Microsoft.Maui.ApplicationModel.IAppInfo))
-			return existing ?? (_appInfo ??= new SailfishAppInfo());
-		if (serviceType == typeof(Microsoft.Maui.Storage.IPreferences))
-			return existing ?? (_preferences ??= new SailfishPreferences());
-		if (serviceType == typeof(Microsoft.Maui.Storage.ISecureStorage))
-			return existing ?? (_secureStorage ??= new SailfishSecureStorage());
-		if (serviceType == typeof(Microsoft.Maui.Storage.IFileSystem))
-			return existing ?? (_fileSystem ??= new SailfishFileSystem());
-		// Platform services
-		if (serviceType == typeof(Microsoft.Maui.Devices.IDeviceInfo))
-			return existing ?? (_deviceInfo ??= new SailfishDeviceInfo());
-		if (serviceType == typeof(Microsoft.Maui.Devices.IDeviceDisplay))
-			return existing ?? (_deviceDisplay ??= new SailfishDeviceDisplay());
-		if (serviceType == typeof(Microsoft.Maui.Devices.IBattery))
-			return existing ?? (_battery ??= new SailfishBattery());
-		if (serviceType == typeof(Microsoft.Maui.Networking.IConnectivity))
-			return existing ?? (_connectivity ??= new SailfishConnectivity());
-		if (serviceType == typeof(Microsoft.Maui.Devices.IVibration))
-			return existing ?? (_vibration ??= new SailfishVibration());
-		if (serviceType == typeof(Microsoft.Maui.Devices.IHapticFeedback))
-			return existing ?? (_haptics ??= new SailfishHapticFeedback());
+		// Essentials: an app's registration wins, else the registry's default (the instance the facades hold too).
+		if (SailfishEssentialsRegistry.Find(serviceType) is { } essential)
+			return existing ?? SailfishEssentialsRegistry.DefaultFor(essential);
 		// MAUI registers its own reference-assembly reader (it throws); only an app's registration wins.
 		if (serviceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader))
 			return existing is not null && existing.GetType().Assembly != serviceType.Assembly
 				? existing
 				: _screenReader ??= new SailfishSemanticScreenReader();
-		if (existing is null && CreateF4(serviceType) is { } created)
-			return created;
 		if (existing is not null)
 			return existing;
 
 		if (serviceType == typeof(Controls.Platform.IAlertManagerSubscription))
-			return _alertSubscription ??= new QtHostAlertSubscription();
+			return _alertSubscription ??= new QtHostAlertSubscription(_session);
 		if (serviceType == typeof(Controls.Platform.IModalNavigationPlatformFactory))
-			return _modalFactory ??= new SailfishModalNavigationPlatformFactory();
+			return _modalFactory ??= new SailfishModalNavigationPlatformFactory(_session);
 		return null;
-	}
-
-	/// <summary>Sensor, location and sharing services (one instance each).</summary>
-	private object? CreateF4(Type serviceType)
-	{
-		if (_f4.TryGetValue(serviceType, out var cached))
-			return cached;
-		object? created =
-			serviceType == typeof(Microsoft.Maui.Devices.Sensors.IAccelerometer) ? new SailfishAccelerometer()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IGyroscope) ? new SailfishGyroscope()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IMagnetometer) ? new SailfishMagnetometer()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.ICompass) ? new SailfishCompass()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IBarometer) ? new SailfishBarometer()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IOrientationSensor) ? new SailfishOrientationSensor()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IGeolocation) ? new SailfishGeolocation()
-			: serviceType == typeof(Microsoft.Maui.ApplicationModel.DataTransfer.IShare) ? new SailfishShare()
-			: serviceType == typeof(Microsoft.Maui.Media.IMediaPicker) || serviceType == typeof(Microsoft.Maui.Storage.IFilePicker)
-				? Shared<SailfishPickers>()
-			: serviceType == typeof(Microsoft.Maui.ApplicationModel.IPermissions) ? new SailfishPermissions()
-			: serviceType == typeof(Microsoft.Maui.ApplicationModel.Communication.IPhoneDialer)
-			  || serviceType == typeof(Microsoft.Maui.ApplicationModel.Communication.IEmail)
-			  || serviceType == typeof(Microsoft.Maui.ApplicationModel.Communication.ISms)
-			  || serviceType == typeof(Microsoft.Maui.ApplicationModel.IMap)
-				? Shared<SailfishCommunication>()
-			: serviceType == typeof(Microsoft.Maui.Media.IScreenshot) ? new SailfishScreenshot()
-			: serviceType == typeof(Microsoft.Maui.Devices.IFlashlight) ? new SailfishFlashlight()
-			: serviceType == typeof(Microsoft.Maui.Media.ITextToSpeech) ? new SailfishTextToSpeech()
-			: serviceType == typeof(Microsoft.Maui.Devices.Sensors.IGeocoding) ? new SailfishGeocoding()
-			: serviceType == typeof(Microsoft.Maui.Authentication.IPasskeys) ? new SailfishPasskeys()
-			: serviceType == typeof(Microsoft.Maui.ApplicationModel.IAppActions) ? new SailfishAppActions()
-			: serviceType == typeof(Microsoft.Maui.Authentication.IWebAuthenticator) ? new SailfishWebAuthenticator()
-			: serviceType == typeof(Microsoft.Maui.ApplicationModel.Communication.IContacts) ? new SailfishContacts()
-			: null;
-		if (created is not null)
-			_f4[serviceType] = created;
-		return created;
 	}
 
 	/// <summary>The page ActivatorUtilities would create, with its handlers attached as it gets a parent: before the
@@ -193,13 +119,5 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private sealed class ResolvingProvider(SailfishServiceOverlay overlay, IServiceProvider registered) : IServiceProvider
 	{
 		public object? GetService(Type serviceType) => overlay.Resolve(serviceType, registered);
-	}
-
-	/// <summary>One instance serving several interfaces.</summary>
-	private T Shared<T>() where T : class, new()
-	{
-		if (!_f4.TryGetValue(typeof(T), out var instance))
-			_f4[typeof(T)] = instance = new T();
-		return (T)instance;
 	}
 }

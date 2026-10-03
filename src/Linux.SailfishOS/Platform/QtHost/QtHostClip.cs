@@ -28,7 +28,7 @@ internal static class QtHostClip
 		var border = corners == 0 ? null : ClippingBorder(element!);
 		var stroke = border is null || border.StrokeThickness <= 0 ? null : QtHostPaint.Solid(border.Stroke);
 		props["mauiClipStroke"] = stroke ?? Colors.Transparent;
-		props["mauiClipStrokeWidth"] = stroke is null ? 0.0 : border!.StrokeThickness * SailfishDisplay.Density;
+		props["mauiClipStrokeWidth"] = stroke is null ? 0.0 : border!.StrokeThickness * QtHostUnits.ScenePerDp;
 		if (QtHostDiag.TraceEnabled && corners != 0)
 			QtHostDiag.Trace(QtHostDiagChannel.Geometry,
 				$"clip spec: {element?.GetType().Name} radius={radius:F1} corners={corners} " +
@@ -98,7 +98,7 @@ internal static class QtHostClip
 		if (left <= eps && bottom >= border.Height - eps)
 			corners |= BottomLeft;
 
-		radiusDevicePx = radius * SailfishDisplay.Density;
+		radiusDevicePx = radius * QtHostUnits.ScenePerDp;
 		return true;
 	}
 

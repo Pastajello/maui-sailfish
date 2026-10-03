@@ -40,5 +40,5 @@ public class SailfishPageHandler : NullViewHandler
 	}
 
 	/// <summary>Asks the renderer to re-sync the model page and its content.</summary>
-	public static void MapModelPage(IViewHandler handler, IView view) => QtHostPageRenderer.RequestPoll();
+	public static void MapModelPage(IViewHandler handler, IView view) => SailfishHandlerCore.SessionOf(handler)?.RequestPoll();
 }

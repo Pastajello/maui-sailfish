@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../lib/silica.js" as SilicaWalk
+import "../lib/adapter.js" as Adapter
 
 // Adapter: MAUI Button -> Silica Button. Events: tap (payload = mauiId).
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
@@ -120,6 +121,9 @@ Button {
         if (__styled)
             __style = styleComponent.createObject(root);
         __applyLayout();
+        // createObject init props fire no change handlers: colours set before creation (XAML) must be applied here.
+        if (mauiTextColorSet || mauiPlateSet)
+            __applyColors();
     }
 
     // The style Bindings exist only once a style value is set: an unstyled button (most list cells) creates none.
@@ -170,5 +174,5 @@ Button {
     onVisibleChanged: if (visible && mauiFirstVisiblePx < 0) firstFrameProbe.createObject(root)
 
     // x/y/width/height come from the managed geometry pass.
-    onClicked: mauiEvent("tap", mauiId)
+    onClicked: Adapter.emit(root, "tap")
 }

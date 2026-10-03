@@ -280,6 +280,10 @@ These follow Silica conventions. Port authors should expect them; none needs app
   Secrets once it opens.
 - A borderless `Entry` (`BackgroundColor` set) without a `Placeholder` has no Silica label line, and an Entry taller
   than its natural height centres its text (MAUI's default `VerticalTextAlignment`), as on Android.
+- A `Button`, `Entry`, `Editor`, `SearchBar`, picker or `RadioButton` without a `FontSize` uses Silica's theme size
+  (`Theme.fontSizeMedium`), larger than MAUI's 14 dp. For these controls a `FontSize` of exactly 18 counts as unset
+  too, because 18 is the default MAUI reports when the app sets none. Use 17.9 or 18.1 to pin a size near 18. A
+  `Label` without a `FontSize` paints at that default, 18 dp.
 
 ## Not supported yet
 

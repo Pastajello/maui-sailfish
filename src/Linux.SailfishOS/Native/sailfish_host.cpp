@@ -84,18 +84,20 @@
 #include <cstring>
 #include <ctime>
 #include <execinfo.h>   // backtrace in message_handler
+#include <mutex>
 #include <string>
 #include <unistd.h>
 
 namespace {
 
 struct HostState {
-    QGuiApplication *app = nullptr;
+    // app, receiver and shutdown are read by sailfish_host_post/wake/quit on any thread: atomics, loaded once there.
+    std::atomic<QGuiApplication *> app{nullptr};
     QQuickView *view = nullptr;       // view mode
     QQmlEngine *engine = nullptr;     // fallback for current_engine()
     QObject *root = nullptr;          // QML root (ApplicationWindow / view root)
     QWindow *window = nullptr;        // main Wayland window (not cover, not wallpaper)
-    QObject *receiver = nullptr;      // target of sailfish_host_post (QEvent::User)
+    std::atomic<QObject *> receiver{nullptr};   // target of sailfish_host_post (QEvent::User)
     QObject *input_filter = nullptr;
     sfhost_log_fn log = nullptr;
     void *log_user = nullptr;
@@ -116,10 +118,11 @@ struct HostState {
     bool event_driven = true;
     int pending_wake = -1;            // wake requested before the loop started
     long long wakes = 0;
-    bool shutdown = false;            // teardown started (Qt thread only)
+    std::atomic<bool> shutdown{false};   // teardown started (set on the Qt thread, read anywhere)
     // Handle registry: QPointer turns objects destroyed by QML into dead handles (-3).
     QHash<void *, QPointer<QObject>> objects;
-    std::string error;
+    std::string error;                 // last error text: only through set_error/error_text (any thread)
+    std::mutex error_lock;
     std::string clipboardMirror;   // in-app clipboard round-trip mirror
     bool quit_notified = false;    // svc-app-quit sent (teardown or aboutToQuit, whichever is first)
     long long ticks = 0;
@@ -152,7 +155,8 @@ struct HostState {
     std::atomic<long long> peak_rss_kb{0};
     // Managed-to-shim boundary crossings, compared per phase.
     std::atomic<long long> evals{0};        // all sailfish_host_eval calls
-    std::atomic<long long> ops_evals{0};    // ...of which applyMauiOps batches
+    std::atomic<long long> ops_evals{0};    // applyMauiOps batches (through eval or invoke)
+    std::atomic<long long> invokes{0};      // sailfish_host_invoke calls
     std::atomic<long long> drains{0};       // QML-to-C drain per tick (counted separately)
     std::atomic<long long> property_sets{0};
     std::atomic<long long> props_batches{0};
@@ -191,16 +195,28 @@ struct HostState {
 
 HostState g;
 
+void set_error(std::string text)
+{
+    std::lock_guard<std::mutex> lock(g.error_lock);
+    g.error = std::move(text);
+}
+
+std::string error_text()
+{
+    std::lock_guard<std::mutex> lock(g.error_lock);
+    return g.error;
+}
+
 // Common exit for bad arguments/preconditions: sets last_error with the API name.
 void log_line(int level, const QString &text);
 
 int fail_args(const char *api)
 {
-    g.error = std::string(api) + ": invalid arguments, or host not ready / in teardown";
+    set_error(std::string(api) + ": invalid arguments, or host not ready / in teardown");
     log_line(2, QStringLiteral("fail_args: %1 (g=%2 app=%3)")
                   .arg(QString::fromLatin1(api))
                   .arg((quintptr)&g)
-                  .arg((quintptr)g.app));
+                  .arg((quintptr)g.app.load()));
     return SFHOST_E_ARGS;
 }
 
@@ -609,14 +625,14 @@ bool eval_js(const QString &js, QString *out)
 {
     QObject *obj = g.root;
     if (!obj) {
-        g.error = "no QML root object (call load/load_window first)";
+        set_error("no QML root object (call load/load_window first)");
         return false;
     }
     QQmlContext *ctx = QQmlEngine::contextForObject(obj);
     if (!ctx && current_engine())
         ctx = current_engine()->rootContext();
     if (!ctx) {
-        g.error = "no QML context for the root object";
+        set_error("no QML context for the root object");
         return false;
     }
     QQmlExpression expr(ctx, obj, js);
@@ -624,9 +640,9 @@ bool eval_js(const QString &js, QString *out)
     bool isUndefined = false;
     const QVariant result = expr.evaluate(&isUndefined);
     if (expr.hasError()) {
-        g.error = expr.error().toString().toUtf8().constData();
+        set_error(expr.error().toString().toUtf8().constData());
         log_line(2, QStringLiteral("eval failed: %1 | expr: %2")
-                        .arg(QString::fromStdString(g.error), js));
+                        .arg(QString::fromStdString(error_text()), js));
         return false;
     }
     if (out) {
@@ -659,8 +675,10 @@ void drain_qml_events()
             ctx = current_engine()->rootContext();
         if (!ctx)
             return;
+        // MauiShell.__mauiDrainAll reads every model page; the inline form (top page + app queue) is the fallback.
         g.drain_expr = new QQmlExpression(ctx, g.root, QStringLiteral(
-            "(function(){var p=pageStack&&pageStack.currentPage;var out=null;"
+            "(function(){if(typeof __mauiDrainAll==='function')return __mauiDrainAll();"
+            "var p=pageStack&&pageStack.currentPage;var out=null;"
             "if(p&&p.__mauiQueue&&p.__mauiQueue.length)out=p.__mauiDrain();"
             // app service queue (MauiShell), independent of the page
             "if(typeof __mauiAppQueue!=='undefined'&&__mauiAppQueue.length)out=(out||[]).concat(__mauiAppDrain());"
@@ -725,7 +743,7 @@ static QObject *require_handle(long long handle)
 {
     QObject *obj = resolve_handle(handle);
     if (!obj)
-        g.error = QStringLiteral("dead or unknown object handle %1").arg(handle).toUtf8().constData();
+        set_error(QStringLiteral("dead or unknown object handle %1").arg(handle).toUtf8().constData());
     return obj;
 }
 
@@ -786,8 +804,8 @@ bool json_value_to_variant(const QJsonValue &v, QObject *obj, const char *name, 
             const QMetaEnum me = prop.enumerator();
             const int key = me.keyToValue(v.toString().toUtf8().constData());
             if (key < 0) {
-                g.error = std::string("unknown enum key '")
-                        + v.toString().toUtf8().constData() + "' for " + name;
+                set_error(std::string("unknown enum key '")
+                        + v.toString().toUtf8().constData() + "' for " + name);
                 return false;
             }
             *out = key;
@@ -818,7 +836,7 @@ bool json_value_to_variant(const QJsonValue &v, QObject *obj, const char *name, 
     case QMetaType::QColor: {
         const QColor color = parse_color(v.toString());
         if (!color.isValid()) {
-            g.error = std::string("invalid color for ") + name;
+            set_error(std::string("invalid color for ") + name);
             return false;
         }
         *out = color;
@@ -875,7 +893,7 @@ bool json_value_to_variant(const QJsonValue &v, QObject *obj, const char *name, 
                 : static_cast<qlonglong>(v.toDouble());
         QObject *ref = ref_handle ? resolve_handle(ref_handle) : nullptr;
         if (!ref) {
-            g.error = std::string("unknown object handle in identity value for ") + name;
+            set_error(std::string("unknown object handle in identity value for ") + name);
             return false;
         }
         *out = QVariant::fromValue(ref);
@@ -885,7 +903,7 @@ bool json_value_to_variant(const QJsonValue &v, QObject *obj, const char *name, 
         // Dynamic properties (QML var) and other types: generic conversion.
     *out = v.toVariant();
     if (!out->isValid())
-        g.error = std::string("cannot convert value for ") + name;
+        set_error(std::string("cannot convert value for ") + name);
     return out->isValid();
 }
 
@@ -1120,15 +1138,15 @@ void install_http_cache(QQmlEngine *engine)
 int load_common(const char *qml_path, const char *props_json, bool silica_window)
 {
     if (!g.app) {
-        g.error = "sailfish_host_init() was not called";
+        set_error("sailfish_host_init() was not called");
         return -1;
     }
     if (g.view || g.root) {
-        g.error = "QML already loaded";
+        set_error("QML already loaded");
         return -1;
     }
     if (!qml_path || !qml_path[0]) {
-        g.error = "empty qml_path";
+        set_error("empty qml_path");
         return -1;
     }
 
@@ -1154,9 +1172,9 @@ int load_common(const char *qml_path, const char *props_json, bool silica_window
         const QList<QQmlError> list = view->errors();
         for (const QQmlError &e : list)
             errs += e.toString() + QLatin1Char('\n');
-        g.error = errs.toUtf8().constData();
+        set_error(errs.toUtf8().constData());
         log_line(2, QStringLiteral("qml errors:\n%1").arg(errs));
-        return -2;
+        return SFHOST_E_LOAD;
     }
 
     g.root = view->rootObject();
@@ -1207,7 +1225,7 @@ void shutdown_teardown(void *)
     // deleteLater so DeferredDelete runs before the queued quit.
     if (g.exec_timer) { g.exec_timer->stop(); g.exec_timer->deleteLater(); g.exec_timer = nullptr; }
     if (g.drain_timer) { g.drain_timer->stop(); g.drain_timer->deleteLater(); g.drain_timer = nullptr; }
-    if (g.receiver)   { g.receiver->deleteLater(); g.receiver = nullptr; }
+    if (QObject *receiver = g.receiver.exchange(nullptr, std::memory_order_acq_rel)) receiver->deleteLater();   // unpublished first: posts from other threads stop
     // The compiled drain dies with its engine context; log the final perf report.
     sample_cpu_rss();
     if (g.perf_sampler) { g.perf_sampler->stop(); g.perf_sampler->deleteLater(); g.perf_sampler = nullptr; }
@@ -1238,7 +1256,7 @@ void shutdown_teardown(void *)
     g.frame_fn = nullptr; g.frame_user = nullptr;
     g.surface_touch_fn = nullptr; g.surface_touch_user = nullptr;
     // Input filter.
-    if (g.input_filter) { g.app->removeEventFilter(g.input_filter); g.input_filter->deleteLater(); g.input_filter = nullptr; }
+    if (g.input_filter) { g.app.load()->removeEventFilter(g.input_filter); g.input_filter->deleteLater(); g.input_filter = nullptr; }
     // The view owns the engine, which owns root and its window, so deleteLater cascades.
     // g.root/g.window are borrowed and cleared first; the handle registry goes with the QML layer.
     g.root = nullptr; g.window = nullptr;
@@ -1357,8 +1375,8 @@ int sailfish_host_init(const char *app_name, sfhost_log_fn log, void *log_user)
     g.argv[0] = g.argv0;
     g.app = SailfishApp::application(g.argc, g.argv);
     if (!g.app) {
-        g.error = "SailfishApp::application() returned null";
-        log_line(2, QString::fromStdString(g.error));
+        set_error("SailfishApp::application() returned null");
+        log_line(2, QString::fromStdString(error_text()));
         return -1;
     }
     QGuiApplication::setApplicationName(QString::fromUtf8(g.argv0));
@@ -1391,22 +1409,25 @@ int sailfish_host_init(const char *app_name, sfhost_log_fn log, void *log_user)
         trace_file_line("[Sailfish] EXIT trap: lastWindowClosed");
     });
     // Host creation waits for Qt.application.state == Active, and a mid-session drop to
-    // Inactive stalls pushes, so trace every transition.
+    // Inactive stalls pushes, so trace every transition. Managed hears the state from MauiShell.qml
+    // (svc-app-state, its only source), not from here.
     QObject::connect(g.app, &QGuiApplication::applicationStateChanged,
                      [](Qt::ApplicationState st) {
                          char buf[64];
                          snprintf(buf, sizeof buf,
                                   "[Sailfish] TRACE appState=%d", int(st));
                          trace_file_line(buf);
-                         snprintf(buf, sizeof buf, "{\"state\":%d}", int(st));
-                         if (g.event_fn)
-                             g.event_fn("svc-app-state", buf, g.event_user);
                      });
     log_line(0, QStringLiteral("init ok qt=%1 app=%2 pid=%3")
                     .arg(QLatin1String(qVersion()))
                     .arg(QString::fromUtf8(g.argv0))
                     .arg(QGuiApplication::applicationPid()));
     return 0;
+}
+
+int sailfish_host_abi_version(void)
+{
+    return SFHOST_ABI_VERSION;
 }
 
 int sailfish_host_load(const char *qml_path)
@@ -1430,7 +1451,7 @@ int sailfish_host_show(void)
         w = g.window;
     }
     if (!w) {
-        g.error = "no window to show (call load or load_window first)";
+        set_error("no window to show (call load or load_window first)");
         return -1;
     }
     g.window = w;
@@ -1476,7 +1497,7 @@ int sailfish_host_exec(sfhost_tick_fn tick, void *tick_user, int tick_ms)
     if (g.shutdown)
         return 0;   // the loop never restarts after teardown
     if (!g.app || (!g.view && !g.root)) {
-        g.error = "init/load must be called before exec";
+        set_error("init/load must be called before exec");
         return -1;
     }
     g.tick = tick;
@@ -1527,7 +1548,7 @@ int sailfish_host_exec(sfhost_tick_fn tick, void *tick_user, int tick_ms)
     }
     log_line(0, QStringLiteral("entering event loop (tick_ms=%1)\n%2")
                     .arg(tick_ms).arg(describe_windows()));
-    const int rc = g.app->exec();
+    const int rc = g.app.load()->exec();
     log_line(0, QStringLiteral("event loop exited rc=%1 ticks=%2 pointerEvents=%3")
                     .arg(rc).arg(g.ticks).arg(g.pointer_events));
     return rc;
@@ -1535,32 +1556,37 @@ int sailfish_host_exec(sfhost_tick_fn tick, void *tick_user, int tick_ms)
 
 void sailfish_host_quit(void)
 {
-    if (!g.app || !g.receiver)
+    // Any thread: each shared field is loaded once; shutdown_teardown runs on the Qt thread via PostEvent.
+    QObject *receiver = g.receiver.load(std::memory_order_acquire);
+    if (!g.app.load(std::memory_order_acquire) || !receiver)
         return;
-    // Thread-safe; shutdown_teardown runs on the Qt thread via PostEvent.
-    QCoreApplication::postEvent(g.receiver, new PostEvent(shutdown_teardown, nullptr));
+    QCoreApplication::postEvent(receiver, new PostEvent(shutdown_teardown, nullptr));
 }
 
 int sailfish_host_wake(int delay_ms)
 {
-    if (g.shutdown || !g.app)
+    // Any thread: each shared field is loaded once.
+    QGuiApplication *app = g.app.load(std::memory_order_acquire);
+    if (g.shutdown.load(std::memory_order_acquire) || !app)
         return 0;
     if (delay_ms < 0)
         delay_ms = 0;
-    if (QThread::currentThread() == g.app->thread())
+    if (QThread::currentThread() == app->thread())
         wake_on_qt(delay_ms);
-    else if (g.receiver)
-        QCoreApplication::postEvent(g.receiver, new PostEvent(&wake_cb, reinterpret_cast<void *>(static_cast<intptr_t>(delay_ms))));
+    else if (QObject *receiver = g.receiver.load(std::memory_order_acquire))
+        QCoreApplication::postEvent(receiver, new PostEvent(&wake_cb, reinterpret_cast<void *>(static_cast<intptr_t>(delay_ms))));
     return 0;
 }
 
 int sailfish_host_post(sfhost_void_fn fn, void *user_data)
 {
-    if (!g.app || !g.receiver || !fn || g.shutdown) {   // no new work after teardown
-        ++g.posts_rejected;
+    // Any thread: each shared field is loaded once.
+    QObject *receiver = g.receiver.load(std::memory_order_acquire);
+    if (!g.app.load(std::memory_order_acquire) || !receiver || !fn || g.shutdown.load(std::memory_order_acquire)) {
+        ++g.posts_rejected;   // no new work after teardown
         return fail_args("sailfish_host_post");   // managed frees its GCHandle trampoline
     }
-    QCoreApplication::postEvent(g.receiver, new PostEvent(fn, user_data));
+    QCoreApplication::postEvent(receiver, new PostEvent(fn, user_data));
     ++g.posts_queued;
     return 0;
 }
@@ -1589,7 +1615,7 @@ int sailfish_host_set_context_string(const char *name, const char *value)
 int sailfish_host_push_page(const char *qml_path, const char *props_json, int immediate)
 {
     if (!qml_path || !qml_path[0]) {
-        g.error = "empty qml_path";
+        set_error("empty qml_path");
         return -1;
     }
     ++g.pushes;
@@ -1602,7 +1628,7 @@ int sailfish_host_push_page(const char *qml_path, const char *props_json, int im
                                           : QStringLiteral("Animated"));
     QString result;
     if (!eval_js(js, &result))
-        return -2;
+        return SFHOST_E_JS;
     log_line(0, QStringLiteral("push %1 immediate=%2 -> %3")
                     .arg(QString::fromUtf8(qml_path))
                     .arg(immediate ? 1 : 0)
@@ -1619,7 +1645,7 @@ int sailfish_host_pop_page(int immediate)
         : QStringLiteral("pageStack.pop()");
     QString result;
     if (!eval_js(js, &result))
-        return -2;
+        return SFHOST_E_JS;
     log_line(0, QStringLiteral("pop immediate=%1 -> %2")
                     .arg(immediate ? 1 : 0).arg(result));
     return 0;
@@ -1630,7 +1656,7 @@ int sailfish_host_eval(const char *expression, char *out, int cap)
     if (out && cap > 0)
         out[0] = '\0';
     if (!expression || !expression[0]) {
-        g.error = "empty expression";
+        set_error("empty expression");
         return -1;
     }
     ++g.evals;
@@ -1638,8 +1664,36 @@ int sailfish_host_eval(const char *expression, char *out, int cap)
         ++g.ops_evals;
     QString result;
     if (!eval_js(QString::fromUtf8(expression), &result))
-        return -2;
+        return SFHOST_E_JS;
     const QByteArray utf = result.toUtf8();
+    copy_out(utf, out, cap);
+    return utf.size();
+}
+
+int sailfish_host_invoke(long long handle, const char *method, const char *arg, char *out, int cap)
+{
+    if (out && cap > 0)
+        out[0] = '\0';
+    if (!method || !method[0] || g.shutdown)
+        return fail_args("sailfish_host_invoke");
+    QObject *obj = require_handle(handle);
+    if (!obj)
+        return SFHOST_E_DEAD_HANDLE;
+    ++g.invokes;
+    if (std::strcmp(method, "applyMauiOps") == 0)
+        ++g.ops_evals;
+    // A QML function is a QVariant f(QVariant...) slot of the object's meta object.
+    QVariant ret;
+    const bool ok = arg
+        ? QMetaObject::invokeMethod(obj, method, Qt::DirectConnection, Q_RETURN_ARG(QVariant, ret),
+                                    Q_ARG(QVariant, QVariant(QString::fromUtf8(arg))))
+        : QMetaObject::invokeMethod(obj, method, Qt::DirectConnection, Q_RETURN_ARG(QVariant, ret));
+    if (!ok) {
+        set_error(std::string("invoke: no method ") + method + (arg ? "(arg)" : "()") + " on "
+                  + obj->metaObject()->className());
+        return SFHOST_E_PROPERTY;
+    }
+    const QByteArray utf = ret.toString().toUtf8();
     copy_out(utf, out, cap);
     return utf.size();
 }
@@ -1670,14 +1724,14 @@ int sailfish_host_screen_info(char *buf, int cap)
     if (buf && cap > 0)
         buf[0] = '\0';
     if (g.shutdown) {
-        g.error = "screen_info: host is shutting down";
+        set_error("screen_info: host is shutting down");
         return -1;
     }
     attach_window("screen_info"); // idempotent; the window may not exist yet
     QWindow *w = g.window;
     QScreen *screen = w ? w->screen() : QGuiApplication::primaryScreen();
     if (!w && !screen) {
-        g.error = "screen_info: no window and no screen";
+        set_error("screen_info: no window and no screen");
         return -1;
     }
     QJsonObject root;
@@ -1725,12 +1779,8 @@ void sailfish_host_set_event_callback(sfhost_event_fn fn, void *user_data)
     g.event_user = user_data;
     log_line(0, QStringLiteral("event callback: %1")
                     .arg(fn ? QStringLiteral("yes") : QStringLiteral("no")));
-    // The state settles while the window loads and shows, before this callback exists: report where it is now.
-    if (fn && g.app) {
-        char buf[32];
-        snprintf(buf, sizeof buf, "{\"state\":%d}", int(QGuiApplication::applicationState()));
-        fn("svc-app-state", buf, user_data);
-    }
+    // The state at startup reaches managed from MauiShell.qml (Component.onCompleted queues svc-app-state, drained
+    // once this callback exists).
 }
 
 void sailfish_host_inject_pointer(int kind, double x, double y)
@@ -1772,17 +1822,17 @@ int sailfish_host_grab_png(const char *path)
 {
     QQuickWindow *qw = qobject_cast<QQuickWindow *>(g.window);
     if (!qw || !path || !path[0]) {
-        g.error = "no QQuickWindow to grab or empty path";
+        set_error("no QQuickWindow to grab or empty path");
         return -1;
     }
     ++g.grabs;   // diagnostics only; must stay 0 in production
     const QImage img = qw->grabWindow();
     if (img.isNull()) {
-        g.error = "grabWindow() returned a null image";
+        set_error("grabWindow() returned a null image");
         return -1;
     }
     if (!img.save(QString::fromUtf8(path), "PNG")) {
-        g.error = std::string("could not save grab to ") + path;
+        set_error(std::string("could not save grab to ") + path);
         return -1;
     }
     log_line(0, QStringLiteral("grabbed scene %1x%2 -> %3")
@@ -1818,14 +1868,14 @@ int sailfish_host_record_start(const char *dir, int fps, int scale_pct)
 {
     QQuickWindow *qw = qobject_cast<QQuickWindow *>(g.window);
     if (!qw || !dir || !dir[0]) {
-        g.error = "record: no QQuickWindow or empty directory";
+        set_error("record: no QQuickWindow or empty directory");
         return -1;
     }
     if (g_rec.conn)
         QObject::disconnect(g_rec.conn);
     const QString path = QString::fromUtf8(dir);
     if (!QDir().mkpath(path)) {
-        g.error = "record: cannot create the directory";
+        set_error("record: cannot create the directory");
         return -1;
     }
     g_rec.dir = path;
@@ -1881,12 +1931,12 @@ int sailfish_host_register_font(const char *path, char *out, int cap)
     if (out && cap > 0)
         out[0] = '\0';
     if (!path || !path[0]) {
-        g.error = "empty font path";
+        set_error("empty font path");
         return -1;
     }
     const int id = QFontDatabase::addApplicationFont(QString::fromUtf8(path));
     if (id < 0) {
-        g.error = std::string("QFontDatabase rejected font ") + path;
+        set_error(std::string("QFontDatabase rejected font ") + path);
         return -1;
     }
     const QStringList families = QFontDatabase::applicationFontFamilies(id);
@@ -1900,7 +1950,7 @@ int sailfish_host_render_glyph(const char *family, const char *text, double px,
                                const char *color, const char *out_path)
 {
     if (!text || !text[0] || !out_path || !out_path[0] || px <= 0) {
-        g.error = "render_glyph: empty text/path or non-positive size";
+        set_error("render_glyph: empty text/path or non-positive size");
         return -1;
     }
     QFont font = (family && family[0]) ? QFont(QString::fromUtf8(family)) : QFont();
@@ -1920,7 +1970,7 @@ int sailfish_host_render_glyph(const char *family, const char *text, double px,
     painter.drawText(QRectF(0, 0, w, h), Qt::AlignCenter, glyph);
     painter.end();
     if (!img.save(QString::fromUtf8(out_path), "PNG")) {
-        g.error = std::string("render_glyph: could not save ") + out_path;
+        set_error(std::string("render_glyph: could not save ") + out_path);
         return -1;
     }
     return 0;
@@ -1932,12 +1982,12 @@ long long sailfish_host_find_object(const char *object_name)
         return 0;
     ++g.find_objects;
     if (!g.root) {
-        g.error = "no QML root object (call load/load_window first)";
+        set_error("no QML root object (call load/load_window first)");
         return 0;
     }
     QObject *obj = g.root->findChild<QObject *>(QString::fromUtf8(object_name));
     if (!obj) {
-        g.error = std::string("object not found: ") + object_name;
+        set_error(std::string("object not found: ") + object_name);
         return 0;
     }
     return register_handle(obj);
@@ -1952,13 +2002,13 @@ long long sailfish_host_find_visual(long long parent, const char *object_name)
     ++g.find_objects;
     QObject *base = parent ? resolve_handle(parent) : static_cast<QObject *>(g.root);
     if (!base) {
-        g.error = parent ? "find_visual: dead or unknown parent handle"
-                         : "no QML root object (call load/load_window first)";
+        set_error(parent ? "find_visual: dead or unknown parent handle"
+                         : "no QML root object (call load/load_window first)");
         return 0;
     }
     QQuickItem *rootItem = qobject_cast<QQuickItem *>(base);
     if (!rootItem) {
-        g.error = "find_visual: parent is not a QQuickItem";
+        set_error("find_visual: parent is not a QQuickItem");
         return 0;
     }
     const QString name = QString::fromUtf8(object_name);
@@ -1970,7 +2020,7 @@ long long sailfish_host_find_visual(long long parent, const char *object_name)
             return register_handle(cur);
         queue.append(cur->childItems());
     }
-    g.error = std::string("object not found visually: ") + object_name;
+    set_error(std::string("object not found visually: ") + object_name);
     return 0;
 }
 
@@ -2014,7 +2064,7 @@ int sailfish_host_set_property(long long handle, const char *name, const char *v
         return SFHOST_E_DEAD_HANDLE;
     QJsonValue json;
     if (!json_parse_value(value_json, &json)) {
-        g.error = "property value must be valid JSON";
+        set_error("property value must be valid JSON");
         return -1;
     }
     if (apply_generic_prop(obj, QByteArray(name), json))
@@ -2023,7 +2073,7 @@ int sailfish_host_set_property(long long handle, const char *name, const char *v
     if (!json_value_to_variant(json, obj, name, &value))
         return -1;
     if (!obj->setProperty(name, value)) {
-        g.error = std::string("no such property: ") + name;
+        set_error(std::string("no such property: ") + name);
         return -2;
     }
     if (qstrcmp(name, "mauiLetterSpacing") == 0)
@@ -2052,10 +2102,11 @@ static void apply_background_fill(QObject *obj, const QColor &color)
         QQmlEngine *engine = qmlEngine(obj);
         if (!engine)
             return;
-        static QHash<QQmlEngine *, QQmlComponent *> components;
+        // Engine-owned and weakly held: a component of a destroyed engine reads as null and is made again.
+        static QHash<QQmlEngine *, QPointer<QQmlComponent>> components;
         QQmlComponent *component = components.value(engine);
         if (!component) {
-            component = new QQmlComponent(engine);
+            component = new QQmlComponent(engine, engine);
             component->setData("import QtQuick 2.6\nRectangle { objectName: \"mauiBackgroundFill\"; anchors.fill: parent; z: -1000 }\n", QUrl());
             components.insert(engine, component);
         }
@@ -2177,7 +2228,7 @@ static void apply_item_matrix(QObject *obj, const QJsonValue &value)
         QQmlEngine *engine = qmlEngine(item) ? qmlEngine(item) : current_engine();
         if (!engine)
             return;
-        static QHash<QQmlEngine *, QQmlComponent *> components;
+        static QHash<QQmlEngine *, QPointer<QQmlComponent>> components;   // engine-owned, weakly held
         QQmlComponent *component = components.value(engine);
         if (!component) {
             component = new QQmlComponent(engine, engine);
@@ -2289,7 +2340,7 @@ int sailfish_host_apply_props(long long handle, const char *props_json)
     QJsonParseError perr;
     const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(props_json), &perr);
     if (perr.error != QJsonParseError::NoError || !doc.isArray()) {
-        g.error = "apply_props: expected an ordered JSON array of {name,value}";
+        set_error("apply_props: expected an ordered JSON array of {name,value}");
         return -1;
     }
     // An array keeps order (unlike QJsonObject): the mauiApplying true...false envelope must
@@ -2339,7 +2390,7 @@ int sailfish_host_apply_props(long long handle, const char *props_json)
         }
     }
     if (failed)
-        g.error = "apply_props failures: " + details;
+        set_error("apply_props failures: " + details);
     g.props_applied += arr.size() - failed;
     return failed;
 }
@@ -2375,7 +2426,7 @@ int sailfish_host_get_property(long long handle, const char *name, char *out, in
                 }
             }
             if (!value.isValid()) {
-                g.error = std::string("no such property: ") + name;
+                set_error(std::string("no such property: ") + name);
                 return -2;
             }
         }
@@ -2383,7 +2434,7 @@ int sailfish_host_get_property(long long handle, const char *name, char *out, in
         value = obj->property(name);
     }
     if (!value.isValid()) {
-        g.error = std::string("no such property: ") + name;
+        set_error(std::string("no such property: ") + name);
         return -2;
     }
     QString text;
@@ -2428,7 +2479,7 @@ int sailfish_host_item_geometry(long long handle, double *x, double *y, double *
         return SFHOST_E_DEAD_HANDLE;
     QQuickItem *item = qobject_cast<QQuickItem *>(obj);
     if (!item) {
-        g.error = "handle is not a QQuickItem";
+        set_error("handle is not a QQuickItem");
         return -2;
     }
     const QPointF scene = item->mapToScene(QPointF(0, 0));
@@ -2446,13 +2497,13 @@ int sailfish_host_set_parent_item(long long handle, long long parent)
     QObject *obj = resolve_handle(handle);
     QObject *parentObj = resolve_handle(parent);
     if (!obj || !parentObj) {
-        g.error = QStringLiteral("dead or unknown object handle %1/%2").arg(handle).arg(parent).toUtf8().constData();
+        set_error(QStringLiteral("dead or unknown object handle %1/%2").arg(handle).arg(parent).toUtf8().constData());
         return -3;
     }
     QQuickItem *item = qobject_cast<QQuickItem *>(obj);
     QQuickItem *parentItem = qobject_cast<QQuickItem *>(parentObj);
     if (!item || !parentItem) {
-        g.error = "handle is not a QQuickItem";
+        set_error("handle is not a QQuickItem");
         return -2;
     }
     if (item->parentItem() != parentItem)
@@ -2469,7 +2520,7 @@ int sailfish_host_apply_geometry(const char *geo_json)
     QJsonParseError perr;
     const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(geo_json), &perr);
     if (perr.error != QJsonParseError::NoError || !doc.isArray()) {
-        g.error = "apply_geometry: expected a JSON array of {handle,x,y,w,h,vis}";
+        set_error("apply_geometry: expected a JSON array of {handle,x,y,w,h,vis}");
         return -1;
     }
     int failed = 0;
@@ -2512,7 +2563,7 @@ int sailfish_host_apply_geometry(const char *geo_json)
         item->setVisible(o.value(QStringLiteral("vis")).toInt(1) != 0);
     }
     if (failed)
-        g.error = "apply_geometry failures: " + details;
+        set_error("apply_geometry failures: " + details);
     return failed;
 }
 
@@ -2547,7 +2598,7 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
     QJsonParseError perr;
     const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(json), &perr);
     if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-        g.error = "measure_text: expected a JSON object";
+        set_error("measure_text: expected a JSON object");
         return -1;
     }
     const QJsonObject o = doc.object();
@@ -2677,7 +2728,7 @@ long long sailfish_host_tick_count(void)
 int sailfish_host_diag_app_state(int state, int activate)
 {
     if (g.shutdown || !g.app) {
-        g.error = "diag_app_state: host is down (teardown)";
+        set_error("diag_app_state: host is down (teardown)");
         return -1;
     }
     // Same QPA path lipstick/Wayland use to drive app state and window activation.
@@ -2742,7 +2793,7 @@ int sailfish_host_perf_stats(char *buf, int cap)
         "\"injects\":%31,\"destroys\":%32,\"shutdown\":%33,\"geometryReads\":%34,"
         "\"surfaceCommits\":%35,\"surfaceCommitUs\":%36,\"surfaceUploads\":%37,\"surfaceUploadUs\":%38,"
         "\"surfaceUploadMaxUs\":%39,\"surfaceTiles\":%40,\"surfaceTouches\":%41,\"frameRequests\":%42,"
-        "\"frameCallbacks\":%43,\"surfaceMaxTexture\":%44}")
+        "\"frameCallbacks\":%43,\"surfaceMaxTexture\":%44,\"invokes\":%45}")
         .arg(uptime_ms)
         .arg(g.first_frame_ms.load())
         .arg(fr)
@@ -2786,7 +2837,8 @@ int sailfish_host_perf_stats(char *buf, int cap)
         .arg(g.surface_touches)
         .arg(g.frame_requests)
         .arg(g.frame_callbacks)
-        .arg(g.surface_max_texture.load());
+        .arg(g.surface_max_texture.load())
+        .arg(g.invokes.load());
     const QByteArray utf = json.toUtf8();
     return copy_out(utf, buf, cap);
 }
@@ -2795,8 +2847,9 @@ int sailfish_host_last_error(char *buf, int cap)
 {
     if (!buf || cap <= 0)
         return -1;
-    copy_out(QByteArray::fromStdString(g.error), buf, cap);
-    return static_cast<int>(g.error.size());
+    const std::string text = error_text();
+    copy_out(QByteArray::fromStdString(text), buf, cap);
+    return static_cast<int>(text.size());
 }
 
 // Clipboard and URL opening for managed services. Called on the MAUI main thread, which is

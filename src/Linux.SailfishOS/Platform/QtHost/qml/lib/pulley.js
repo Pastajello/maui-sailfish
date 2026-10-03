@@ -64,7 +64,7 @@ function rebuild(menu) {
             current[u].text = items[u].text || "";
             current[u].enabled = items[u].enabled !== false;
         }
-        menu.mauiEvent("pulley-items", JSON.stringify({ menu: menu.__menu, count: current.length }));
+        menu.mauiEvent("pulley-items", JSON.stringify({ id: menu.mauiId, menu: menu.__menu, count: current.length }));
         return;
     }
     for (var i = 0; i < current.length; ++i)
@@ -78,13 +78,13 @@ function rebuild(menu) {
         fresh.push(mi);
     }
     menu.__items = fresh;
-    menu.mauiEvent("pulley-items", JSON.stringify({ menu: menu.__menu, count: fresh.length }));
+    menu.mauiEvent("pulley-items", JSON.stringify({ id: menu.mauiId, menu: menu.__menu, count: fresh.length }));
 }
 
 // One closure per index; a shared loop variable would report the last index for every item.
 function picker(menu, index) {
     return function() {
-        menu.mauiEvent("toolbar-activated", JSON.stringify({ menu: menu.__menu, index: index }));
+        menu.mauiEvent("toolbar-activated", JSON.stringify({ id: menu.mauiId, menu: menu.__menu, index: index }));
     };
 }
 

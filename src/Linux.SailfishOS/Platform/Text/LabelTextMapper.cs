@@ -6,10 +6,10 @@ namespace Microsoft.Maui.SailfishOS.Platform.Text;
 /// <summary>
 /// Maps an <see cref="ILabel"/> (text or FormattedText) onto <see cref="TextSpan"/>/<see cref="TextParagraphStyle"/> for the measure pass.
 /// </summary>
-public static class LabelTextMapper
+internal static class LabelTextMapper
 {
 	/// <summary>Default label font size when neither label nor span sets one.</summary>
-	private const double DefaultFontSize = 14;
+	private const double DefaultFontSize = Handlers.SailfishMeasure.DefaultFontSize;
 
 	public static (List<TextSpan> spans, TextParagraphStyle paragraph) Map(ILabel label)
 	{

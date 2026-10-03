@@ -65,6 +65,10 @@ public sealed class NativeElementHost
 
 	internal void RaiseAttached() => Attached?.Invoke(this);
 
+	/// <summary>Focus asked for before the QML object existed (Focus() right after adding the view); replayed when the
+	/// object attaches. Null = no request pending.</summary>
+	internal bool? PendingFocus { get; set; }
+
 	/* --- Geometry --- */
 
 	/// <summary>The element's absolute rectangle in root space (page content area, dp).</summary>

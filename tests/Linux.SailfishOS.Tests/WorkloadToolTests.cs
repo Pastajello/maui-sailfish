@@ -32,5 +32,14 @@ public class WorkloadToolTests
 
 	[Fact]
 	public void PackVersion_reads_the_backend_pack() =>
-		Assert.Equal("0.1.0", Program.PackVersion("""{ "version": 1, "packs": { "microsoft.maui.sailfishos": { "kind": "library", "version": "0.1.0" } } }"""));
+		Assert.Equal("9.8.7", Program.PackVersion("""{ "version": 1, "packs": { "microsoft.maui.sailfishos": { "kind": "library", "version": "9.8.7" } } }"""));
+
+	// The manifest the tool embeds is written from data/*.in with the repo's version (SailfishVersionedFiles.targets).
+	[Fact]
+	public void The_embedded_manifest_carries_the_repo_version()
+	{
+		var props = File.ReadAllText(Path.Combine(Repo.Root, "Directory.Build.props"));
+		var version = System.Text.RegularExpressions.Regex.Match(props, @"<PlatformMauiSailfishVersion[^>]*>([^<]+)<").Groups[1].Value;
+		Assert.Equal(version, Program.EmbeddedVersion());
+	}
 }

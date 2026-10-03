@@ -42,7 +42,7 @@ internal static class QtHostFonts
 		string? path = null;
 		try
 		{
-			var registrar = QtHostPageRenderer.Current?.MauiContext.Services.GetService<IFontRegistrar>();
+			var registrar = SailfishRenderSession.OfApp?.Renderer?.MauiContext.Services.GetService<IFontRegistrar>();
 			path = registrar?.GetFont(family) ?? MauiRegistrarFile(registrar, family);
 		}
 		catch (Exception ex)

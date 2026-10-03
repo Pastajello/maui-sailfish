@@ -9,7 +9,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// Serializes managed values to the JSON the shim converts against the target QML property type.
 /// Colors become "#AARRGGBB" and element hosts become <c>{"$handle":N}</c>.
 /// </summary>
-public static class BridgeValue
+internal static class BridgeValue
 {
 	/// <summary>Serializes a managed value to its bridge JSON form (raw JSON text).</summary>
 	public static string Serialize(object? value) => value switch
@@ -189,7 +189,7 @@ internal static class BridgeJson
 /// Builds one ordered property batch per host per pass, applied in a single native call.
 /// The optional <c>mauiApplying</c> true/false envelope stops adapters echoing managed changes back as events.
 /// </summary>
-public static class QtHostBridge
+internal static class QtHostBridge
 {
 	/// <summary>Name of the adapter's change-suppression flag.</summary>
 	public const string SuppressFlag = "mauiApplying";

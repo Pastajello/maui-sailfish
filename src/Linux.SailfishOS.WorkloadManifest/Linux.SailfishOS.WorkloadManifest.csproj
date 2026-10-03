@@ -19,9 +19,16 @@
     <PackageReadmeFile></PackageReadmeFile>
   </PropertyGroup>
 
+  <!-- The manifest carries the package version as text: written from data/*.in with PlatformMauiSailfishVersion. -->
+  <Import Project="SailfishVersionedFiles.targets" />
   <ItemGroup>
-    <None Include="data/WorkloadManifest.json" Pack="true" PackagePath="data/WorkloadManifest.json" />
-    <None Include="data/WorkloadManifest.targets" Pack="true" PackagePath="data/WorkloadManifest.targets" />
+    <SailfishVersioned Include="data/WorkloadManifest.json.in" TargetPath="WorkloadManifest.json" />
+    <SailfishVersioned Include="data/WorkloadManifest.targets.in" TargetPath="WorkloadManifest.targets" />
   </ItemGroup>
+  <Target Name="_SailfishPackVersionedManifest" AfterTargets="SailfishCollectVersioned" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <None Include="@(SailfishVersionedOutput)" Pack="true" PackagePath="data/%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

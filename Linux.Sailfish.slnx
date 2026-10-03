@@ -7,12 +7,16 @@
   <Folder Name="/src/">
     <Project Path="src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj" />
     <Project Path="src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
+    <Project Path="src/Linux.SailfishOS.Build.Tasks/Linux.SailfishOS.Build.Tasks.csproj" />
     <Project Path="src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
     <Project Path="src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
     <Project Path="src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" />
   </Folder>
   <Folder Name="/templates/">
     <Project Path="templates/sailfishos/SailfishOS.Templates.csproj" />
+  </Folder>
+  <Folder Name="/templates/maui-sailfish-app/">
+    <Project Path="templates/maui-sailfish-app/MauiSailfishApp.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Linux.SailfishOS.PublicApiGuard/Linux.SailfishOS.PublicApiGuard.csproj" />
