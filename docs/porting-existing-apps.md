@@ -243,6 +243,8 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - `RotationX`/`RotationY` turn the view in 3D with Android's default perspective (camera at 1280 dp), and
   `ScaleX`≠`ScaleY` or a rotation inside a scaled layout are drawn exactly. Taps on a 3D-turned view hit its
   unturned rectangle.
+- A Button's `TextColor` or `BackgroundColor` set back to `null` (or a VisualState setter that ends) returns to
+  Silica's theme colours, as clearing a colour returns the platform's own on Android.
 - `Application.OpenWindow` does nothing (a Sailfish app has one window, as an iOS app without multiple scenes) and
   logs a warning; `Application.CloseWindow` on the app's window quits the app.
 - A missing image file shows nothing, as on Android, and logs

@@ -76,7 +76,9 @@ verifies that nothing was missed (`timerWithWork`, 0 on the device matrix).
 `value-changed`, `list-item-tapped`, …) write back into MAUI under change suppression, so echoes never loop.
 
 **Collections stay native.** `CollectionView`/`ListView` ride the virtualized Silica `ListView`: QML owns
-delegates, flicking and the viewport; MAUI owns item content, selection and scroll state.
+delegates, flicking and the viewport; MAUI owns item content, selection and scroll state. Qt 5.6 destroys a delegate
+that scrolls out; its row's hosts outlive it and the next row of the same shape takes them over (the row pool,
+`QtHostListAdapter.RowPool.cs`), as RecyclerView reuses view holders.
 
 **Every change is proven on the device.** Build, deploy (`tools/sf deploy`), prove the device runs this
 build (`tools/sf verify`), run the self-verifying diagnostic leg (`tools/sf matrix <leg>`), look at a

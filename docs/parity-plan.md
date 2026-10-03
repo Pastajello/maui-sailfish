@@ -177,7 +177,7 @@ handler model aligned with MAUI net11 (stages A0–A7) is done except for a sing
 
 ## What is left
 
-As of 2026-09-28, checked against the code and git history; Navigation and Platform updated 2026-10-02. Smaller defects and platform gaps
+As of 2026-09-28, checked against the code and git history; Navigation, Platform and Performance updated 2026-10-02. Smaller defects and platform gaps
 (`OpenUrl`, MCE, `OpenFileRequest`) are in
 [`../BUG_LIST.md`](../BUG_LIST.md).
 
@@ -193,17 +193,27 @@ As of 2026-09-28, checked against the code and git history; Navigation and Platf
 **Performance** (page-load acceptance: push animation starts ≤ 150 ms after the tap with complete content,
 no empty frames, pop reveals a ready page even 2+ levels back; check with `tools/sf record … --keep DIR` +
 `tools/sf page-load DIR --max-settled 700`)
-- Going back 2+ levels: re-measure with the per-page cache (A5, LRU of 4); before it, 847 ms for two levels.
-- Idle preload of adapter QML components after the first page (`Qt.createComponent` over `adapters.json`),
-  so the first visit is as fast as the second (−50 to −300 ms).
-- Remaining Canvases (Shape with gradient/path, GraphicsView) off the GUI thread (`renderStrategy: Threaded`),
-  after checking Qt 5.6 with Mali.
-- Enter animation start ≤ 150 ms for hub rows (measured 85–304 ms); a matrix leg guarding against page-load
-  regressions.
-- MAUI animations (`FadeTo`/`TranslateTo`/`ScaleTo`) work, but every frame is a reconcile pass — no Qt-side
-  animation path.
-- CollectionView: one QML component per `DataTemplate` (F4b) instead of ~12 hosts per card (today F4a: empty
-  layout containers in rows get no host). Largest remaining gain for opening a catalog and loading more.
+- Going back 2+ levels: re-measured 2026-10-02 with the page cache (A5): a two-level pop shows the cached page in
+  37 ms to Appearing, nothing created (before the cache: 847 ms).
+- Adapter warm-up: done 2026-10-02. One shared component cache in the window (each page used to keep its own), and
+  a second after the first page the shell loads every visual adapter in the background and makes one throwaway
+  instance of each (`MauiShell.adapterPreload`; `MAUI_SAILFISH_ADAPTER_PRELOAD=0` turns it off). The first instance of
+  a kind is the cost, not the compile: a first Controls push 54–61 → 44–45 ms, the Kitchen detail 183–203 →
+  166–170 ms. A page pushed within the first second (the matrix's startup tap) still pays it.
+- Canvases off the GUI thread: measured 2026-10-02 and dropped. `renderStrategy: Canvas.Threaded` on Shape, Border and
+  GraphicsView made paints slower (shapes/visual/tree legs: 11 paints over 15 ms, 1598 ms in all, against 6 and
+  219 ms with `Immediate`): the paint is JavaScript on the GUI thread either way, and the hand-over costs more.
+- Page-load guard: leg `navback` fails when a push takes longer to Appearing than twice today's time (first
+  Statistics 300 ms, Controls 150 ms, Statistics again 120 ms). Every hub page of leg `features` reaches Appearing in
+  29–104 ms, Statistics (pushed in the first second) 170 ms.
+- MAUI animations: a transform (TranslationX/Y, Scale*, Rotation*, Anchor*) outside a list row now takes the geometry
+  pass only, without measuring and arranging the page (`SailfishViewMapper.MapTransform`). Still one managed pass per
+  frame; a Qt-side animation path (NumberAnimation driven by FadeTo/TranslateTo) is not done.
+- CollectionView row pool: done 2026-10-02 (F4b as recycling, RecyclerView's view holders). Qt 5.6 destroys a
+  delegate that scrolls out; its row subtree now outlives it (canvas-owned), waits in a per-list pool, and the next
+  row of the same shape takes it over (new ids, only the differences pushed; `MAUI_SAILFISH_ROW_POOL=0` turns it
+  off). Kitchen tour: 920 → 690 hosts created, QML ops 920 → 740 ms. A first screen of rows still creates every host;
+  one composite QML component per DataTemplate would be the next step for that.
 - Opening a page with a list (~200 ms stall in Kitchen): split into two turns (page + header first, visible rows
   in the next frame)? Saves ~80–120 ms but the list is empty for 1–2 frames of the enter animation. Needs a decision.
 
@@ -215,7 +225,7 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   for pan/swipe/tap. Wheel is not routed: Silica's flickables take it natively and the phone has none.
 - 3D transforms and non-uniform scale: since 2026-10-02 a QML Matrix4x4 on the host (`QtHostVisualState.HostMatrix`,
   Android's camera distance), exact for shear too (leg `visual` F, screenshot `visual-3d`). Left: hit-testing uses
-  the 2D footprint; Button colours reverting to Silica defaults after setting `null` is still unchecked.
+  the 2D footprint. Button colours set back to `null` return to Silica's (fixed 2026-10-02, leg `visual` D2).
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
   today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
 

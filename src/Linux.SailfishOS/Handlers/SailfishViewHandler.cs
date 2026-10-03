@@ -200,7 +200,7 @@ public static class SailfishViewMapper
 			mapper[key] = MapViewState;
 		mapper[ExcludedWithChildren] = MapExcludedWithChildren;
 		foreach (var key in GeometryKeys)
-			mapper[key] = MapGeometry;
+			mapper[key] = key is nameof(IView.Visibility) or nameof(VisualElement.IsVisible) ? MapGeometry : MapTransform;
 		mapper[nameof(VisualElement.FlowDirection)] = static (handler, view) =>
 		{
 			MapViewState(handler, view);
@@ -209,8 +209,29 @@ public static class SailfishViewMapper
 		return mapper;
 	}
 
-	/// <summary>Asks for a geometry pass.</summary>
+	/// <summary>Asks for a layout pass (visibility changes what the page measures).</summary>
 	public static void MapGeometry(IViewHandler handler, IView view) => QtHostPageRenderer.Current?.RequestLayout();
+
+	/// <summary>A transform (TranslationX/Y, Scale*, Rotation*, Anchor*) changes no measure in MAUI, so outside list
+	/// rows it asks for a geometry pass only: an animation (TranslateTo, RotateTo, ScaleTo, a spinner) moves its host
+	/// each frame without the whole page being measured and arranged. Row content is placed by its list's own pass.</summary>
+	public static void MapTransform(IViewHandler handler, IView view)
+	{
+		if (QtHostPageRenderer.Current is not { } renderer)
+			return;
+		if (view is Element element && !InListRow(element))
+			renderer.RequestScrollGeometry();
+		else
+			renderer.RequestLayout();
+	}
+
+	private static bool InListRow(Element element)
+	{
+		for (var e = element.Parent; e is not null; e = e.Parent)
+			if (e is ItemsView)
+				return true;
+		return false;
+	}
 
 	/// <summary>Pushes the element's generic view state.</summary>
 	public static void MapViewState(IViewHandler handler, IView view) =>

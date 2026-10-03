@@ -289,6 +289,18 @@ QML host creation (`sailfish_host_eval`) ~40%, `NavigationPage.PushAsync` ~23%, 
 synchronously from `SendAppearing` ~22% (the yield moved that part to the next turn). Until the seed had lookups, ~27 ms of it was the app logging the 503's
 stack trace.
 
+**Where host creation goes** (2026-10-02, Kitchen tour, `MAUI_SAILFISH_OPS_TIMING=1` logs `OPS-TIMING` per op batch):
+920 hosts, 942 ms in `applyMauiOps`, of which `createObject` 568 ms (60%), the delegate lookup by name 39 ms (4%) and
+the rest (JSON, init copy, connect, registry) ~335 ms. A first instance of an adapter kind costs several times a later
+one (first Statistics push: QML ops ~110 ms, the second 17–22 ms), which the adapter warm-up takes off later pages.
+
+| Change (2026-10-02, Kitchen tour unless noted) | Before | After |
+|---|---|---|
+| Row pool (detached rows' hosts reused) | 920 hosts, QML ops ~920 ms | 690 hosts, ~740 ms |
+| Adapter warm-up, first Controls push (leg `navback`) | 54–61 ms to Appearing | 44–45 ms |
+| Adapter warm-up, detail stall | 183–203 ms | 166–170 ms |
+| Threaded canvases (shapes/visual/tree legs, dropped) | 6 slow paints, 219 ms | 11 slow paints, 1598 ms |
+
 ## 7. Next steps
 
 1. `tools/sf qml-profile` together with the tunnel and waiting for the port as a single script (today

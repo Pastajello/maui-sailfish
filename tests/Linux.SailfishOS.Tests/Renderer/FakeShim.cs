@@ -20,6 +20,7 @@ internal sealed class FakeShim : IQtHostShim
 		public NativeGeometry Geometry { get; set; }
 		public bool Visible { get; set; } = true;
 		public bool Destroyed { get; set; }
+		public long ParentHandle { get; set; }   // the last SetParentItem
 
 		public string? Text(string prop) =>
 			Props.TryGetValue(prop, out var v) ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString()) : null;
@@ -234,7 +235,13 @@ internal sealed class FakeShim : IQtHostShim
 		return false;
 	}
 
-	public bool SetParentItem(long handle, long parent) => _byHandle.ContainsKey(handle);
+	public bool SetParentItem(long handle, long parent)
+	{
+		if (!_byHandle.TryGetValue(handle, out var o))
+			return false;
+		o.ParentHandle = parent;
+		return true;
+	}
 
 	public int ApplyGeometry(string geoJson)
 	{

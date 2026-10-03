@@ -776,13 +776,14 @@ public sealed partial class QtHostPageRenderer
 	internal static Dictionary<string, object?> ButtonProps(Button button)
 	{
 		var buttonProps = new Dictionary<string, object?> { ["text"] = button.Text ?? string.Empty };
-		// Silica Button takes the label color in `color` and the plate tint in `backgroundColor`; only set values
-		// cross (the bridge has no "back to default" push).
-		if (button.TextColor is { } buttonLabelColor)
-			buttonProps["color"] = buttonLabelColor;
-		// An explicit transparent plate crosses too: the app is asking for no plate.
-		if (HasExplicitBackground(button))
-			buttonProps["backgroundColor"] = EffectiveBackground(button);
+		// The label colour and the plate tint, with whether the app set them: unset hands Silica's own colours back,
+		// so clearing a colour (TextColor = null, a VisualState setter that ends) restores the theme. An explicit
+		// transparent plate is set too: the app is asking for no plate.
+		buttonProps["mauiTextColor"] = button.TextColor ?? Colors.Transparent;
+		buttonProps["mauiTextColorSet"] = button.TextColor is not null;
+		var plateSet = HasExplicitBackground(button);
+		buttonProps["mauiPlateColor"] = plateSet ? EffectiveBackground(button) : Colors.Transparent;
+		buttonProps["mauiPlateSet"] = plateSet;
 		// Other styling crosses only when set, so the Silica look stays (MAUI's default FontSize would otherwise
 		// override Theme.fontSizeMedium).
 		AddFont(buttonProps, button, Button.FontSizeProperty, button.FontSize, button.FontFamily,

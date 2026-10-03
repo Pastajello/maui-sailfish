@@ -218,6 +218,68 @@ ApplicationWindow {
         mauiOpsApplied += n;
     }
 
+    // Adapter components, shared by every page (each page used to load its own) and preloaded in the background
+    // once the first page shows (mauiPreloadAdapters): a page's first host of a kind no longer compiles its adapter.
+    property var __adapterComps: ({})
+    property var __preloadQueue: []
+    property int mauiAdaptersPreloaded: 0
+    function mauiComponentFor(src) {
+        var comp = __adapterComps[src];
+        if (comp && comp.status === Component.Error) {
+            console.error("ADAPTER load failed src=" + src + ": " + comp.errorString());
+            comp = null;
+            __adapterComps[src] = null;
+        }
+        // Not loaded yet, or still loading in the background: a synchronous load finishes it now.
+        if (comp === undefined || (comp && comp.status === Component.Loading)) {
+            comp = Qt.createComponent(Qt.resolvedUrl(src));
+            if (comp.status === Component.Error) {
+                console.error("ADAPTER load failed src=" + src + ": " + comp.errorString());
+                comp = null;
+            } else {
+                console.log("ADAPTER loaded src=" + src);
+            }
+            __adapterComps[src] = comp;
+        }
+        return comp;
+    }
+    function mauiPreloadAdapters(json) {
+        __preloadQueue = JSON.parse(json);
+        adapterPreload.start();
+    }
+    // One adapter per tick: loaded asynchronously (Qt's type loader compiles off the GUI thread), then one throwaway
+    // instance off screen, since the first instance of a kind is what costs (Silica's own types load, bindings warm
+    // up): a page's first Statistics-like push spent ~110 ms in QML ops against ~22 ms on the second visit.
+    Item { id: __warmHolder; visible: false; width: 0; height: 0 }
+    Timer {
+        id: adapterPreload
+        interval: 40
+        repeat: true
+        onTriggered: {
+            while (window.__preloadQueue.length > 0) {
+                var src = window.__preloadQueue[0];
+                var comp = window.__adapterComps[src];
+                if (comp === undefined) {
+                    window.__adapterComps[src] = Qt.createComponent(Qt.resolvedUrl(src), Component.Asynchronous);
+                    return;   // instantiated on a later tick, once loaded
+                }
+                if (comp && comp.status === Component.Loading)
+                    return;
+                window.__preloadQueue.shift();
+                if (comp && comp.status === Component.Ready && window.__warmed[src] !== true) {
+                    window.__warmed[src] = true;
+                    var o = comp.createObject(__warmHolder, { mauiId: "warm" });
+                    if (o)
+                        o.destroy();
+                    window.mauiAdaptersPreloaded++;
+                    return;
+                }
+            }
+            stop();
+        }
+    }
+    property var __warmed: ({})
+
     function registerMauiPage(p) {
         if (mauiPages.indexOf(p) < 0)
             mauiPages.push(p);

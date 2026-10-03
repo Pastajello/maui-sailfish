@@ -252,6 +252,41 @@ public class RendererTests
 		Assert.Equal((1L, 1L), (bridge.RowsPooled, bridge.RowsAdopted));
 	}
 
+	// A grid row holds a subtree per cell: every cell root joins the new delegate (only the first did, and the second
+	// column of every pooled row stayed off screen).
+	[Fact]
+	public void A_pooled_grid_row_puts_every_cell_into_the_new_delegate()
+	{
+		var list = new CollectionView
+		{
+			ItemsSource = Enumerable.Range(0, 20).Select(i => $"item {i}").ToArray(),
+			ItemsLayout = new GridItemsLayout(2, ItemsLayoutOrientation.Vertical),
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var label = new Label();
+				label.SetBinding(Label.TextProperty, ".");
+				return new Border { Padding = 8, Content = label };
+			}),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(Page(list));
+		var native = h.Shim.ByUri("list-view").Single();
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var dg0 = $"maui_{native.Id}__r0";
+		h.Shim.AddNative(dg0);
+		h.Renderer.HandleNativeEvent("list-item-attached", $"{{\"id\":\"{native.Id}\",\"row\":0,\"dg\":\"{dg0}\"}}");
+		h.Renderer.HandleNativeEvent("list-item-detached", $"{{\"id\":\"{native.Id}\",\"dg\":\"{dg0}\"}}");
+		var dg5 = h.Shim.AddNative($"maui_{native.Id}__r5");
+		h.Renderer.HandleNativeEvent("list-item-attached", $"{{\"id\":\"{native.Id}\",\"row\":5,\"dg\":\"{dg5.Id}\"}}");
+
+		Assert.Equal(1L, h.Renderer.Collection.RowsAdopted);
+		var borders = h.Shim.ByUri("border").Where(o => !o.Destroyed).ToList();
+		Assert.Equal(2, borders.Count);   // the two cells, reused
+		Assert.All(borders, b => Assert.Equal(dg5.Handle, b.ParentHandle));
+		Assert.Equal(new[] { "item 10", "item 11" }, h.Shim.ByUri("label").Where(o => !o.Destroyed).Select(o => o.Text("text")).OrderBy(t => t));
+	}
+
 	[Fact]
 	public void Grid_tap_selects_the_touched_cell_not_the_row()
 	{

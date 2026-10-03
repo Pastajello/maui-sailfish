@@ -135,8 +135,10 @@ internal sealed partial class QtHostListAdapter
 					props.TryGetValue(hosts[i], out var p) ? p : new());
 				_renderer.RegisterRoute(hosts[i].Id, hosts[i]);
 			}
-			if (!QtHostRuntime.SetParentItem(hosts[0].NativeHandle, dg.Handle))
-				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"pooled row root {hosts[0]} could not join '{dg.Obj}': {QtHostRuntime.LastErrorText}");
+			// Every cell root of the row (a grid row holds several) joins the delegate; nested hosts ride their parents.
+			foreach (var root in hosts.Where(h => h.Parent is null))
+				if (!QtHostRuntime.SetParentItem(root.NativeHandle, dg.Handle))
+					QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"pooled row root {root} could not join '{dg.Obj}': {QtHostRuntime.LastErrorText}");
 			_bridge.RowsAdopted++;
 			return true;
 		}

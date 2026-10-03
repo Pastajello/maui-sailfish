@@ -803,6 +803,8 @@ public sealed partial class QtHostPageRenderer
 
 	private void ReconcileCore()
 	{
+		if (!_adapterPreloadArmed && _current.Count > 0)
+			ArmAdapterPreload();   // the first page is up: the rest of the adapters can load behind it
 		_createDeferred = false;
 		var page = ResolveReconcilePage();
 		if (page is null)
@@ -882,7 +884,7 @@ public sealed partial class QtHostPageRenderer
 			foreach (var witnessHost in desired)
 				if (witnessHost.Element is Button witnessButton && props.TryGetValue(witnessHost, out var witnessProps))
 					QtHostDiag.Trace(QtHostDiagChannel.QtHost,
-						$"button witness '{witnessButton.Text}' enabled={witnessProps.GetValueOrDefault("enabled")} color={witnessProps.GetValueOrDefault("color")} plate={witnessProps.GetValueOrDefault("backgroundColor")} " +
+						$"button witness '{witnessButton.Text}' enabled={witnessProps.GetValueOrDefault("enabled")} color={witnessProps.GetValueOrDefault("mauiTextColor")} plate={witnessProps.GetValueOrDefault("mauiPlateColor")} " +
 						$"(Background {witnessButton.Background?.GetType().Name ?? "null"} {QtHostPaint.Solid(witnessButton.Background)}, BackgroundColor {witnessButton.BackgroundColor}) on '{TitleOf(page)}'");
 		var previousPage = _rendered;
 		_rendered = page;
@@ -1284,6 +1286,43 @@ public sealed partial class QtHostPageRenderer
 		    viewports > 0)
 			QtHostRuntime.Eval("window.mauiListPrefetch=" + viewports.ToString(System.Globalization.CultureInfo.InvariantCulture));
 		Reconcile();
+		ArmAdapterPreload();
+	}
+
+	/// <summary>MAUI_SAILFISH_ADAPTER_PRELOAD=0 leaves adapters to load and warm up on first use (A/B). Measured on the
+	/// Jolla phone 2026-10-02: a first push of the Controls page 54–61 → 44–45 ms to Appearing, the Kitchen detail
+	/// 183–203 → 166–170 ms stall, the catalog that opens meanwhile unchanged.</summary>
+	internal static readonly bool AdapterPreload = Environment.GetEnvironmentVariable("MAUI_SAILFISH_ADAPTER_PRELOAD") != "0";
+	private bool _adapterPreloadArmed;
+
+	/// <summary>A second after the first page showed, the shell loads the visual adapters in the background and makes one
+	/// throwaway instance of each (MauiShell.adapterPreload), so the first host of a kind on a later page is as cheap as
+	/// the second. The most used adapters go first.</summary>
+	private void ArmAdapterPreload()
+	{
+		if (_adapterPreloadArmed || !AdapterPreload || QtHostRuntime.TestShim is not null)
+			return;
+		if (Microsoft.Maui.Dispatching.Dispatcher.GetForCurrentThread() is not { } dispatcher)
+			return;
+		_adapterPreloadArmed = true;
+		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(1), () =>
+		{
+			string[] first = { "label", "button", "image", "border", "grid", "stack-layout", "content-view", "shape", "list-view", "scroll-view" };
+			// Visual adapters only: an instance is made and dropped off screen, so nothing that attaches to the page
+			// (pulleys, panels, dialogs), starts an engine (the web view: Gecko) or owns a native surface.
+			string[] warm =
+			{
+				"entry", "editor", "switch", "slider", "progress-bar", "activity-indicator", "search-bar", "picker",
+				"date-picker", "time-picker", "radio-button", "indicator-view", "stepper", "check-box", "swipe-view",
+				"graphics-view", "carousel-view",
+			};
+			var sources = first.Concat(warm).Select(uri => QtHostAdapters.TryGetSrc(uri, out var src) ? src : null)
+				.Where(src => !string.IsNullOrEmpty(src))
+				.Distinct(StringComparer.Ordinal)
+				.ToList();
+			QtHostRuntime.Eval("window.mauiPreloadAdapters(" + BridgeValue.Quote(BridgeValue.Serialize(sources)) + ")");
+			QtHostDiag.Trace(QtHostDiagChannel.QmlLoad, $"adapter preload: {sources.Count} adapters queued");
+		});
 	}
 
 	/// <summary>MAUI_SAILFISH_IMAGE_TRACE=1 logs every image load (ms to Ready, on screen when it arrived).</summary>

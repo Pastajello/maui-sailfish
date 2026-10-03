@@ -16,13 +16,13 @@ Collected from the old "To do" list, from `BUG_LIST_S1.md` (analysis of the 2026
 [`docs/parity-plan.md`](docs/parity-plan.md).
 
 **Navigation and page loading (Kitchen)**
-- [ ] **Entering a Kitchen detail** still stalls one tour step 160–167 ms (detail 12: 112–123 ms; iOS 80–150 ms).
+- [ ] **Entering a Kitchen detail** still stalls one tour step 166–178 ms (detail 12: 112–144 ms; iOS 80–150 ms).
       2026-10-02: the offline tour had measured an error page (the seed had no `lookup.php`, so "HTTP 503" plus a
       logged stack trace); the seed now answers lookups from its search records. The ingredient rows are not the
       cost (one Label per row was 193–200 ms against 182–191 ms). The detail's load now yields first
-      (`MealDetailViewModel.LoadAsync`, −20 ms). What is left is the push itself: QML host creation (~40% of the
-      block in an EventPipe trace) and `NavigationPage.PushAsync` (~23%), the idle adapter preload in
-      [`docs/parity-plan.md`](docs/parity-plan.md) is the next step. Numbers: [`docs/profiling.md`](docs/profiling.md) §6a.
+      (`MealDetailViewModel.LoadAsync`, −20 ms), and the adapter warm-up takes about as much again (166–178 ms with
+      it). What is left is the push itself: QML host creation (~40% of the block in an EventPipe trace) and
+      `NavigationPage.PushAsync` (~23%). Numbers: [`docs/profiling.md`](docs/profiling.md) §6a.
 
 **Phone state, not code**
 - Leg f4: Sailfish Secrets collection locked ("requires device lock authentication") — unlock with the code.

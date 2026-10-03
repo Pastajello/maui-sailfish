@@ -18,6 +18,23 @@ Button {
     // Adapter events are suppressed while managed pushes are applied (no echo loop).
     property bool mauiApplying: false
 
+    // TextColor and the plate (Background/BackgroundColor) as the app set them; unset gives the Silica binding back
+    // (Silica Button: color = palette.primaryColor, backgroundColor = a faint tint of color), as clearing a colour
+    // returns the platform's own on Android and iOS.
+    property color mauiTextColor: "transparent"
+    property bool mauiTextColorSet: false
+    property color mauiPlateColor: "transparent"
+    property bool mauiPlateSet: false
+    onMauiTextColorChanged: __applyColors()
+    onMauiTextColorSetChanged: __applyColors()
+    onMauiPlateColorChanged: __applyColors()
+    onMauiPlateSetChanged: __applyColors()
+    function __applyColors() {
+        color = mauiTextColorSet ? mauiTextColor : Qt.binding(function() { return palette.primaryColor; });
+        backgroundColor = mauiPlateSet ? mauiPlateColor
+                                       : Qt.binding(function() { return Theme.rgba(root.color, Theme.opacityFaint); });
+    }
+
     property real mauiPixelSize: 0
     property string mauiFamily: ""
     property bool mauiBold: false

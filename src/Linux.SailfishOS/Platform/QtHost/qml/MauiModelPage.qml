@@ -220,6 +220,8 @@ Page {
     function __componentFor(src) {
         if (!src)
             return null;
+        if (page.__shell && page.__shell.mauiComponentFor !== undefined)
+            return page.__shell.mauiComponentFor(src);   // the window's shared, preloaded cache
         var comp = __comps[src];
         if (comp === undefined) {
             comp = Qt.createComponent(Qt.resolvedUrl(src));

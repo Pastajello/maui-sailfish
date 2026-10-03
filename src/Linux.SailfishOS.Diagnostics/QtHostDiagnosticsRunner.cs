@@ -1266,7 +1266,47 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				_qtVisualChecks.Check($"VSM GoToState(Normal): native backgroundColor={bgNormal} color={fgNormal} (expect #ff37474f/#ffffffff)",
 					bgNormal.Contains("37474F", StringComparison.OrdinalIgnoreCase) &&
 					fgNormal.Contains("ffffff", StringComparison.OrdinalIgnoreCase));
-				RunQtVisualVisibilityLeg(renderer, dispatcher);
+				RunQtVisualColorResetLeg(renderer, dispatcher);
+			});
+		});
+	}
+
+	/// <summary>Visual leg D2: TextColor/BackgroundColor set to null give the Silica theme colours back (the snapshot used
+	/// to drop the keys, so the old colours stayed).</summary>
+	private void RunQtVisualColorResetLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
+		var host = renderer.CurrentHosts.FirstOrDefault(h => h.IsAttached && h.QmlUri == "button" &&
+			h.Element is Button { Text: "Toggle app theme" });
+		if (host?.Element is not Button themed)
+		{
+			_qtVisualChecks.Check("colour reset: the gallery's theme Button found", false);
+			RunQtVisualVisibilityLeg(renderer, dispatcher);
+			return;
+		}
+		var text = themed.TextColor;
+		var plate = themed.BackgroundColor;
+		themed.TextColor = Colors.Red;   // away from white, which is also the theme's primary colour
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(450), () =>
+		{
+			var red = HostProp(host, "color");
+			themed.TextColor = null;
+			themed.BackgroundColor = null;
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(450), () =>
+			{
+				var fg = HostProp(host, "color");
+				var primary = QtHost.QtHostRuntime.Eval(
+					"(function(i){return i&&Qt.colorEqual(i.color,Theme.primaryColor)?'yes':'no';})(" + DiagQml.ItemJs(host) + ")");
+				var bgAlpha = DiagQml.Num(QtHost.QtHostRuntime.Eval(
+					"(function(i){return i?String(i.backgroundColor.a):'';})(" + DiagQml.ItemJs(host) + ")"));
+				_qtVisualChecks.Check($"colour reset: TextColor Red ({red}) then null → native color {fg}, Theme.primaryColor: {primary}; " +
+					$"BackgroundColor=null → Silica's faint plate (alpha {bgAlpha:F2} < 0.5)",
+					red.Contains("ff0000", StringComparison.OrdinalIgnoreCase) && primary == "yes" && bgAlpha < 0.5);
+				Shot(dispatcher, "visual-colour-reset", () =>
+				{
+					themed.TextColor = text;
+					themed.BackgroundColor = plate;
+					RunQtVisualVisibilityLeg(renderer, dispatcher);
+				});
 			});
 		});
 	}

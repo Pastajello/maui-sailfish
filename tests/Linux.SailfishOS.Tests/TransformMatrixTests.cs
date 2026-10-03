@@ -1,10 +1,13 @@
+using Linux.SailfishOS.Tests.Renderer;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Graphics;
 using Microsoft.Maui.SailfishOS.Platform.QtHost;
 using Xunit;
 
 namespace Linux.SailfishOS.Tests;
 
 /// <summary>Non-uniform scale, shear and RotationX/RotationY reach the host as a QML Matrix4x4.</summary>
+[Collection("renderer")]
 public class TransformMatrixTests
 {
 	private const double Q = 2;   // Qt units per dp
@@ -84,5 +87,26 @@ public class TransformMatrixTests
 		var (px, py) = Project(m, 100 * Q, 50 * Q);
 		Assert.Equal((ex - toHost.Tx) * Q, px, 2);
 		Assert.Equal((ey - toHost.Ty) * Q, py, 2);
+	}
+
+	// An animation sets Rotation/Translation every frame: each frame used to measure and arrange the whole page.
+	// A transform changes no measure in MAUI, so it takes the geometry pass only.
+	[Fact]
+	public void A_transform_change_moves_the_host_without_a_layout_pass()
+	{
+		var box = new BoxView { WidthRequest = 80, HeightRequest = 80, Color = Colors.Blue };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { box } } });
+		for (var i = 0; i < 4; i++)
+			h.Poll();
+		var layouts = h.Renderer.LayoutPasses;
+		var geometries = h.Renderer.GeometryPasses;
+
+		box.Rotation = 30;
+		box.TranslationX = 12;
+
+		Assert.Equal(layouts, h.Renderer.LayoutPasses);
+		Assert.True(h.Renderer.GeometryPasses > geometries);
+		var native = h.Shim.ByUri("shape").Single(o => !o.Destroyed);
+		Assert.Equal(30, double.Parse(native.Text("rotation")!, System.Globalization.CultureInfo.InvariantCulture), 3);
 	}
 }

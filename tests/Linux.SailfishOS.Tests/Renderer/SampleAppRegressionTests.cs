@@ -719,13 +719,13 @@ public class SampleAppRegressionTests
 			""");
 		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { save } } });
 		var host = h.Shim.ByUri("button").Single();
-		Assert.Equal(Colors.White.ToArgbHex(true).ToLowerInvariant(), host.Text("backgroundColor")?.ToLowerInvariant());
+		Assert.Equal(Colors.White.ToArgbHex(true).ToLowerInvariant(), host.Text("mauiPlateColor")?.ToLowerInvariant());
 
 		save.Command = new Command(() => { }, () => false);   // the view model's SaveCommand arrives with the binding
 		h.Poll();
 
 		Assert.False(save.IsEnabled);
-		Assert.Equal(Colors.DarkGray.ToArgbHex(true).ToLowerInvariant(), host.Text("backgroundColor")?.ToLowerInvariant());
+		Assert.Equal(Colors.DarkGray.ToArgbHex(true).ToLowerInvariant(), host.Text("mauiPlateColor")?.ToLowerInvariant());
 	}
 
 	// WhatToEat New Recipe: the empty name field measured shorter than a filled one (an empty measure fell back to an
@@ -798,9 +798,31 @@ public class SampleAppRegressionTests
 	[Fact]
 	public void A_plain_button_keeps_the_Silica_plate()
 	{
-		Assert.False(QtHostPageRenderer.ButtonProps(new Button { Text = "Plain" }).ContainsKey("backgroundColor"));
-		Assert.Equal(Colors.Transparent, QtHostPageRenderer.ButtonProps(new Button { Text = "Flat", Background = Colors.Transparent })["backgroundColor"]);
-		Assert.Equal(Colors.Red, QtHostPageRenderer.ButtonProps(new Button { Text = "Red", BackgroundColor = Colors.Red })["backgroundColor"]);
+		Assert.Equal(false, QtHostPageRenderer.ButtonProps(new Button { Text = "Plain" })["mauiPlateSet"]);
+		var flat = QtHostPageRenderer.ButtonProps(new Button { Text = "Flat", Background = Colors.Transparent });
+		Assert.Equal((true, Colors.Transparent), ((bool)flat["mauiPlateSet"]!, (Color)flat["mauiPlateColor"]!));
+		Assert.Equal(Colors.Red, QtHostPageRenderer.ButtonProps(new Button { Text = "Red", BackgroundColor = Colors.Red })["mauiPlateColor"]);
+	}
+
+	// Setting a Button's TextColor or BackgroundColor back to null must give Silica's theme colours back: the snapshot
+	// used to drop the key, the diff pushed nothing, and the old colour stayed on the native button.
+	[Fact]
+	public void Clearing_a_button_colour_hands_the_Silica_colour_back()
+	{
+		var button = new Button { Text = "Go", TextColor = Colors.Red, BackgroundColor = Colors.Blue };
+		using var h = new RendererHarness(new ContentPage { Title = "T", Content = new VerticalStackLayout { Children = { button } } });
+		var host = h.Shim.ByUri("button").Single();
+		Assert.Equal(("true", "true"), (host.Text("mauiTextColorSet")?.ToLowerInvariant(), host.Text("mauiPlateSet")?.ToLowerInvariant()));
+
+		button.TextColor = null;
+		button.BackgroundColor = null;
+		h.Poll();
+
+		Assert.Equal(("false", "false"), (host.Text("mauiTextColorSet")?.ToLowerInvariant(), host.Text("mauiPlateSet")?.ToLowerInvariant()));
+
+		button.TextColor = Colors.Red;   // the same colour again must cross, not be taken for already applied
+		h.Poll();
+		Assert.Equal("true", host.Text("mauiTextColorSet")?.ToLowerInvariant());
 	}
 
 	// EmployeeDirectory: round avatars are an Image in a 60x60 Border with an Ellipse StrokeShape, inside a card

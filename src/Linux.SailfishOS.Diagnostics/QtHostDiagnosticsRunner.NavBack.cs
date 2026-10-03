@@ -215,6 +215,12 @@ internal sealed partial class QtHostDiagnosticsRunner
 			System.IO.File.Delete(old);
 		_qtNavBackChecks.Check($"start: startup tap opened '{PageTitle(renderer)}'=='Statistics', native depth {renderer.NativePageIds.Count}==2",
 			PageTitle(renderer) == "Statistics" && renderer.NativePageIds.Count == 2);
+		// Page-load guard (push → Appearing, the page's hosts and layout done). Budgets are about twice what the Jolla
+		// phone takes (2026-10-02: first Statistics 162–183 ms, Controls 44–61 ms, Statistics again 47–54 ms).
+		void LoadBudget(string what, double budgetMs) =>
+			_qtNavBackChecks.Check($"page load: {what} push→Appearing {renderer.LastNavToAppearingMs:F0} ms ≤ {budgetMs:F0} ms",
+				renderer.LastNavToAppearingMs > 0 && renderer.LastNavToAppearingMs <= budgetMs);
+		LoadBudget("first Statistics (adapters cold)", 300);
 		bool BackOnRoot() => PageTitle(renderer) == rootTitle && renderer.NativePageIds.Count == 1;
 		void Finish()
 		{
@@ -257,6 +263,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 						_qtNavBackChecks.Check($"forward after back: tapped={tapped}, '{PageTitle(renderer)}' != '{rootTitle}' (Controls pushed), native depth {renderer.NativePageIds.Count}==2",
 							tapped && PageTitle(renderer) != rootTitle && renderer.NativePageIds.Count == 2);
 						CheckButtonsShowFinalFont("pushed Controls page");
+						LoadBudget("Controls", 150);
 						Shot(dispatcher, "navback-3-controls", () =>
 						{
 							var mark2 = ChromeMark(rootPageId);
@@ -271,6 +278,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 								{
 									_qtNavBackChecks.Check($"second round: tapped={tapped2}, '{PageTitle(renderer)}'=='Statistics', native depth {renderer.NativePageIds.Count}==2",
 										tapped2 && PageTitle(renderer) == "Statistics" && renderer.NativePageIds.Count == 2);
+									LoadBudget("Statistics again (warm)", 120);
 									Shot(dispatcher, "navback-4-stats-again", MauiPopRound);
 								});
 							}), () => Film(dispatcher, "r2-swipe-from-controls", 3000),
