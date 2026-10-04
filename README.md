@@ -162,6 +162,7 @@ MAUI does all layout. Native elements are created once and updated in place. Lis
 | [aot-and-trimming.md](docs/aot-and-trimming.md) | payload options (trimming, ReadyToRun, NativeAOT) and measurements |
 | [profiling.md](docs/profiling.md) | EventPipe, QML profiler and memory on the phone |
 | [parity-plan.md](docs/parity-plan.md) | roadmap |
+| [maui11-alignment-plan.md](docs/maui11-alignment-plan.md) | gap analysis against MAUI 11 (lifecycle, navigation, collections, graphics, input, Essentials, build) and the work packages that close it; evidence in [docs/audits/maui11/](docs/audits/maui11/) |
 | [BUG_LIST.md](BUG_LIST.md) | open defects |
 | [app-test-campaign.md](docs/app-test-campaign.md) | log of the real-app test campaign |
 | [skiasharp-plan.md](docs/skiasharp-plan.md) | SkiaSharp support plan |
