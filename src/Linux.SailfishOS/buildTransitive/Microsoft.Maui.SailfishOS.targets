@@ -310,6 +310,17 @@
     <MetricsSupport Condition="'$(MetricsSupport)' == ''">false</MetricsSupport>
   </PropertyGroup>
 
+  <!-- The RPM carries only what runs on the phone. SailfishRpmDebugPayload (default: Debug only) keeps what a debugger
+       needs: PDBs, the NativeAOT .dbg, the DAC/DBI pair (vsdbg, SOS) and createdump. Release attach sets it to true. -->
+  <PropertyGroup>
+    <SailfishRpmDebugPayload Condition="'$(SailfishRpmDebugPayload)' == '' and '$(Configuration)' == 'Debug'">true</SailfishRpmDebugPayload>
+    <SailfishRpmDebugPayload Condition="'$(SailfishRpmDebugPayload)' == ''">false</SailfishRpmDebugPayload>
+  </PropertyGroup>
+  <!-- The invariant culture never loads a satellite assembly, so MAUI's resource dlls (30+ cultures) are dead weight. -->
+  <PropertyGroup Condition="'$(InvariantGlobalization)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
+    <SatelliteResourceLanguages Condition="'$(SatelliteResourceLanguages)' == ''">en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
   <!-- One-shot restore with the RID when the assets lack it. Single-TFM only: a global RID restore would hit every head of a multi-targeted project. -->
   <Target Name="_SailfishRefreshRestoreForRid"
           Condition="'$(_SailfishLegPlatform)' == 'sailfish' and '$(TargetFrameworks)' == '' and '$(_SailfishAssetsHasRid)' != 'true' and '$(_SailfishRidRestoreDone)' != 'true'"
@@ -388,10 +399,15 @@
     <MakeDir Directories="$(_SailfishTopDir)/SPECS" />
     <MakeDir Directories="$(_SailfishTopDir)/SRPMS" />
 
-    <!-- Publish output goes to /usr/share/PKG/; Harbour: /usr/share/PKG/lib/ without apphost, createdump, the lttng provider (disallowed library) and the launcher. -->
+    <!-- Publish output goes to /usr/share/PKG/; Harbour: /usr/share/PKG/lib/ without the apphost (the launcher starts the app). -->
     <ItemGroup>
       <_SailfishPublishFiles Include="$(PublishDir)**/*" />
-      <_SailfishPublishFiles Remove="$(PublishDir)$(AssemblyName);$(PublishDir)createdump;$(PublishDir)libcoreclrtraceptprovider.so;$(PublishDir)sailfish-launcher"
+      <!-- Never loaded on the phone: the LTTng provider (no liblttng-ust on Sailfish OS; Harbour disallows it) and the
+           standalone GCs (only with DOTNET_GCName). The launcher is copied to /usr/bin straight from PublishDir. -->
+      <_SailfishPublishFiles Remove="$(PublishDir)libcoreclrtraceptprovider.so;$(PublishDir)libclrgc.so;$(PublishDir)libclrgcexp.so;$(PublishDir)sailfish-launcher" />
+      <_SailfishPublishFiles Remove="$(PublishDir)**/*.pdb;$(PublishDir)**/*.dbg;$(PublishDir)createdump;$(PublishDir)libmscordaccore.so;$(PublishDir)libmscordbi.so"
+                             Condition="'$(SailfishRpmDebugPayload)' != 'true'" />
+      <_SailfishPublishFiles Remove="$(PublishDir)$(AssemblyName);$(PublishDir)createdump"
                              Condition="'$(SailfishHarbour)' == 'true'" />
     </ItemGroup>
     <PropertyGroup>

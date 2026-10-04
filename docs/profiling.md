@@ -55,7 +55,7 @@ a switch in the shim and `tools/sf qml-profile` (§4.4). Frame times come from
 |---|---|
 | CoreCLR `11.0.0-rc.1.26425.128`, self-contained, `linux-arm64`, JIT + R2R + trim `partial`; NativeAOT blocked | `*.runtimeconfig.json`, `docs/aot-and-trimming.md` |
 | Trimmed Release does not disable EventSource (no `EventSource.IsSupported=false`) or Meter (no `System.Diagnostics.Metrics.Meter.IsSupported`). Effect: MAUI layout instrumentation works too | `SailfishKitchen.runtimeconfig.json` (Release) |
-| The RPM strips apphost, `createdump`, `libcoreclrtraceptprovider.so` (LTTng) and the launcher. EventPipe stays, `perfcollect` is ruled out | `Microsoft.Maui.SailfishOS.targets:323-326` |
+| The RPM leaves out `libcoreclrtraceptprovider.so` (LTTng), the standalone GCs and, outside Debug, PDBs, DAC/DBI and `createdump` (`SailfishRpmDebugPayload`, [packaging](sailfishos-packaging.md#payload)). EventPipe stays, `perfcollect` is ruled out | `Microsoft.Maui.SailfishOS.targets`, `_PrepareSailfishRpmStaging` |
 | `sf-run-remote.sh` sets **`DOTNET_EnableDiagnostics=0`** by default, which also disables EventPipe. `--env DOTNET_EnableDiagnostics=1` gets overridden, pass **`--diagnostics`** | `tools/remote/sf-run-remote.sh:176-183` |
 | `sf-run` launches `/usr/bin/<pkg>` from SSH, without booster and sailjail. So startup differs from launching from the icon | `tools/remote/sf-run-remote.sh` |
 | Shim without symbols; `SF_NATIVE_KEEP_SYMBOLS=1` keeps them (for a native sampler) | `tools/sf native-build:42-45` |

@@ -138,6 +138,7 @@ Size         : 86304638
 | `SailfishRpmArch` | derived from RID | `x86_64` / `aarch64` / `armv7hl` |
 | `SailfishRpmOutputDir` | `bin/SailfishRpm` | Output directory |
 | `SailfishRpmFileName` | `<pkg>-<ver>-<rel>.<arch>.rpm` | Output file name |
+| `SailfishRpmDebugPayload` | `true` in Debug, else `false` | Keeps the debugger files in the RPM: PDBs, the NativeAOT `.dbg`, `libmscordaccore.so` / `libmscordbi.so` (vsdbg, SOS) and `createdump`. Set it to `true` to attach to a Release build (see [Payload](#payload)) |
 | `SailfishSandboxing` | `true` | `false` opts out of Sailjail (`Sandboxing=Disabled`); Harbour requires the sandbox |
 | `SailfishPermissions` | *(empty)* | Semicolon-separated Sailjail permissions on top of `Internet` (see [Sandbox and permissions](#sandbox-and-permissions)) |
 | `SailfishSecureStorage` | *(empty)* | `Secrets`: `SecureStorage` requires the Sailfish Secrets daemon (see below) |
@@ -147,6 +148,23 @@ Size         : 86304638
 | `SailfishIconSizes` | `86;108;128;172` | Launcher icon sizes generated from `MauiIcon` |
 | `SailfishUrlSchemes` | *(empty)* | URL schemes the app opens (`myapp;geo`): `.desktop` `MimeType=x-scheme-handler/…`, `Exec … %U`, the D-Bus `openUrl` method and its activation file; the URL reaches `Application.OnAppLinkRequestReceived` |
 | `SailfishMimeTypes` | *(empty)* | File types the app opens (`text/plain;image/png`), the same way; files arrive as `file://` URIs |
+
+### Payload
+
+The RPM carries the publish output minus what never runs on the phone:
+
+| Left out | Why | Kept with |
+|---|---|---|
+| `libcoreclrtraceptprovider.so` | LTTng provider; Sailfish OS has no `liblttng-ust` (and Harbour disallows it) | — |
+| `libclrgc.so`, `libclrgcexp.so` | standalone GCs, loaded only with `DOTNET_GCName` | — |
+| `sailfish-launcher` in the payload | the Harbour profile copies it to `/usr/bin/<pkg>`; the default profile starts the apphost | — |
+| `*.pdb`, `*.dbg` (NativeAOT symbols) | debugger only | `SailfishRpmDebugPayload=true` |
+| `libmscordaccore.so`, `libmscordbi.so` | DAC/DBI for vsdbg and SOS | `SailfishRpmDebugPayload=true` |
+| `createdump` | crash dumps; the phone's `core_pattern` is `/bin/false` | `SailfishRpmDebugPayload=true` |
+| satellite assemblies (`<culture>/*.resources.dll`) | with `InvariantGlobalization=true` the UI culture is invariant, so none is ever loaded (`SatelliteResourceLanguages=en`) | set `SatelliteResourceLanguages` |
+
+Debug builds keep the debugger files. SailfishKitchen Release: 213 → 171 files, 51.6 → 45.8 MB installed, RPM
+15.4 → 13.8 MB.
 
 ### Cover
 
@@ -262,7 +280,7 @@ What changes against the default (sideloading) layout:
 | | default | Harbour |
 |---|---|---|
 | `/usr/bin/<pkg>` | symlink to the .NET apphost | **native launcher** (`sailfish-launcher`, 7 KB): PIE, exports `main()` for the `silica-qt5` booster, links `__libc_start_main`, loads `libhostfxr.so` and runs `<app>.dll` through the .NET hosting API |
-| payload | `/usr/share/<pkg>/` | `/usr/share/<pkg>/lib/` (no apphost, no `createdump`, no `libcoreclrtraceptprovider.so` — it links lttng, not allowed) |
+| payload | `/usr/share/<pkg>/` | `/usr/share/<pkg>/lib/` (no apphost, no `createdump`) |
 | launcher rpath | — | `$ORIGIN/../share/<pkg>/lib` (written into the prebuilt launcher's placeholder at packaging) |
 | desktop | absolute icon path | `Icon=<pkg>`, `X-Nemo-Application-Type=silica-qt5`; `SailfishSandboxing=false` is an error |
 | RPM | `Vendor:` set | no `Vendor:` (not allowed); files root:root, non-ELF 0644 |

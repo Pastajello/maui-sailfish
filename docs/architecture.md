@@ -133,4 +133,4 @@ pulley menu, and there is no `MultiEffect` (shadow/clip use `OpacityMask` + `Dro
   strips them; the VS Code extension has the same filter.
 - Device side: the CLR diagnostic port (`DOTNET_EnableDiagnostics=1`, `sf run --diagnostics`), the PDB and
   `libmscordaccore.so` / `libmscordbi.so` in the untrimmed Debug package (`<pkg>-debug`), `kernel.yama.ptrace_scope=0`.
-- Release attaches only without Just My Code: vsdbg treats trimmed ReadyToRun code as "not yours".
+- Release attaches only without Just My Code: vsdbg treats trimmed ReadyToRun code as "not yours"; the Release RPM needs `-p:SailfishRpmDebugPayload=true` (PDBs, DAC/DBI), which Debug packages carry by default.
