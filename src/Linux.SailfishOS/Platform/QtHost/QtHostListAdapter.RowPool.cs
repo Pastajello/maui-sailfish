@@ -92,7 +92,7 @@ internal sealed partial class QtHostListAdapter
 			_rowPool[shape] = stack = new Stack<List<PooledHost>>();
 		stack.Push(pooled);
 		_pooledRows++;
-		_bridge.RowsPooled++;
+		_counters.RowsPooled++;
 		// What the row only showed (a shared stroke shape) is released as before; its own hosts left with the pool.
 		var shown = dg.Children.Where(h => !hosts.Contains(h)).ToList();
 		hosts.Clear();
@@ -157,7 +157,7 @@ internal sealed partial class QtHostListAdapter
 					$"pooled row rekey refused ({refused} of {hosts.Count}) for [{string.Join(",", hosts.Select(h => h.Id))}] — creating the row");
 				_renderer.ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), PageTarget);
 				DestroyPooled(pooled);
-				_bridge.RowRekeysRefused++;
+				_counters.RowRekeysRefused++;
 				return false;
 			}
 		}
@@ -171,7 +171,7 @@ internal sealed partial class QtHostListAdapter
 		foreach (var root in hosts.Where(h => h.Parent is null))
 			if (!QtHostRuntime.SetParentItem(root.NativeHandle, dg.Handle))
 				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"pooled row root {root} could not join '{dg.Obj}': {QtHostRuntime.LastErrorText}");
-		_bridge.RowsAdopted++;
+		_counters.RowsAdopted++;
 		return true;
 	}
 

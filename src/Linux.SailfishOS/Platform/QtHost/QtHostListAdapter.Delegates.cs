@@ -24,7 +24,7 @@ internal sealed partial class QtHostListAdapter
 	{
 		if (!Host.IsAttached)
 			return;
-		var prefix = "maui_" + Host.Id + "__r";
+		var prefix = DelegatePrefix;
 		// Walk the list's own page: a back-cached page's list is not under currentPage.
 		var pageJs = PageId.Length > 0
 			? QmlPage.ByIdOr(PageId, "pageStack.currentPage")
@@ -113,7 +113,7 @@ internal sealed partial class QtHostListAdapter
 	{
 		if (DeferredRows.Count == 0)
 			return false;
-		var prefix = "maui_" + Host.Id + "__r";
+		var prefix = DelegatePrefix;
 		var viewTop = Math.Max(0, LastReportedYDp);
 		var viewBottom = viewTop + Math.Max(0, Host.MauiLogicalBounds.Height);
 		do
@@ -189,7 +189,7 @@ internal sealed partial class QtHostListAdapter
 			QtHostDiag.Trace(QtHostDiagChannel.QmlObject,
 				$"list row {rowIndex} dg '{dgObj}' rebind — clearing children={dg.Children.Count} prevRow={dg.Row?.Index.ToString() ?? "-"}");
 			if (ReferenceEquals(dg.Row, Rows[rowIndex]) && dg.Children.Count > 0)
-				_bridge.SameRowRebuilds++;   // the same row built again: its hosts died, or it only looked dead
+				_counters.SameRowRebuilds++;   // the same row built again: its hosts died, or it only looked dead
 			ClearDg(dg);                       // rebind: drop the previous row's hosts
 		}
 		else
@@ -235,7 +235,7 @@ internal sealed partial class QtHostListAdapter
 		PageId = ListPageId();
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject,
 			$"list row {rowIndex} dg '{dgObj}' materialized desired={desired.Count} children={dg.Children.Count} ids=[{string.Join(",", dg.Children.Select(h => h.Id))}]");
-		_bridge.ItemsMaterialized += row.CellViews.Count;
+		_counters.ItemsMaterialized += row.CellViews.Count;
 		UpdateDgGeometry(dg);
 	}
 

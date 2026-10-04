@@ -347,9 +347,9 @@ internal static class SailfishMeasure
 	/// <summary>A CollectionView fills what its layout gives it; unbounded along its scroll axis (a StackLayout or a
 	/// ScrollView) it sizes to its rows, as RecyclerView/UICollectionView do, instead of collapsing to 0. A horizontal
 	/// list unbounded across it (an Auto grid row) takes its tallest item, as a wrap_content RecyclerView does.</summary>
-	public static Size Collection(IView view, double wc, double hc)
+	public static Size Collection(QtHostListAdapter? adapter, double wc, double hc)
 	{
-		if (view.Handler is not SailfishListViewHandler { Adapter: { } adapter })
+		if (adapter is null)
 			return Constrain(0, 0, wc, hc);
 		if (adapter.Horizontal)
 		{

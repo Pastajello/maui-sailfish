@@ -69,6 +69,10 @@ if [ -z "$line" ]; then
 	exit 2
 fi
 IFS='|' read -r _ runner file _ <<<"$line"
+# A help request has no side effects: the library skips its MSBuild query of the app's identity.
+for arg in "$@"; do
+	case "$arg" in -h|--help) export SF_NO_PROJECT_QUERY=1 ;; esac
+done
 path="$TOOLS/$file"
 [ -f "$path" ] || { echo "sf: '$cmd' needs a maui-sailfish checkout (not shipped in the NuGet package)" >&2; exit 2; }
 

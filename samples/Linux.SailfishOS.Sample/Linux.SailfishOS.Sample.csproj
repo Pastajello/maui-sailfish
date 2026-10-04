@@ -20,6 +20,9 @@
     <!-- The acceptance host exercises services Sailjail has no permission for (F4 checks the flashlight), so it opts out
          of the default sandbox; the Harbour leg (-p:SailfishHarbour=true) keeps it. -->
     <SailfishSandboxing Condition="'$(SailfishHarbour)' != 'true'">false</SailfishSandboxing>
+    <!-- The backend comes by ProjectReference, so its native assets come from tools/sf native-build's output
+         (package consumers get them from the package). -->
+    <SailfishNativeAssetsDir>$(MSBuildThisFileDirectory)../../artifacts/native</SailfishNativeAssetsDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,38 +39,6 @@
   <ItemGroup>
     <Content Include="Resources\Images\*.png;Resources\Images\*.gif" CopyToOutputDirectory="PreserveNewest" Link="images\%(Filename)%(Extension)">
       <TargetPath>images/%(Filename)%(Extension)</TargetPath>
-    </Content>
-  </ItemGroup>
-
-  <!-- Native host shim, built by tools/sf native-build and shipped next to the app binary
-       so DllImport("sailfishhost") resolves it. -->
-  <ItemGroup>
-    <Content Include="..\..\artifacts\native\aarch64\libsailfishhost.so" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
-      <Link>libsailfishhost.so</Link>
-    </Content>
-    <!-- Harbour launcher (used when SailfishHarbour=true) -->
-    <Content Include="..\..\artifacts\native\aarch64\sailfish-launcher" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/sailfish-launcher')">
-      <Link>sailfish-launcher</Link>
-    </Content>
-    <Content Include="..\..\artifacts\native\armv7hl\sailfish-launcher" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/sailfish-launcher')">
-      <Link>sailfish-launcher</Link>
-    </Content>
-    <!-- armv7hl publishes take the armv7 shim -->
-    <Content Include="..\..\artifacts\native\armv7hl\libsailfishhost.so" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/libsailfishhost.so')">
-      <Link>libsailfishhost.so</Link>
-    </Content>
-    <!-- SecureStorage bridge (Sailfish Secrets; optional at runtime) -->
-    <Content Include="..\..\artifacts\native\aarch64\libsailfishsecretsbridge.so" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' != 'linux-arm' And Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')">
-      <Link>libsailfishsecretsbridge.so</Link>
-    </Content>
-    <Content Include="..\..\artifacts\native\armv7hl\libsailfishsecretsbridge.so" CopyToOutputDirectory="PreserveNewest"
-             Condition="'$(RuntimeIdentifier)' == 'linux-arm' And Exists('../../artifacts/native/armv7hl/libsailfishsecretsbridge.so')">
-      <Link>libsailfishsecretsbridge.so</Link>
     </Content>
   </ItemGroup>
 

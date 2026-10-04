@@ -80,11 +80,19 @@ public class SampleAppRegressionTests
 	// empty fallback the forms lost their labels.
 	private sealed class DrawnLibraryView : ContentView, Microsoft.Maui.Graphics.IDrawable
 	{
+		public static readonly BindableProperty HintProperty = BindableProperty.Create(nameof(Hint), typeof(string), typeof(DrawnLibraryView), "Task");
+
+		public string Hint
+		{
+			get => (string)GetValue(HintProperty);
+			set => SetValue(HintProperty, value);
+		}
+
 		public void Draw(Microsoft.Maui.Graphics.ICanvas canvas, Microsoft.Maui.Graphics.RectF dirtyRect)
 		{
 			canvas.StrokeColor = Colors.Gray;
 			canvas.DrawRoundedRectangle(dirtyRect, 4);
-			canvas.DrawString("Task", 8, 4, Microsoft.Maui.Graphics.HorizontalAlignment.Left);
+			canvas.DrawString(Hint, 8, 4, Microsoft.Maui.Graphics.HorizontalAlignment.Left);
 		}
 	}
 
@@ -113,6 +121,11 @@ public class SampleAppRegressionTests
 		var drawn = h.Shim.ByUri("drawn-view").Single();
 		Assert.True(drawn.Props["mauiCommands"].GetArrayLength() > 0);
 		Assert.Equal("Survey", h.Shim.ByUri("entry").Single().Text("text"));
+
+		// W5.6: the drawing follows a property of the library view at once (snapshot handler), not at the next reconcile.
+		Assert.DoesNotContain("Due date", drawn.Props["mauiCommands"].GetRawText());
+		library.Hint = "Due date";
+		Assert.Contains("Due date", drawn.Props["mauiCommands"].GetRawText());
 	}
 
 	// DeveloperBalance Manage Meta: Entries in a grid row stretched by a button showed their text at the top; MAUI's

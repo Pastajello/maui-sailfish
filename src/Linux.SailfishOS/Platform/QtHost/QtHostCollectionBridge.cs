@@ -76,31 +76,35 @@ internal sealed class QtHostCollectionBridge
 	private IEnumerable<QtHostListAdapter> ActiveLists => _byElement.Values.Where(s => !_renderer.IsParked(s.Host));
 
 	/* --- Diagnostics counters --- */
-	public long RowsBuilt { get; internal set; }
-	public long ItemsMaterialized { get; internal set; }
+
+	/// <summary>The counters every list adds to (handed to each adapter); the properties below read them.</summary>
+	internal ListCounters Counters { get; } = new();
+
+	public long RowsBuilt => Counters.RowsBuilt;
+	public long ItemsMaterialized => Counters.ItemsMaterialized;
 
 	/// <summary>Delegates currently holding a materialized item tree (the cumulative counters count
 	/// different units, so this is the real live count).</summary>
-	public int LiveRows => ActiveLists.Sum(s => s.ByHandle.Count);
+	public int LiveRows => ActiveLists.Sum(s => s.LiveRowCount);
 	public long ItemsDestroyed { get; private set; }
 
 	/// <summary>Rows rebuilt for the very row they already held (dead hosts, or a host set that only looked dead).
 	/// A steady list keeps it near zero; a loop shows as thousands.</summary>
-	public long SameRowRebuilds { get; internal set; }
+	public long SameRowRebuilds => Counters.SameRowRebuilds;
 
 	/// <summary>Detached rows kept for reuse, and rows that took a pooled subtree instead of creating hosts.</summary>
-	public long RowsPooled { get; internal set; }
-	public long RowsAdopted { get; internal set; }
+	public long RowsPooled => Counters.RowsPooled;
+	public long RowsAdopted => Counters.RowsAdopted;
 
 	/// <summary>Pooled rows whose rekey the page refused (target id taken); the row was created instead.</summary>
-	public long RowRekeysRefused { get; internal set; }
+	public long RowRekeysRefused => Counters.RowRekeysRefused;
 
 	/// <summary>Ids of pooled row hosts (alive in QML, unknown to the reconcile).</summary>
 	internal IEnumerable<string> PooledHostIds => _byElement.Values.SelectMany(s => s.PooledHostIds);
 	public long ListEvents { get; private set; }
-	public long SelectionsApplied { get; internal set; }
+	public long SelectionsApplied => Counters.SelectionsApplied;
 
-	public long ScrollsReported { get; internal set; }
+	public long ScrollsReported => Counters.ScrollsReported;
 
 
 	public QtHostCollectionBridge(QtHostPageRenderer renderer) => _renderer = renderer;
@@ -135,23 +139,14 @@ internal sealed class QtHostCollectionBridge
 	}
 
 	/// <summary>Total flat rows across all live lists (diagnostics).</summary>
-	public int TotalRows
-	{
-		get
-		{
-			var sum = 0;
-			foreach (var state in ActiveLists)
-				sum += state.Rows.Count;
-			return sum;
-		}
-	}
+	public int TotalRows => ActiveLists.Sum(s => s.RowCount);
 
 	/// <summary>Diagnostics: the MAUI view of one cell of a built row of the first active list, or null.</summary>
 	internal View? RowView(int rowIndex, int cell = 0)
 	{
 		foreach (var state in ActiveLists)
-			if (rowIndex >= 0 && rowIndex < state.Rows.Count && cell < state.Rows[rowIndex].CellViews.Count)
-				return state.Rows[rowIndex].CellViews[cell];
+			if (state.RowView(rowIndex, cell) is { } view)
+				return view;
 		return null;
 	}
 
@@ -159,10 +154,8 @@ internal sealed class QtHostCollectionBridge
 	internal string? DelegateOf(Element element)
 	{
 		foreach (var state in ActiveLists)
-			foreach (var dg in state.ByHandle.Values)
-				foreach (var (root, _) in dg.Cells)
-					if (ElementTree.IsWithin(element, root))
-						return dg.Obj;
+			if (state.DelegateHolding(element) is { } dg)
+				return dg;
 		return null;
 	}
 
@@ -170,24 +163,8 @@ internal sealed class QtHostCollectionBridge
 	public string DescribeRow(int rowIndex)
 	{
 		foreach (var state in _byElement.Values)
-		{
-			if (rowIndex < 0 || rowIndex >= state.Rows.Count)
-				continue;
-			var row = state.Rows[rowIndex];
-			var dg = state.ByHandle.Values.FirstOrDefault(d => d.Row?.Index == rowIndex);
-			if (dg is null)
-				return $"list {state.Host.Id} row {rowIndex}: no delegate";
-			var cells = string.Join(";", dg.Cells.Select(c => $"{c.Root.GetType().Name} bounds={c.Root.Bounds}"));
-			var hosts = string.Join(";", dg.Children.Take(3).Select(h => $"{h.Id} att={h.IsAttached} maui={h.MauiLogicalBounds}"));
-			var rowCells = string.Join(";", row.CellViews.Select(v => v is null ? "null" : $"{v.GetType().Name} bounds={v.Bounds}"));
-			var liveDg = QtHostRuntime.FindVisual(state.Host.NativeHandle, dg.Obj);
-			var globalDg = QtHostRuntime.FindObject(dg.Obj);
-			var rootHost = dg.Children.FirstOrDefault(h => h.Parent is null);
-			var rootGeo = rootHost is not null && QtHostRuntime.TryItemGeometry(rootHost.NativeHandle, out var g) ? $"{g.Width:F0}x{g.Height:F0}@{g.X:F0},{g.Y:F0}" : "-";
-			var scoped = rootHost is null ? 0 : QtHostRuntime.FindVisual(liveDg, $"maui_{rootHost.Id}");
-			return $"list {state.Host.Id} page={state.PageId} parked={_renderer.IsParked(state.Host)} row {rowIndex}: dg={dg.Obj} handle={dg.Handle} liveDg={liveDg} globalDg={globalDg} currentRow={ReferenceEquals(dg.Row, row)} " +
-				$"root {rootHost?.Id} handle={rootHost?.NativeHandle} scene={rootGeo} rootInLiveDg={scoped} cells=[{cells}] modelCells=[{rowCells}] hosts=[{hosts}]";
-		}
+			if (state.DescribeRow(rowIndex, _renderer.IsParked(state.Host)) is { } described)
+				return described;
 		return "no list";
 	}
 
@@ -196,21 +173,8 @@ internal sealed class QtHostCollectionBridge
 	{
 		xQt = yQt = -1;
 		foreach (var state in ActiveLists)
-		{
-			foreach (var dg in state.ByHandle.Values)
-			{
-				if (dg.Row?.Index != rowIndex)
-					continue;
-				if (dg.Handle == 0)
-					dg.Handle = QtHostRuntime.FindScoped(dg.Obj, state.Host.NativeHandle);
-				if (dg.Handle != 0 && QtHostRuntime.TryItemGeometry(dg.Handle, out var geo))
-				{
-					xQt = geo.X + geo.Width / 2;
-					yQt = geo.Y + Math.Min(geo.Height / 2, 20);
-					return true;
-				}
-			}
-		}
+			if (state.TryGetRowPoint(rowIndex, out xQt, out yQt))
+				return true;
 		return false;
 	}
 
@@ -272,6 +236,13 @@ internal sealed class QtHostCollectionBridge
 	public void RegisterList(ItemsView view, List<NativeElementHost> desired,
 	                         Dictionary<NativeElementHost, Dictionary<string, object?>> props)
 	{
+		// A carousel whose Loop changed needs the other adapter (PathView ↔ ListView): a QML object cannot change its
+		// type, so the list retires and the view gets a fresh host and handler; the old host leaves the desired tree.
+		if (_byElement.TryGetValue(view, out var bound) && bound.Host.QmlUri != AdapterUriFor(view))
+		{
+			bound.CleanupList();
+			_renderer.RebindAdapter(view);
+		}
 		var host = _renderer.Cache.GetOrAdd(view, AdapterUriFor(view));
 		var state = EnsureState(view, host);
 		// Rows are never in the create op: mauiEvent connects after createObject, so delegate events fired
@@ -286,7 +257,7 @@ internal sealed class QtHostCollectionBridge
 	}
 
 	/// <summary>A looping horizontal CarouselView uses the PathView adapter (a ListView cannot wrap); both
-	/// share the bridge contract. Fixed at creation.</summary>
+	/// share the bridge contract. A Loop change swaps it (RegisterList).</summary>
 	internal static string AdapterUriFor(IView? view) =>
 		view is CarouselView { Loop: true } carousel && (carousel.ItemsLayout?.Orientation ?? ItemsLayoutOrientation.Horizontal) == ItemsLayoutOrientation.Horizontal
 			? "carousel-view"
@@ -327,17 +298,17 @@ internal sealed class QtHostCollectionBridge
 		}
 		else
 		{
-			state = new QtHostListAdapter(this, _renderer) { View = view, Host = host };
+			state = new QtHostListAdapter(this, _renderer, Counters) { View = view, Host = host };
 			_byElement[view] = state;
 			_byHostId[host.Id] = state;
 			state.Attach();
 		}
-		// The list's handler owns its adapter, as a CollectionView handler owns its RecyclerView adapter; a
-		// handler connected again (after DisconnectHandler) takes over the live one.
-		if (view.Handler is Handlers.SailfishListViewHandler handler)
-			handler.Adapter = state;
 		return state;
 	}
+
+	/// <summary>The live adapter of <paramref name="view"/> (its handler asks: SailfishListViewHandler.Adapter); null
+	/// while the list is not on a page.</summary>
+	internal QtHostListAdapter? AdapterOf(ItemsView view) => _byElement.TryGetValue(view, out var state) ? state : null;
 
 	/// <summary>A back-cached page returned: re-scan its lists' delegates, which Qt 5.6 reuses without
 	/// firing attach/rebind.</summary>
@@ -383,14 +354,8 @@ internal sealed class QtHostCollectionBridge
 	public void ContributeRouting(Dictionary<string, NativeElementHost> byId)
 	{
 		foreach (var state in _byElement.Values)
-		{
-			foreach (var dg in state.ByHandle.Values)
-				foreach (var host in dg.Children)
-					byId[host.Id] = host;
-			foreach (var slot in state.Slots.Values)
-				foreach (var host in slot.Children)
-					byId[host.Id] = host;
-		}
+			foreach (var host in state.CellHosts)
+				byId[host.Id] = host;
 	}
 
 	/// <summary>How often the delegate resync and parked attaches retry while they have work (they wait for Qt's
@@ -578,14 +543,8 @@ internal sealed class QtHostCollectionBridge
 	internal bool IsCollectionCellHost(NativeElementHost host)
 	{
 		foreach (var state in _byElement.Values)
-		{
-			foreach (var dg in state.ByHandle.Values)
-				if (dg.Children.Contains(host))
-					return true;
-			foreach (var slot in state.Slots.Values)
-				if (slot.Children.Contains(host))
-					return true;
-		}
+			if (state.OwnsCellHost(host))
+				return true;
 		return false;
 	}
 
@@ -709,34 +668,7 @@ internal sealed class QtHostCollectionBridge
 				QtHostDiag.Warn(QtHostDiagChannel.QmlSignal, $"collection event '{name}' for unknown list id='{id}'");
 				return;
 			}
-			switch (name)
-			{
-				case "list-item-attached":
-				case "list-item-rebind":
-					state.RequestMaterialize((int)BridgeJson.Num(root, "row", -1), root.GetProperty("dg").GetString() ?? string.Empty);
-					break;
-				case "list-item-detached":
-				{
-					var dgName = root.GetProperty("dg").GetString() ?? string.Empty;
-					if (state.Delegates.TryGetValue(dgName, out var dg))
-						state.UnmaterializeDg(dg);
-					break;
-				}
-				case "list-item-released":
-					state.ReleaseDg(root.GetProperty("dg").GetString() ?? string.Empty,
-						root.GetProperty("to").GetString() ?? string.Empty);
-					break;
-				case "list-item-tapped":
-					state.OnRowTapped((int)BridgeJson.Num(root, "row", -1), BridgeJson.Int(root, "cell", 0),
-						BridgeJson.Num(root, "x", double.NaN), BridgeJson.Num(root, "y", double.NaN));
-					break;
-				case "carousel-position":
-					state.OnCarouselPosition((int)BridgeJson.Num(root, "index", -1));
-					break;
-				case "list-scroll":
-					state.OnListScroll(BridgeJson.Num(root, "y", -1), (int)BridgeJson.Num(root, "first", -1), (int)BridgeJson.Num(root, "last", -1));
-					break;
-			}
+			state.HandleEvent(name, root);
 		}
 		catch (Exception ex)
 		{
@@ -751,6 +683,7 @@ internal sealed class QtHostCollectionBridge
 		nameof(ItemsView.ItemsSource), nameof(SelectableItemsView.SelectionMode), nameof(SelectableItemsView.SelectedItem),
 		nameof(SelectableItemsView.SelectedItems), nameof(CarouselView.Position), nameof(CarouselView.CurrentItem),
 		nameof(CarouselView.IsSwipeEnabled), nameof(CarouselView.IsBounceEnabled), nameof(CarouselView.PeekAreaInsets),
+		nameof(CarouselView.Loop),
 		nameof(StructuredItemsView.ItemsLayout), nameof(StructuredItemsView.Header), nameof(StructuredItemsView.Footer),
 		nameof(ItemsView.EmptyView), nameof(ItemsView.ItemTemplate), nameof(GroupableItemsView.IsGrouped),
 		nameof(GroupableItemsView.GroupHeaderTemplate), nameof(GroupableItemsView.GroupFooterTemplate),
@@ -816,12 +749,7 @@ internal sealed class QtHostCollectionBridge
 			return;
 		_sceneDirty = false;
 		foreach (var state in _byElement.Values)
-		{
-			foreach (var dg in state.ByHandle.Values)
-				state.UpdateDgGeometry(dg);
-			foreach (var slot in state.Slots.Values)
-				state.UpdateSlotGeometry(slot);
-		}
+			state.RefreshGeometry();
 	}
 
 	/* --- Selection: native tap → MAUI → highlight push back --- */
@@ -857,4 +785,17 @@ internal sealed class QtHostCollectionBridge
 			if (hostIds.Contains(state.Host.Id))
 				state.CleanupList();
 	}
+}
+
+/// <summary>Diagnostics counters the lists add to; the bridge reads them (QtHostCollectionBridge.RowsBuilt, …).</summary>
+internal sealed class ListCounters
+{
+	public long RowsBuilt;
+	public long ItemsMaterialized;
+	public long SameRowRebuilds;
+	public long RowsPooled;
+	public long RowsAdopted;
+	public long RowRekeysRefused;
+	public long SelectionsApplied;
+	public long ScrollsReported;
 }

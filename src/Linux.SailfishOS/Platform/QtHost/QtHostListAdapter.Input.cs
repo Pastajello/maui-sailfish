@@ -136,7 +136,7 @@ internal sealed partial class QtHostListAdapter
 			return;
 		var item = row.CellItems[cellIndex];
 
-		_bridge.SelectionsApplied++;
+		_counters.SelectionsApplied++;
 		try
 		{
 			// Single: a re-tap never deselects, as with the in-box handlers. Multiple: toggle the tapped cell.

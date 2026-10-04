@@ -67,9 +67,12 @@ SilicaListView {
             return;
         currentIndex = mauiPosition;
     }
-    // Managed echoes the reported index back; that push is a no-op here.
-    onCurrentIndexChanged: if (mauiCarousel && !__rebuilding && currentIndex >= 0 && currentIndex !== mauiPosition)
-        mauiEvent("carousel-position", JSON.stringify({ id: mauiId, index: currentIndex }))
+    // A swipe: mauiPosition follows the native page before it is reported, so it always holds what is shown and the
+    // managed side pushes a position only when MAUI's differs (QtHostListAdapter records the reported one as applied).
+    onCurrentIndexChanged: if (mauiCarousel && !__rebuilding && currentIndex >= 0 && currentIndex !== mauiPosition) {
+        mauiPosition = currentIndex;
+        mauiEvent("carousel-position", JSON.stringify({ id: mauiId, index: currentIndex }));
+    }
 
     // Set when a RefreshView wraps this list and the page has no pulley
     // (Silica's pull-down menu owns the top overscroll when present).
@@ -166,6 +169,8 @@ SilicaListView {
         id: displacedTransition
         NumberAnimation { properties: "x,y"; duration: 200; easing.type: Easing.InOutQuad }
     }
+    // mauiRowsJson rows (QtHostListAdapter.RowJson): k stable key, r index, h height (Qt units), t tap kind
+    // (0 none, 1 selectable, 2 a tap gesture), n cells in a grid row; s is the selected role mauiSelectedRows flips.
     function __rebuildRows() {
         var rows = [];
         try { rows = JSON.parse(mauiRowsJson); } catch (e) { rows = []; }

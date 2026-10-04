@@ -182,9 +182,12 @@ public class SailfishListViewHandler : SailfishSnapshotHandler<IView>
 			Adapter?.OnViewProperty(key);
 	}
 
-	/// <summary>The list's adapter (rows, delegates, slots, selection, scroll), set when the page reconcile registers
-	/// the list and cleared when the list retires; the mapper hands it every ItemsView change.</summary>
-	internal QtHostListAdapter? Adapter { get; set; }
+	/// <summary>The list's adapter (rows, delegates, slots, selection, scroll) while the list is on a page, as a
+	/// RecyclerView's adapter is its handler's; the mapper hands it every ItemsView change, the measure reads its extent.
+	/// The page reconcile creates it when it meets the list (the rows need the page around it) and retires it when the
+	/// list leaves; the handler asks for it instead of being handed it.</summary>
+	internal QtHostListAdapter? Adapter =>
+		ConnectedView is ItemsView view ? SailfishHandlerCore.SessionOf(this)?.ListAdapterOf(view) : null;
 
 	public static readonly CommandMapper<IView, SailfishListViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
@@ -193,9 +196,16 @@ public class SailfishListViewHandler : SailfishSnapshotHandler<IView>
 	}
 
 	public SailfishListViewHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
-		: base(mapper ?? Mapper, commandMapper ?? CommandMapper, SailfishMeasure.Collection)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
 	{
+		_measure = (_, widthConstraint, heightConstraint) => SailfishMeasure.Collection(Adapter, widthConstraint, heightConstraint);
 	}
+
+	private readonly Func<IView, double, double, Size> _measure;
+
+	/// <summary>The list measures from its own adapter's extent (its rows, or the cross size of a horizontal list).</summary>
+	public override Size GetDesiredSize(double widthConstraint, double heightConstraint) =>
+		ConnectedView is { } view ? SailfishMeasure.Frame(view, widthConstraint, heightConstraint, _measure) : Size.Zero;
 
 	protected override string? AdapterUri => QtHostCollectionBridge.AdapterUriFor(ConnectedView);
 

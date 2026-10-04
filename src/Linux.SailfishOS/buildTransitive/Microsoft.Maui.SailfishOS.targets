@@ -210,6 +210,24 @@
     <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)../scaffold/trimmer.xml" />
   </ItemGroup>
 
+  <!-- ================= Native assets of a checkout app ================= -->
+  <!-- A package consumer gets the shim, the launcher and the secrets bridge as NuGet runtime assets. An app that
+       references the backend by project (the repo's Sample) gets none that way, so it names the tools/sf
+       native-build output instead: SailfishNativeAssetsDir (artifacts/native); the RID picks the arch. -->
+  <PropertyGroup Condition="'$(SailfishNativeAssetsDir)' != ''">
+    <_SailfishNativeArch Condition="'$(RuntimeIdentifier)' == 'linux-arm'">armv7hl</_SailfishNativeArch>
+    <_SailfishNativeArch Condition="'$(_SailfishNativeArch)' == ''">aarch64</_SailfishNativeArch>
+    <_SailfishNativeDir>$([MSBuild]::EnsureTrailingSlash('$(SailfishNativeAssetsDir)'))$(_SailfishNativeArch)/</_SailfishNativeDir>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(SailfishNativeAssetsDir)' != ''">
+    <Content Include="$(_SailfishNativeDir)libsailfishhost.so" Link="libsailfishhost.so"
+             CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(_SailfishNativeDir)libsailfishhost.so')" />
+    <Content Include="$(_SailfishNativeDir)sailfish-launcher" Link="sailfish-launcher"
+             CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(_SailfishNativeDir)sailfish-launcher')" />
+    <Content Include="$(_SailfishNativeDir)libsailfishsecretsbridge.so" Link="libsailfishsecretsbridge.so"
+             CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(_SailfishNativeDir)libsailfishsecretsbridge.so')" />
+  </ItemGroup>
+
   <!-- ================= Property Defaults ================= -->
   <PropertyGroup Condition="'$(CreateSailfishRpm)' == 'true'">
     <_SailfishRpmEnabled>true</_SailfishRpmEnabled>

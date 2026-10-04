@@ -86,30 +86,62 @@ case "$SF_SAMPLE_DIR" in
 		}
 		;;
 esac
-if [ -n "$SF_PKG_EXPLICIT" ]; then
-	SF_PKG="$SF_PKG_EXPLICIT"
-elif [ "$SF_SAMPLE_DIR" != "$SF_REPO_ROOT/samples/Linux.SailfishOS.Sample" ]; then
-	SF_PKG="harbour-$(basename "$SF_SAMPLE_DIR" | tr '[:upper:]' '[:lower:]')"
-else
-	SF_PKG="harbour-sample"
-fi
-# Debug gets its own package id so it can coexist with the Release install.
-if [ -z "$SF_PKG_EXPLICIT" ] && [ "${SF_CONFIGURATION:-Release}" = "Debug" ]; then
-	SF_PKG="$SF_PKG-debug"
-fi
-if [ -n "$SF_BIN_EXPLICIT" ]; then
-	SF_BIN="$SF_BIN_EXPLICIT"
-elif [ "$SF_SAMPLE_DIR" != "$SF_REPO_ROOT/samples/Linux.SailfishOS.Sample" ]; then
-	SF_BIN="$(basename "$SF_SAMPLE_DIR")"
-else
-	SF_BIN="Linux.SailfishOS.Sample"
-fi
 SF_RID="${SF_RID:-linux-arm64}"
 SF_CONFIGURATION="${SF_CONFIGURATION:-Release}"
 # net11.0-sailfish when the project targets it, else the bare net11.0 of the old sample.
 if [ -z "${SF_TFM:-}" ]; then
 	SF_TFM=net11.0
 	grep -qs "net11.0-sailfish" "$SF_SAMPLE_DIR"/*.csproj && SF_TFM=net11.0-sailfish
+fi
+
+# The app's own package name and assembly, as the packaging targets compute them (SailfishPackageName from the
+# ApplicationId, AssemblyName), so `sf deploy` installs the package a plain `dotnet publish` builds. Asked once per
+# project change: cached under obj/ next to the build, keyed by the project file's mtime. SF_NO_PROJECT_QUERY=1
+# (set by `sf <cmd> --help`) or no dotnet: the directory names below.
+sf_project_identity() {
+	local proj stamp cache out pkg bin
+	[ -z "${SF_NO_PROJECT_QUERY:-}" ] && command -v dotnet >/dev/null 2>&1 || return 1
+	proj="$(ls "$SF_SAMPLE_DIR"/*.csproj 2>/dev/null | head -1)"
+	[ -n "$proj" ] || return 1
+	stamp="$(stat -f %m "$proj" 2>/dev/null || stat -c %Y "$proj" 2>/dev/null)" || return 1
+	cache="$SF_SAMPLE_DIR/obj/sf-identity-$SF_TFM-$SF_RID.txt"
+	if [ -f "$cache" ] && [ "$(sed -n 1p "$cache")" = "$stamp" ]; then
+		sed -n '2,3p' "$cache"
+		return 0
+	fi
+	out="$(dotnet msbuild "$proj" -nologo -getProperty:SailfishPackageName -getProperty:AssemblyName \
+		-p:TargetFramework="$SF_TFM" -p:RuntimeIdentifier="$SF_RID" -p:Configuration=Release -p:CreateSailfishRpm=true \
+		2>/dev/null | tr -d '\n')" || return 1
+	pkg="$(printf '%s' "$out" | sed -n 's/.*"SailfishPackageName": *"\([^"]*\)".*/\1/p')"
+	bin="$(printf '%s' "$out" | sed -n 's/.*"AssemblyName": *"\([^"]*\)".*/\1/p')"
+	[ -n "$pkg" ] && [ -n "$bin" ] || return 1
+	mkdir -p "$SF_SAMPLE_DIR/obj" 2>/dev/null && printf '%s\n%s\n%s\n' "$stamp" "$pkg" "$bin" > "$cache" 2>/dev/null
+	printf '%s\n%s\n' "$pkg" "$bin"
+}
+if [ -z "$SF_PKG_EXPLICIT" ] || [ -z "$SF_BIN_EXPLICIT" ]; then
+	SF_IDENTITY="$(sf_project_identity)" || SF_IDENTITY=""
+fi
+if [ -n "$SF_PKG_EXPLICIT" ]; then
+	SF_PKG="$SF_PKG_EXPLICIT"
+elif [ -n "${SF_IDENTITY:-}" ]; then
+	SF_PKG="$(printf '%s\n' "$SF_IDENTITY" | sed -n 1p)"
+elif [ "$SF_SAMPLE_DIR" != "$SF_REPO_ROOT/samples/Linux.SailfishOS.Sample" ]; then
+	SF_PKG="harbour-$(basename "$SF_SAMPLE_DIR" | tr '[:upper:]' '[:lower:]')"
+else
+	SF_PKG="harbour-sample"
+fi
+# Debug gets its own package id so it can coexist with the Release install.
+if [ -z "$SF_PKG_EXPLICIT" ] && [ "$SF_CONFIGURATION" = "Debug" ]; then
+	SF_PKG="$SF_PKG-debug"
+fi
+if [ -n "$SF_BIN_EXPLICIT" ]; then
+	SF_BIN="$SF_BIN_EXPLICIT"
+elif [ -n "${SF_IDENTITY:-}" ]; then
+	SF_BIN="$(printf '%s\n' "$SF_IDENTITY" | sed -n 2p)"
+elif [ "$SF_SAMPLE_DIR" != "$SF_REPO_ROOT/samples/Linux.SailfishOS.Sample" ]; then
+	SF_BIN="$(basename "$SF_SAMPLE_DIR")"
+else
+	SF_BIN="Linux.SailfishOS.Sample"
 fi
 SF_PUBLISH_DIR="${SF_PUBLISH_DIR:-$SF_SAMPLE_DIR/bin/$SF_CONFIGURATION/$SF_TFM/$SF_RID/publish}"
 SF_RPM_DIR="${SF_RPM_DIR:-$SF_SAMPLE_DIR/bin/SailfishRpm}"

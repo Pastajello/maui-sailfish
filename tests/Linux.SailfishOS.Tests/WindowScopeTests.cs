@@ -48,6 +48,41 @@ public class WindowScopeTests
 		Assert.NotNull(first.GetService(typeof(Microsoft.Maui.Controls.Platform.IModalNavigationPlatformFactory)));
 	}
 
+	private sealed class AppAlerts : Microsoft.Maui.Controls.Platform.IAlertManagerSubscription
+	{
+		public void OnActionSheetRequested(Microsoft.Maui.Controls.Page sender, Microsoft.Maui.Controls.Internals.ActionSheetArguments arguments) { }
+		public void OnAlertRequested(Microsoft.Maui.Controls.Page sender, Microsoft.Maui.Controls.Internals.AlertArguments arguments) { }
+		public void OnPromptRequested(Microsoft.Maui.Controls.Page sender, Microsoft.Maui.Controls.Internals.PromptArguments arguments) { }
+		public void OnPageBusy(Microsoft.Maui.Controls.Page sender, bool enabled) { }
+	}
+
+	// Dialogs and modals come from the overlay, with its render session, for the application and every window: the DI
+	// registrations UseMauiAppSailfish made had no session and hid the overlay's (and an app's own registration made
+	// before UseMauiAppSailfish lost to them).
+	[Fact]
+	public void Dialogs_and_modals_come_from_the_overlay_and_an_apps_own_registration_wins()
+	{
+		var builder = MauiApp.CreateBuilder(useDefaults: false);
+		builder.UseMauiAppSailfish<TestApp>();
+		using var app = builder.Build();
+		var root = new SailfishServiceOverlay(app.Services);
+		using var window = SailfishWindowScope.Create(root);
+
+		Assert.IsType<Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostAlertSubscription>(
+			root.GetService(typeof(Microsoft.Maui.Controls.Platform.IAlertManagerSubscription)));
+		Assert.Same(root.GetService(typeof(Microsoft.Maui.Controls.Platform.IAlertManagerSubscription)),
+			window.GetService(typeof(Microsoft.Maui.Controls.Platform.IAlertManagerSubscription)));
+		Assert.Same(root.GetService(typeof(Microsoft.Maui.Controls.Platform.IModalNavigationPlatformFactory)),
+			window.GetService(typeof(Microsoft.Maui.Controls.Platform.IModalNavigationPlatformFactory)));
+
+		var own = MauiApp.CreateBuilder(useDefaults: false);
+		own.Services.AddSingleton<Microsoft.Maui.Controls.Platform.IAlertManagerSubscription, AppAlerts>();
+		own.UseMauiAppSailfish<TestApp>();
+		using var ownApp = own.Build();
+		Assert.IsType<AppAlerts>(new SailfishServiceOverlay(ownApp.Services)
+			.GetService(typeof(Microsoft.Maui.Controls.Platform.IAlertManagerSubscription)));
+	}
+
 	[Fact]
 	public void The_overlay_decides_over_the_stock_registrations_in_the_window_scope_too()
 	{

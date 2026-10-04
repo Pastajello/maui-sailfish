@@ -63,7 +63,7 @@ internal sealed partial class QtHostListAdapter
 				return false;
 			}
 		}
-		var objName = $"maui_{Host.Id}__{slot}";
+		var objName = SlotObjectName(slot);
 		var handle = QtHostRuntime.FindScoped(objName, Host.NativeHandle);
 		if (handle == 0)
 		{

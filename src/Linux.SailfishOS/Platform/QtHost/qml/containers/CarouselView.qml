@@ -5,6 +5,9 @@ import Sailfish.Silica 1.0
 // non-looping carousel uses containers/ListView.qml). It implements the same collection bridge
 // contract: delegates are "maui_<id>__r<row>" placeholders, and it accepts the unused list-view
 // properties so shared pushes land. Only previous/current/next pages stay alive on the path.
+// Events as ListView.qml: list-item-attached/rebind/detached, list-item-tapped {id,row,cell,x,y}, carousel-position
+// {id,index}, and list-scroll {id,y,first,last} on every page change (y = page index × page step, along x), so
+// ItemsView.Scrolled and RemainingItemsThresholdReached work with Loop=true too.
 PathView {
     id: root
 
@@ -66,7 +69,7 @@ PathView {
         __rebuilding = true;
         rowModel.clear();
         for (var i = 0; i < rows.length; ++i)
-            rowModel.append({ r: rows[i].r | 0, h: rows[i].h || 0 });
+            rowModel.append({ r: rows[i].r | 0, h: rows[i].h || 0, t: rows[i].t || 0 });
         if (mauiPosition >= 0 && mauiPosition < count) {
             var move = highlightMoveDuration;
             highlightMoveDuration = 0;
@@ -75,10 +78,24 @@ PathView {
             highlightMoveDuration = move;
         }
         __rebuilding = false;
+        __reportScroll();
     }
     onMauiPositionChanged: if (mauiPosition >= 0 && mauiPosition < count && currentIndex !== mauiPosition) currentIndex = mauiPosition
-    onCurrentIndexChanged: if (!__rebuilding && currentIndex >= 0 && currentIndex !== mauiPosition)
-        mauiEvent("carousel-position", JSON.stringify({ id: mauiId, index: currentIndex }))
+    // A swipe: mauiPosition follows the native page before it is reported (see ListView.qml).
+    onCurrentIndexChanged: {
+        if (!__rebuilding && currentIndex >= 0 && currentIndex !== mauiPosition) {
+            mauiPosition = currentIndex;
+            mauiEvent("carousel-position", JSON.stringify({ id: mauiId, index: currentIndex }));
+        }
+        __reportScroll();
+    }
+    // The page on the path is the visible one: first = last = current (the peeks show only slices of the others).
+    function __reportScroll() {
+        if (currentIndex < 0 || count === 0)
+            return;
+        mauiEvent("list-scroll", JSON.stringify({ id: mauiId, y: currentIndex * __step, first: currentIndex,
+                                                  last: currentIndex, count: count }));
+    }
 
     delegate: Item {
         objectName: "maui_" + root.mauiId + "__r" + r
@@ -92,5 +109,14 @@ PathView {
             JSON.stringify({ id: root.mauiId, row: r, dg: objectName }))
         Component.onDestruction: if (root) root.mauiEvent("list-item-detached",
             JSON.stringify({ id: root.mauiId, dg: objectName }))
+
+        // Selection and the template's tap gestures, as ListView.qml's tap area (a page is one cell); a drag still
+        // goes to the PathView, which takes the press once it moves.
+        MouseArea {
+            anchors.fill: parent
+            enabled: t !== 0
+            onClicked: root.mauiEvent("list-item-tapped",
+                JSON.stringify({ id: root.mauiId, row: r, cell: 0, x: mouse.x, y: mouse.y }))
+        }
     }
 }

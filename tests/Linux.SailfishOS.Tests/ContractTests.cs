@@ -143,8 +143,8 @@ public class AdaptersContractTests
 		                                   && !e.StartsWith("svc-", StringComparison.Ordinal)).Order().ToList();
 		Assert.True(unconsumed.Count == 0, "emitted by QML, consumed nowhere: " + string.Join(", ", unconsumed));
 
-		// The renderer's and the collection bridge's own switches: every label must still be emitted somewhere.
-		var switches = new[] { "Platform/QtHost/AdapterEventRouter.cs", "Platform/QtHost/QtHostCollectionBridge.cs" }
+		// The renderer's and the list adapter's own switches: every label must still be emitted somewhere.
+		var switches = new[] { "Platform/QtHost/AdapterEventRouter.cs", "Platform/QtHost/QtHostListAdapter.Bridge.cs" }
 			.Select(f => File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS", f)));
 		var labels = switches.SelectMany(t => System.Text.RegularExpressions.Regex.Matches(t, @"case ""([a-z0-9-]+)""\s*:")
 			.Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);

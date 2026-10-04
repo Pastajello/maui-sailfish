@@ -35,6 +35,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJSValue>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QKeyEvent>

@@ -39,7 +39,7 @@ internal sealed partial class QtHostListAdapter
 
 	internal void OnListScroll(double yQt, int firstRow, int lastRow)
 	{
-		_bridge.ScrollsReported++;
+		_counters.ScrollsReported++;
 		FirstVisibleRow = firstRow;
 		LastVisibleRow = lastRow;
 		// Flicks recycle delegates silently, so resync the visible rows.

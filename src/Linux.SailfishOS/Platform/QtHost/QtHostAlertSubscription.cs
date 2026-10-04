@@ -10,11 +10,11 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 internal sealed class QtHostAlertSubscription : IAlertManagerSubscription
 {
-	private readonly SailfishRenderSession? _session;
+	private readonly SailfishRenderSession _session;
 
-	/// <param name="session">The overlay passes its session; DI (UseMauiAppSailfish registers this type) does not, and the
-	/// app's session is looked up when a dialog is requested.</param>
-	public QtHostAlertSubscription(SailfishRenderSession? session = null)
+	/// <param name="session">The session of the overlay that serves this subscription (SailfishServiceOverlay, the
+	/// only place it is created; an app's own IAlertManagerSubscription registration wins over it).</param>
+	public QtHostAlertSubscription(SailfishRenderSession session)
 	{
 		_session = session;
 		Console.Error.WriteLine("[Sailfish] Qt dialogs: QtHostAlertSubscription constructed (Window.AlertManager subscribed)");
@@ -74,7 +74,7 @@ internal sealed class QtHostAlertSubscription : IAlertManagerSubscription
 
 	private QtHostPageRenderer? ResolveRenderer()
 	{
-		var renderer = (_session ?? SailfishRenderSession.OfApp)?.Renderer;
+		var renderer = _session.Renderer;
 		if (renderer is null)
 			Console.Error.WriteLine("[Sailfish] Qt dialogs: no active Qt-host renderer — completing with the default result");
 		return renderer;

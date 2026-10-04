@@ -63,5 +63,9 @@ internal sealed class SailfishRenderSession
 
 	public bool? FocusHost(NativeElementHost host, bool focus) => Renderer?.FocusHost(host, focus);
 
+	/// <summary>The live adapter of a list on the page (rows, delegates, slots, selection, scroll); null before the
+	/// renderer runs or while the list is not on a page.</summary>
+	public QtHostListAdapter? ListAdapterOf(ItemsView view) => Renderer?.Collection.AdapterOf(view);
+
 	public void OnHandlerDisconnected(NativeElementHost host) => Renderer?.OnHandlerDisconnected(host);
 }

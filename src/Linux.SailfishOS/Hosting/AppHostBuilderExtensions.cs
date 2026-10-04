@@ -51,14 +51,9 @@ public static class AppHostBuilderExtensions
 		});
 		builder.Services.AddSingleton<IMauiHandlersFactory, SailfishHandlersFactory>();
 
-		// Routes DisplayAlertAsync/PromptAsync/ActionSheetAsync to native Silica dialogs
-		// (resolved from the window handler's MauiContext, see SailfishMauiApplication.Run).
-		// Modal pages present on the Silica pageStack and complete once it shows them.
-		builder.Services.TryAddSingleton<Microsoft.Maui.Controls.Platform.IModalNavigationPlatformFactory,
-			Microsoft.Maui.SailfishOS.Platform.QtHost.SailfishModalNavigationPlatformFactory>();
-
-		builder.Services.AddSingleton<Microsoft.Maui.Controls.Platform.IAlertManagerSubscription,
-			Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostAlertSubscription>();
+		// DisplayAlertAsync/PromptAsync/ActionSheetAsync (Silica dialog panels) and modal pages (the Silica pageStack)
+		// come from SailfishServiceOverlay with the window's render session; every MAUI lookup goes through it. An app
+		// that registers its own IAlertManagerSubscription or IModalNavigationPlatformFactory still wins.
 
 		return builder;
 	}

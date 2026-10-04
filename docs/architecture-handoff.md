@@ -313,9 +313,17 @@ Acceptance: `grep -c "ReleaseHost(\|DestroyHosts(\|DestroyNative(" Platform/QtHo
 Done 2026-10-04 (both acceptance greps empty): `OnNativeObjectRecreated`, `RequestResync`, `RunPendingWork`,
 `ForgetDeadHost`, `bridge.ParkAttach`/`CancelAttach` (the retry list is private), `bridge.MappingScope()` with
 `IsMapping`, `renderer.HoldLayoutRequests()`, `PageTarget` (W3.2); tests `CollectionBridgeTests` (parked attach retry,
-row keys across an Add, a removed list unregisters). Left for a later pass (encapsulation only, no defect behind them):
-`CellHosts`/`OwnsCellHost`, `RefreshGeometry`/`HandleEvent`, moving `DescribeRow`/`TryGetRowPoint`/`DelegateOf`/`RowView`
-into the adapter, the `ListCounters` object, the C9 naming items.
+row keys across an Add, a removed list unregisters). The rest the same day (owner: "poprawiać"):
+`QtHostListAdapter.Bridge.cs` holds `CellHosts`, `OwnsCellHost`, `RefreshGeometry`, `HandleEvent` (the event switch),
+`RowView`, `DelegateHolding`, `TryGetRowPoint`, `DescribeRow`; the bridge only loops over its lists. `ListCounters` is
+handed to each adapter (the bridge's counters are read-only). C9: `RowJson` constants, `DelegatePrefix`,
+`SlotObjectName`; `TakeReusableRow` takes the matching row among all candidates of a repeated item; `mauiPosition` is
+pushed only when it changed (the adapters set it themselves on a swipe, so the applied value is the native one);
+`Loop` is followed (the list swaps PathView ↔ ListView adapter in `RegisterList`) and the PathView carousel reports
+`list-scroll` and `list-item-tapped`. One `ReadLayout` per rebuild was checked and left: it reads a few properties,
+and a cached layout would miss a `GridItemsLayout.Span` change, which raises no ItemsView change. Tests: row JSON
+keys vs `ListView.qml`, the swiped carousel not echoed, the repeated grid item, the `Loop` swap, `Scrolled` and the
+threshold with `Loop=true`, the RefreshView consumed by its list, multiple selection, header/footer/empty slots.
 
 The adapter is split into responsibility partials and the lookups are pure (`RowLookup`), but the bridge still
 pokes the adapter's fields and the adapter the bridge's. Replace field access with these methods (each replaces
@@ -370,10 +378,12 @@ containers with mappers of their own chained from `SailfishViewMapper.Mapper` (`
 semantics documented in `docs/custom-controls.md` (decision 6b); test
 `A_subclass_mapper_chained_from_the_built_in_one_keeps_its_snapshot_keys`. 6 `SailfishFontRules` (font rules and
 `SilicaMediumFontDp`), `TextInputProps(input)` computes Entry's echo mode and length. 7 all items.
-Left (no defect behind them): the list handler still gets its adapter from the bridge, `SailfishMeasure.Collection`
-reads it through the handler, `SailfishPageContainers.Of` still attaches a nested container's handler on lookup, and
-`SailfishDrawnViewHandler` keeps its poll on resize (it is a `NullViewHandler` re-recorded by every reconcile; moving
-it onto the snapshot base needs a Syncfusion app on the phone to check).
+The leftovers the same day: the list handler asks for its adapter (`Adapter` looks it up through the session, the
+bridge no longer assigns it) and measures from it (`SailfishMeasure.Collection(adapter, …)`); `SailfishPageContainers.Of`
+is a pure lookup, a nested container gets its handler when its parent presents it (`Present`, from `StackOf`);
+`SailfishDrawnViewHandler` is a snapshot handler (the drawing follows a property at once and the arranged size, test
+in `A_self_drawing_library_view_renders_its_drawing_under_its_children`; a Syncfusion app on the phone is still the
+check the device run cannot give).
 
 `SailfishControlHandlers.cs` (1 106 lines) holds 29 types of repeated boilerplate; no class is large. Do the
 mechanical part first, then the idioms.
@@ -463,9 +473,11 @@ the theme and cover payloads parsed by their records only (the shell sends `stat
 `SailfishEssentials.IsHostUp`. 5 the app hears cover actions through `SailfishCover.ActionTriggered` (one
 subscription), the `DynamicDependency` block sits on `Hook`, the method that reflects.
 Left: Remorse, Cover and OpenUrl stay static (public static APIs, one per process); the 11 `OnX(v); Invoke<OnX>`
-pairs stay written out; the DI registrations of `QtHostAlertSubscription`/`SailfishModalNavigationPlatformFactory`
-stay as the root provider's fallback (the overlay serves the window's own; removing them needs a check of every
-resolution path); `RouteHostEvents`/`StartRendering` stay in `Boot.cs`.
+pairs stay written out; `RouteHostEvents`/`StartRendering` stay in `Boot.cs`. The DI registrations of
+`QtHostAlertSubscription`/`SailfishModalNavigationPlatformFactory` are gone (owner: "ruszać"): every lookup goes
+through `SailfishServiceOverlay` (application and window scope), which creates them with its session; the DI ones had
+none and hid it, and an app's own registration made before `UseMauiAppSailfish` lost to them (test
+`Dialogs_and_modals_come_from_the_overlay_and_an_apps_own_registration_wins`).
 
 1. **One start pattern.** The Ensure-plus-subscribe-once dance with a flag is written seven times (Battery
    `SailfishDevices.cs:49-64`, Connectivity `:196-203`, Geolocation `SailfishSensors.cs:239-250`, `SailfishSensor`
@@ -552,7 +564,8 @@ QML `Text` uses, so a hyphen or a slash breaks as the label will; the greedy loo
 when a custom shell lacks it) and the per-frame tab drag goes through `CallPage`; the rarer multi-argument calls
 (context menu, dialog push, pulley, scroll, remorse, preload, theme probes) still eval through `QmlPage`.
 Also: `Eval`/`Invoke` results longer than the 8 KB buffer come back whole (ABI 4, `sailfish_host_last_result`, the
-`bridge` leg checks a 20000-char result; native-interop L3). 4 left: the per-page payloads are still double-encoded.
+`bridge` leg checks a 20000-char result; native-interop L3). 4 the drain returns its array to the shim as a
+`QVariantList` (no JSON document around payloads that are JSON text already; a shell returning text is still read).
 
 1. **The file split.** `sailfish_host.cpp` is two anonymous-namespace blocks (`:91-1273`, `:1846-…`, `:2897-3300`)
    with helpers between the `extern "C"` exports (`:1347-3388`); the crash handler (`:1280-1345`) is static outside
@@ -593,9 +606,12 @@ follows `SF_RID`, the duplicate `SailfishOrientation`/`SailfishCover` defaults a
 launch, which covers the matrix overlap; an MSBuild query for the package name does not work at evaluation time
 (`SailfishPackageName` is computed inside a target), so `sf-lib.sh` keeps the directory names; `_SignSailfishRpm`
 already errors when there is nothing to sign; `trimmer.xml` still roots `*MauiProgram` (narrowing it to the app
-assembly needs a generated descriptor, and a `CreateMauiApp` outside a `MauiProgram` class is a documented
-requirement of the generated Main); the Sample's native assets and the Kitchen's CommunityToolkit guard and
-`IDispatcher` singleton stay (packaging and app-visible changes for no defect).
+assembly needs a generated descriptor; the class name is documented in `add-sailfish-to-existing-app.md`).
+Then (owner: "poprawić"): `sf-lib.sh` asks MSBuild for `SailfishPackageName`/`AssemblyName` (cached in
+`obj/sf-identity-*.txt` by the project's mtime; `--help` skips it), so `sf deploy` installs the package a plain
+`dotnet publish` builds; the Sample names its native assets with one property (`SailfishNativeAssetsDir`, handled in
+the targets) instead of six items; the Kitchen calls `UseMauiCommunityToolkit()` directly (it registers fine) and
+injects MAUI's own `IDispatcher` (the backend serves it; its own singleton is gone), Kitchen tour passed.
 
 - `tools/lib/sf-lib.sh:89-116` derives the package name, binary and arch from directory names; the plan's D3 wants
   an MSBuild query (`dotnet msbuild -getProperty:SailfishPackageName …`). Every `tools/sf` command sources the

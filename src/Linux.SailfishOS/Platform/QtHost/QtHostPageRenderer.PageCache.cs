@@ -95,10 +95,10 @@ internal sealed partial class QtHostPageRenderer : IPageCacheOwner
 	/// handlers hold, or a modal (or a page of a modal container).</summary>
 	private bool PageHeld(Page page)
 	{
-		if (Handlers.SailfishPageContainers.Holds(RootPage(), page, _mauiContext))
+		if (Handlers.SailfishPageContainers.Holds(RootPage(), page))
 			return true;
 		foreach (var modal in ResolveModalStack() ?? Array.Empty<Page>())
-			if (Handlers.SailfishPageContainers.Holds(modal, page, _mauiContext))
+			if (Handlers.SailfishPageContainers.Holds(modal, page))
 				return true;
 		return false;
 	}

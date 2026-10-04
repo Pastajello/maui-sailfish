@@ -427,9 +427,8 @@ bool eval_js(const QString &js, QString *out)
     return true;
 }
 
-// Drains the QML-to-C queue (current page's __mauiQueue plus the app queue) with one eval.
-// It runs on every tick, so the expression is compiled once and the length guard skips
-// JSON.stringify when the queues are empty.
+// Drains the QML-to-C queues (every model page's __mauiQueue plus the app queue) with one evaluation. It runs on
+// every tick, so the expression is compiled once; empty queues return an empty array.
 void drain_qml_events()
 {
     if (!g.event_fn) {
@@ -452,7 +451,7 @@ void drain_qml_events()
             "if(p&&p.__mauiQueue&&p.__mauiQueue.length)out=p.__mauiDrain();"
             // app service queue (MauiShell), independent of the page
             "if(typeof __mauiAppQueue!=='undefined'&&__mauiAppQueue.length)out=(out||[]).concat(__mauiAppDrain());"
-            "return out?JSON.stringify(out):'[]';})()"));
+            "return out||[];})()"));
         g.drain_expr->setNotifyOnValueChanged(false);
     }
     ++g.drains;
@@ -465,22 +464,32 @@ void drain_qml_events()
         g.drain_expr = nullptr;
         return;
     }
-    const QString result = (isUndefined || !value.isValid())
-        ? QStringLiteral("undefined")
-        : value.toString();
-    if (result == QLatin1String("[]") || result == QLatin1String("undefined"))
+    if (isUndefined || !value.isValid())
         return;
-    QJsonParseError perr;
-    const QJsonDocument doc = QJsonDocument::fromJson(result.toUtf8(), &perr);
-    if (perr.error != QJsonParseError::NoError || !doc.isArray())
-        return;
-    const QJsonArray arr = doc.array();
-    for (const QJsonValue &v : arr) {
-        if (!v.isObject())
+    // The drain returns the queued events as an array, read here as a QVariantList: the payloads (JSON text from
+    // the adapters) pass once, not escaped inside a second JSON document (W8.4). A shell from before returns that
+    // JSON document as text, still read.
+    QVariantList events;
+    if (value.userType() == QMetaType::QString) {
+        const QJsonDocument doc = QJsonDocument::fromJson(value.toString().toUtf8());
+        if (!doc.isArray())
+            return;
+        events = doc.array().toVariantList();
+    } else if (value.userType() == qMetaTypeId<QJSValue>()) {
+        events = value.value<QJSValue>().toVariant().toList();
+    } else {
+        events = value.toList();
+    }
+    for (const QVariant &v : events) {
+        const QVariantMap o = v.toMap();
+        if (o.isEmpty())
             continue;
-        const QJsonObject o = v.toObject();
         const QByteArray name = o.value(QStringLiteral("name")).toString().toUtf8();
-        const QByteArray payload = o.value(QStringLiteral("payload")).toString().toUtf8();
+        const QVariant raw = o.value(QStringLiteral("payload"));
+        // A payload that is an object, not JSON text, is written out here, once.
+        const QByteArray payload = !raw.isValid() || raw.userType() == QMetaType::QString
+            ? raw.toString().toUtf8()
+            : QJsonDocument::fromVariant(raw).toJson(QJsonDocument::Compact);
         log_line(0, QStringLiteral("qml event name='%1' payload=%2")
                         .arg(QString::fromUtf8(name), QString::fromUtf8(payload)));
         g.event_fn(name.constData(), payload.constData(), g.event_user);

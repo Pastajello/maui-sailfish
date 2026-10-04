@@ -20,11 +20,13 @@ internal sealed partial class QtHostListAdapter
 {
 	private readonly QtHostCollectionBridge _bridge;
 	private readonly QtHostPageRenderer _renderer;
+	private readonly ListCounters _counters;
 
-	internal QtHostListAdapter(QtHostCollectionBridge bridge, QtHostPageRenderer renderer)
+	internal QtHostListAdapter(QtHostCollectionBridge bridge, QtHostPageRenderer renderer, ListCounters counters)
 	{
 		_bridge = bridge;
 		_renderer = renderer;
+		_counters = counters;
 	}
 
 	/// <summary>Subscribes to the view's scroll requests, selection and source (once, on registration).</summary>
@@ -87,6 +89,13 @@ internal sealed partial class QtHostListAdapter
 				}
 				break;
 			}
+			case nameof(CarouselView.Loop):
+				// The other adapter (PathView ↔ ListView): the walk of the list's container swaps it (RegisterList).
+				if (View.Parent is IView container)
+					_renderer.RequestSubtree(container);
+				else
+					_renderer.RequestPoll();
+				break;
 			case nameof(CarouselView.IsSwipeEnabled):
 			case nameof(CarouselView.IsBounceEnabled):
 			case nameof(ItemsView.VerticalScrollBarVisibility):
@@ -140,7 +149,7 @@ internal sealed partial class QtHostListAdapter
 	}
 
 	private double _measuredCrossDp;
-	public readonly Dictionary<object, Queue<Row>> Reusable = new(ReferenceEqualityComparer.Instance);   // RebuildRows scratch
+	public readonly Dictionary<object, List<Row>> Reusable = new(ReferenceEqualityComparer.Instance);   // RebuildRows scratch, by first item, in order
 	public readonly Dictionary<string, DgState> Delegates = new(StringComparer.Ordinal);
 	public readonly Dictionary<long, DgState> ByHandle = new();   // ListView recycles+renames delegates
 	public readonly Dictionary<string, SlotState> Slots = new(StringComparer.Ordinal);
@@ -447,10 +456,28 @@ internal sealed partial class QtHostListAdapter
 				Host.AppliedProperties[name] = json;
 	}
 
-	// The native list moves its carousel page itself (a swipe), so the last pushed position is no proof of the
-	// native one: it is always sent. Everything else only changes through these pushes.
+	// A swipe moves the native carousel page itself, but the adapter sets its mauiPosition with it and reports it
+	// (OnCarouselPosition records it as applied), so the applied value is the native one for every property.
 	private bool Changed(string name, string json) =>
-		name == "mauiPosition" || !Host.AppliedProperties.TryGetValue(name, out var applied) || applied != json;
+		!Host.AppliedProperties.TryGetValue(name, out var applied) || applied != json;
+
+	/// <summary>The keys of one row in mauiRowsJson, the roles of ListView.qml's rowModel.</summary>
+	internal static class RowJson
+	{
+		public const string Key = "k";        // stable row key (survives inserts and removes)
+		public const string Row = "r";        // the row's index
+		public const string Height = "h";     // Qt units
+		public const string Tap = "t";        // 0 none, 1 selectable, 2 a tap gesture in the row
+		public const string Cells = "n";      // cells in a grid row
+		public const string Selected = "s";   // the role mauiSelectedRows flips
+	}
+
+	/// <summary>objectName prefix of this list's row delegates: the delegate of row r is <c>prefix + r</c>
+	/// (ListView.qml/CarouselView.qml).</summary>
+	internal string DelegatePrefix => "maui_" + Host.Id + "__r";
+
+	/// <summary>objectName of a header/footer/empty slot item (ListView.qml).</summary>
+	internal string SlotObjectName(string slot) => "maui_" + Host.Id + "__" + slot;
 
 	internal void PushRows()
 	{
@@ -465,11 +492,11 @@ internal sealed partial class QtHostListAdapter
 			if (i > 0)
 				sb.Append(',');
 			// No selection flag: a new mauiRowsJson resets the whole QML model, while mauiSelectedRows only flips a role.
-			sb.Append("{\"k\":").Append(row.Key.ToString(CultureInfo.InvariantCulture))
-			  .Append(",\"r\":").Append(i.ToString(CultureInfo.InvariantCulture))
-			  .Append(",\"h\":").Append(QtHostUnits.ToQtUnits(row.HeightDp).ToString("R", CultureInfo.InvariantCulture))
-			  .Append(",\"t\":").Append(row.Kind != KindItem ? '0' : selectable ? '1' : RowHasTap(row) ? '2' : '0')
-			  .Append(",\"n\":").Append((row.Kind == KindItem ? row.CellItems.Count : 0).ToString(CultureInfo.InvariantCulture))
+			sb.Append("{\"" + RowJson.Key + "\":").Append(row.Key.ToString(CultureInfo.InvariantCulture))
+			  .Append(",\"" + RowJson.Row + "\":").Append(i.ToString(CultureInfo.InvariantCulture))
+			  .Append(",\"" + RowJson.Height + "\":").Append(QtHostUnits.ToQtUnits(row.HeightDp).ToString("R", CultureInfo.InvariantCulture))
+			  .Append(",\"" + RowJson.Tap + "\":").Append(row.Kind != KindItem ? '0' : selectable ? '1' : RowHasTap(row) ? '2' : '0')
+			  .Append(",\"" + RowJson.Cells + "\":").Append((row.Kind == KindItem ? row.CellItems.Count : 0).ToString(CultureInfo.InvariantCulture))
 			  .Append('}');
 		}
 		sb.Append(']');
@@ -529,8 +556,6 @@ internal sealed partial class QtHostListAdapter
 		LastCellLayout = string.Empty;
 		LastSelJson = string.Empty;
 		_bridge.Unregister(this);
-		if (View.Handler is Handlers.SailfishListViewHandler { } handler && ReferenceEquals(handler.Adapter, this))
-			handler.Adapter = null;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject, $"collection list '{Host}' retired (rows/delegates/slots released)");
 	}
 

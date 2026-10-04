@@ -37,15 +37,15 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 
 	/// <summary>A stack at its root shows the root's tabs when the root is itself a container.</summary>
 	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs =>
-		Nav?.Navigation.NavigationStack is { Count: 1 } stack ? SailfishPageContainers.Of(stack[0], MauiContext)?.Tabs : null;
+		Nav?.Navigation.NavigationStack is { Count: 1 } stack ? SailfishPageContainers.Of(stack[0])?.Tabs : null;
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown) =>
-		Nav?.Navigation.NavigationStack is { Count: 1 } stack && SailfishPageContainers.Of(stack[0], MauiContext) is { } root
+		Nav?.Navigation.NavigationStack is { Count: 1 } stack && SailfishPageContainers.Of(stack[0]) is { } root
 			? root.FlyoutMenu(shown)
 			: Enumerable.Empty<(string, bool, Action)>();
 
 	bool ISailfishPageContainer.Holds(Page page) =>
-		Nav?.Navigation.NavigationStack.Any(p => SailfishPageContainers.Holds(p, page, MauiContext)) == true;
+		Nav?.Navigation.NavigationStack.Any(p => SailfishPageContainers.Holds(p, page)) == true;
 
 	private static void MapRequestNavigation(SailfishNavigationViewHandler handler, IStackNavigationView view, object? args)
 	{

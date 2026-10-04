@@ -113,6 +113,7 @@ Feature flags that gate paths touched below (all `MAUI_SAILFISH_*`): `ROW_POOL`,
 
 | When | Build | Legs | Result |
 | --- | --- | --- | --- |
+| 2026-10-04 11:21 | + overlay-only dialogs/modals, W4 rest (adapter methods, ListCounters, C9: row keys, carousel position, Loop swap, PathView events), W5.6 rest, W8.4 drain as QVariantList, sf-lib identity query, Sample native assets property, Kitchen without workarounds | full matrix: all 31 legs; Kitchen tour `all` (pack-local) | 31/31 PASS (`/tmp/sf-matrix-summary-20261004-112128.txt`); Kitchen tour done, exit code 0 |
 | 2026-10-04 10:13 | + W7, W8 (shim split into host_*.cpp, QTextLayout measure, shell invoke for the nav poll, ABI 4 whole results), W9 (run exit code) | full matrix: all 31 legs | 31/31 PASS (`/tmp/sf-matrix-summary-20261004-101347.txt`); deploy D6: installed shim matches the local build |
 | 2026-10-04 09:41 | + W6 (service start pattern, one thread hop, counters gone) + W2.2 | f4 features silica popup stress | 5/5 PASS (`/tmp/sf-matrix-summary-20261004-094135.txt`) |
 | 2026-10-04 09:05 | + W5 (handlers split by family, `SailfishKeys`, mapper constructors) | controls text input visual geometry page popup features | 8/8 PASS (`/tmp/sf-matrix-summary-20261004-090536.txt`); screenshot `controls-gallery` (scratchpad `shots-w5/`) has the B5 layout, Labels at the theme size (decision 1b) |

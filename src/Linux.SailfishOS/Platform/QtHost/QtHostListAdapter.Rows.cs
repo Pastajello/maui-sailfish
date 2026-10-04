@@ -59,9 +59,9 @@ internal sealed partial class QtHostListAdapter
 			foreach (var old in previous)
 				if (old.Kind == KindItem && old.CellItems.Count >= 1 && old.CellItems[0] is { } oldItem && !oldItem.GetType().IsValueType)
 				{
-					if (!Reusable.TryGetValue(oldItem, out var queue))
-						Reusable[oldItem] = queue = new Queue<Row>();
-					queue.Enqueue(old);
+					if (!Reusable.TryGetValue(oldItem, out var rows))
+						Reusable[oldItem] = rows = new List<Row>();
+					rows.Add(old);
 				}
 		_lastSignature = signature;
 		var span = Math.Max(1, Span);
@@ -100,7 +100,7 @@ internal sealed partial class QtHostListAdapter
 		InheritOwnerContext(view, EmptySlotView);
 		Push("mauiPlaceholderText", placeholder ?? string.Empty);
 
-		_bridge.RowsBuilt += Rows.Count;
+		_counters.RowsBuilt += Rows.Count;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject, $"collection '{Host}' rows={Rows.Count} span={span} " +
 			$"cellWidth={CellWidthDp.ToString("F0", CultureInfo.InvariantCulture)}dp " +
 			$"spacing={SpacingDp.ToString("F0", CultureInfo.InvariantCulture)}dp grouped={(grouped is not null)}");
@@ -212,19 +212,28 @@ internal sealed partial class QtHostListAdapter
 		}
 	}
 
-	/// <summary>The previous build's row for list[start..] if it holds exactly those items at this width.</summary>
+	/// <summary>The previous build's row for list[start..] if one holds exactly those items at this width. An item
+	/// that starts several rows (the same object twice in a grid source) has several candidates: the first that
+	/// matches is taken, in the old order, not only the first one queued.</summary>
 	internal Row? TakeReusableRow(IList list, int start, int span, double cellWidth)
 	{
-		if (list[start] is not { } first || !Reusable.TryGetValue(first, out var queue) || queue.Count == 0)
+		if (list[start] is not { } first || !Reusable.TryGetValue(first, out var candidates))
 			return null;
-		var candidate = queue.Peek();
 		var count = Math.Min(span, list.Count - start);
-		if (Math.Abs(candidate.CellWidthDp - cellWidth) >= 0.5 || candidate.CellItems.Count != count)
-			return null;
-		for (var k = 0; k < count; k++)
-			if (!ReferenceEquals(candidate.CellItems[k], list[start + k]))
-				return null;
-		return queue.Dequeue();
+		for (var c = 0; c < candidates.Count; c++)
+		{
+			var candidate = candidates[c];
+			if (Math.Abs(candidate.CellWidthDp - cellWidth) >= 0.5 || candidate.CellItems.Count != count)
+				continue;
+			var same = true;
+			for (var k = 0; k < count && same; k++)
+				same = ReferenceEquals(candidate.CellItems[k], list[start + k]);
+			if (!same)
+				continue;
+			candidates.RemoveAt(c);
+			return candidate;
+		}
+		return null;
 	}
 
 	internal void AddTemplateRow(DataTemplate? template, object context, int kind, int groupIndex, double widthDp)

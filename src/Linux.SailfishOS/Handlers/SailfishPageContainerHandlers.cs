@@ -29,33 +29,40 @@ internal interface ISailfishPageContainer
 	bool Holds(Page page);
 }
 
-/// <summary>Resolves containers through their handlers, attaching one where a nested container has none yet (only
-/// the window's root page gets its handler from the window; a TabbedPage as a flyout's Detail does not).</summary>
+/// <summary>Resolves containers through their handlers. Only the window's root page gets its handler from the window;
+/// a container nested in another (a TabbedPage as a flyout's Detail) gets its handler when its parent presents it
+/// (<see cref="Present"/>), as a platform container creates the native view of the child it shows.</summary>
 internal static class SailfishPageContainers
 {
 	private static readonly IReadOnlyList<Page> NoPages = Array.Empty<Page>();
 
 	internal static bool IsContainer(Page? page) => page is NavigationPage or Shell or TabbedPage or FlyoutPage;
 
-	internal static ISailfishPageContainer? Of(Page? page, IMauiContext? context)
+	/// <summary>The container handler of <paramref name="page"/>; null for a page, or a nested container no parent
+	/// presented yet (nothing of it is on screen).</summary>
+	internal static ISailfishPageContainer? Of(Page? page) =>
+		IsContainer(page) ? page!.Handler as ISailfishPageContainer : null;
+
+	/// <summary>A parent container shows <paramref name="page"/>: a nested container gets its handler now.</summary>
+	internal static ISailfishPageContainer? Present(Page? page, IMauiContext? context)
 	{
-		if (!IsContainer(page))
-			return null;
-		if (page!.Handler is null && context is not null)
+		if (IsContainer(page) && page!.Handler is null && context is not null)
 			SailfishHandlersFactory.AttachRootHandler(page, context);
-		return page.Handler as ISailfishPageContainer;
+		return Of(page);
 	}
 
-	/// <summary>Whether <paramref name="candidate"/> is <paramref name="page"/> or held by it (a container).</summary>
-	internal static bool Holds(Page? page, Page candidate, IMauiContext? context) =>
-		page is not null && (ReferenceEquals(page, candidate) || Of(page, context)?.Holds(candidate) == true);
+	/// <summary>Whether <paramref name="candidate"/> is <paramref name="page"/> or held by it (a container). A page
+	/// inside a container never presented is not held: it was never shown either.</summary>
+	internal static bool Holds(Page? page, Page candidate) =>
+		page is not null && (ReferenceEquals(page, candidate) || Of(page)?.Holds(candidate) == true);
 
-	/// <summary>The stack <paramref name="page"/> shows: a container's current stack, else the page alone.</summary>
+	/// <summary>The stack <paramref name="page"/> shows: a container's current stack (the container is presented),
+	/// else the page alone.</summary>
 	internal static (IReadOnlyList<Page> Pages, Func<Task>? Pop) StackOf(Page? page, IMauiContext? context)
 	{
 		if (page is null)
 			return (NoPages, null);
-		return Of(page, context) is { } container ? container.CurrentStack() : (new[] { page }, null);
+		return Present(page, context) is { } container ? container.CurrentStack() : (new[] { page }, null);
 	}
 
 	/// <summary>A stack whose top page is itself a container (a NavigationPage whose root is a TabbedPage) continues
@@ -140,12 +147,12 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 	}
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown) =>
-		Tabbed?.CurrentPage is { } child && SailfishPageContainers.Of(child, MauiContext) is { } inner
+		Tabbed?.CurrentPage is { } child && SailfishPageContainers.Of(child) is { } inner
 			? inner.FlyoutMenu(shown)
 			: Enumerable.Empty<(string, bool, Action)>();
 
 	bool ISailfishPageContainer.Holds(Page page) =>
-		Tabbed?.Children.Any(child => SailfishPageContainers.Holds(child, page, MauiContext)) == true;
+		Tabbed?.Children.Any(child => SailfishPageContainers.Holds(child, page)) == true;
 }
 
 /// <summary>FlyoutPage: the Detail's stack, plus the Flyout page while presented (a native push, closed by Back).</summary>
@@ -205,7 +212,7 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 	}
 
 	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs =>
-		Flyout is { IsPresented: false, Detail: { } detail } ? SailfishPageContainers.Of(detail, MauiContext)?.Tabs : null;
+		Flyout is { IsPresented: false, Detail: { } detail } ? SailfishPageContainers.Of(detail)?.Tabs : null;
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown)
 	{
@@ -220,7 +227,7 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 
 	bool ISailfishPageContainer.Holds(Page page) =>
 		Flyout is { } flyout &&
-		(SailfishPageContainers.Holds(flyout.Detail, page, MauiContext) || SailfishPageContainers.Holds(flyout.Flyout, page, MauiContext));
+		(SailfishPageContainers.Holds(flyout.Detail, page) || SailfishPageContainers.Holds(flyout.Flyout, page));
 }
 
 /// <summary>Shell: the current section's stack (its root slot materialized from the ShellContent), its sections or
@@ -385,12 +392,12 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 		foreach (var item in shell.Items)
 			foreach (var section in item.Items)
 			{
-				if (section.Navigation.NavigationStack.Any(p => p is not null && SailfishPageContainers.Holds(p, page, MauiContext)))
+				if (section.Navigation.NavigationStack.Any(p => p is not null && SailfishPageContainers.Holds(p, page)))
 					return true;
 				// A ContentTemplate page lives in the controller's Page; Content stays the template's null.
 				foreach (var content in section.Items)
 					if ((((IShellContentController)content).Page ?? content.Content as Page) is { } realized &&
-					    SailfishPageContainers.Holds(realized, page, MauiContext))
+					    SailfishPageContainers.Holds(realized, page))
 						return true;
 			}
 		return false;

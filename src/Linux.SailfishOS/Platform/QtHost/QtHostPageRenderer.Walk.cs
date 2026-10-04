@@ -283,7 +283,7 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>A QML object cannot change its type, so the element gets a fresh host and handler, as another platform
 	/// recreates a platform view; the element's old host leaves the desired tree and the diff destroys it.</summary>
-	private void RebindAdapter(View view)
+	internal void RebindAdapter(View view)
 	{
 		QtHostDiag.Trace(QtHostDiagChannel.QmlObject, $"adapter rebind {view.GetType().Name}");
 		_cache.Forget(view);

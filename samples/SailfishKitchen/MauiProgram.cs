@@ -2,7 +2,6 @@ using CommunityToolkit.Maui;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Hosting;
 using SailfishKitchen.Api;
 using SailfishKitchen.Services;
@@ -56,16 +55,14 @@ public static class MauiProgram
 	{
 		var builder = MauiApp.CreateBuilder();
 
-#if IOS
-		// iOS renders the same XAML natively for a look & feel comparison; CTK is supported there
-		// and must be chained onto UseMauiApp (analyzer MCT001).
+		// The same chain on iOS (the look & feel comparison) and Sailfish: CTK registers its handlers on both, and the
+		// pieces without a Silica counterpart (toast, snackbar, popup) are simply not used here. CA1416: CTK.Maui does
+		// not declare Linux support.
+#pragma warning disable CA1416
 		builder
 			.UseMauiApp<App>()
 			.UseMauiCommunityToolkit();
-#else
-		builder.UseMauiApp<App>();
-		ConfigureCommunityToolkit(builder);
-#endif
+#pragma warning restore CA1416
 
 		builder.ConfigureFonts(fonts =>
 		{
@@ -76,26 +73,6 @@ public static class MauiProgram
 		ConfigureServices(builder.Services);
 
 		return builder.Build();
-	}
-
-	/// <summary>
-	/// Registers CommunityToolkit.Maui handlers, guarded because toast/snackbar/popup have no Qt/Silica counterpart.
-	/// The handler-free pieces (behaviors, converters, Expander, AvatarView) work either way.
-	/// </summary>
-	private static void ConfigureCommunityToolkit(MauiAppBuilder builder)
-	{
-		try
-		{
-			// CA1416: CTK.Maui does not declare Linux support.
-#pragma warning disable CA1416
-			builder.UseMauiCommunityToolkit();
-#pragma warning restore CA1416
-			Append("CommunityToolkit.Maui handlers registered");
-		}
-		catch (Exception ex)
-		{
-			Append($"CommunityToolkit.Maui registration skipped: {ex.GetType().Name}: {ex.Message}");
-		}
 	}
 
 	private static void ConfigureLogging(MauiAppBuilder builder)
@@ -111,9 +88,7 @@ public static class MauiProgram
 	private static void ConfigureServices(IServiceCollection services)
 	{
 		// --- cross-cutting ----------------------------------------------------
-		// MauiProgram runs on the UI thread, so this captures the right dispatcher; fail here rather than on first marshal.
-		services.AddSingleton<IDispatcher>(_ => Dispatcher.GetForCurrentThread()
-			?? throw new InvalidOperationException("No UI-thread dispatcher is available at composition time."));
+		// IDispatcher comes from MAUI's own registration (the platform's UI-thread dispatcher, on Sailfish the Qt loop's).
 		services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
 		// --- persistence ------------------------------------------------------

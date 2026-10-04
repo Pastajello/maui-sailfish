@@ -120,7 +120,7 @@ internal sealed partial class QtHostPageRenderer
 	/// FlyoutPage's "present" entry); none while a modal is open.</summary>
 	private IEnumerable<(string Text, bool Enabled, Action Activate)> FlyoutEntries(Page page)
 	{
-		if (ResolveModalStack() is { Count: > 0 } || Handlers.SailfishPageContainers.Of(RootPage(), _mauiContext) is not { } root)
+		if (ResolveModalStack() is { Count: > 0 } || Handlers.SailfishPageContainers.Of(RootPage()) is not { } root)
 			return Enumerable.Empty<(string, bool, Action)>();
 		return root.FlyoutMenu(page);
 	}
@@ -190,7 +190,7 @@ internal sealed partial class QtHostPageRenderer
 	{
 		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
 			return null;
-		return Handlers.SailfishPageContainers.Of(RootPage(), _mauiContext)?.Tabs;
+		return Handlers.SailfishPageContainers.Of(RootPage())?.Tabs;
 	}
 
 	/// <summary>The second tab row (a Shell section's contents), on the same pages as <see cref="ResolveTabs"/>.</summary>
@@ -198,7 +198,7 @@ internal sealed partial class QtHostPageRenderer
 	{
 		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
 			return null;
-		return Handlers.SailfishPageContainers.Of(RootPage(), _mauiContext)?.SubTabs;
+		return Handlers.SailfishPageContainers.Of(RootPage())?.SubTabs;
 	}
 
 	/// <summary>The page shows the Shell flyout as its pulley.</summary>

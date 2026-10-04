@@ -345,10 +345,14 @@ internal sealed class FakeShim : IQtHostShim
 		}
 	}
 
+	/// <summary>Every property written to an object, single or in a batch: (object id, property name).</summary>
+	public List<(string Id, string Name)> PropertyWrites { get; } = new();
+
 	public int SetProperty(long handle, string name, string? valueJson)
 	{
 		if (!_byHandle.TryGetValue(handle, out var o) || o.Destroyed)
 			return -3;
+		PropertyWrites.Add((o.Id, name));
 		using var doc = JsonDocument.Parse(valueJson ?? "null");
 		o.Props[name] = doc.RootElement.Clone();
 		if (name is "mauiFocus" or "enabled")
@@ -373,7 +377,10 @@ internal sealed class FakeShim : IQtHostShim
 		}
 		using var doc = JsonDocument.Parse(propsJson);
 		foreach (var entry in doc.RootElement.EnumerateArray())
+		{
 			o.Props[entry.GetProperty("name").GetString()!] = entry.GetProperty("value").Clone();
+			PropertyWrites.Add((o.Id, entry.GetProperty("name").GetString()!));
+		}
 		EmulateFocus(o);
 		return 0;
 	}

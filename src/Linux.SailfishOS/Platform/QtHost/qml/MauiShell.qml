@@ -150,7 +150,8 @@ ApplicationWindow {
         onKeyboardRectangleChanged: window.__mauiReportInputMethod()
     }
     function __mauiAppDrain() { var q = __mauiAppQueue; __mauiAppQueue = []; return q; }
-    // The shim's drain, once per tick: every model page's queue and the app queue. A page under a Silica dialog or a
+    // The shim's drain, once per tick: every model page's queue and the app queue, as an array the shim reads as a
+    // QVariantList (no JSON text around payloads that are JSON text already). A page under a Silica dialog or a
     // parked page reports too (the drain used to read pageStack.currentPage only, so their events waited until the
     // page was on top again).
     function __mauiDrainAll() {
@@ -162,7 +163,7 @@ ApplicationWindow {
         }
         if (__mauiAppQueue.length)
             out = (out || []).concat(__mauiAppDrain());
-        return out ? JSON.stringify(out) : "[]";
+        return out || [];
     }
     // The navigation snapshot the renderer reads every poll (QtHostPageRenderer.TryReadNavState), called through
     // sailfish_host_invoke on the "mauiShell" object below, so no JS is compiled per poll.
