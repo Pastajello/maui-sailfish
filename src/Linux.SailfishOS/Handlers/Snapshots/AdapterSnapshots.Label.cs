@@ -43,7 +43,7 @@ internal static partial class AdapterSnapshots
 			// Transparent keeps the emphasis-derived theme color.
 			["mauiColor"] = label.TextColor ?? Colors.Transparent,
 			["mauiBackground"] = label.BackgroundColor ?? Colors.Transparent,
-			["mauiPixelSize"] = SailfishMeasure.LabelFontSize(label) is { } size ? size * density : 0.0,
+			["mauiPixelSize"] = SailfishFontRules.LabelFontSize(label) is { } size ? size * density : 0.0,
 			["mauiFamily"] = QtHostFonts.Resolve(label.FontFamily),
 			["mauiBold"] = (label.FontAttributes & FontAttributes.Bold) != 0,
 			["mauiItalic"] = (label.FontAttributes & FontAttributes.Italic) != 0,

@@ -32,6 +32,8 @@ public sealed class SailfishBottomSheet : IDisposable
 	/// <summary>Raised when the native panel open state changes.</summary>
 	public event EventHandler<bool>? OpenChanged;
 
+	private QtHostPageRenderer? _listening;   // the renderer whose PanelOpenChanged this sheet listens to
+
 	private static QtHostPageRenderer Renderer => SailfishRenderSession.OfApp?.Renderer
 		?? throw new InvalidOperationException(
 			"SailfishBottomSheet requires the Qt host (MAUI_SAILFISH_QT_HOST=1) with an active page renderer.");
@@ -43,6 +45,7 @@ public sealed class SailfishBottomSheet : IDisposable
 		if (_hostId is null)
 		{
 			renderer.PanelOpenChanged += OnNativePanelOpenChanged;
+			_listening = renderer;
 			_hostId = renderer.AddInteractionHost("docked-panel", Props(open: true));
 		}
 		else
@@ -73,11 +76,11 @@ public sealed class SailfishBottomSheet : IDisposable
 	{
 		if (_hostId is null)
 			return;
-		if (SailfishRenderSession.OfApp?.Renderer is { } renderer)
-		{
-			renderer.RemoveInteractionHost(_hostId);
-			renderer.PanelOpenChanged -= OnNativePanelOpenChanged;
-		}
+		SailfishRenderSession.OfApp?.Renderer?.RemoveInteractionHost(_hostId);
+		// The renderer it subscribed to, even when the session has no renderer any more (W1.10: the handler stayed).
+		if (_listening is { } subscribed)
+			subscribed.PanelOpenChanged -= OnNativePanelOpenChanged;
+		_listening = null;
 		_hostId = null;
 		IsOpen = false;
 	});

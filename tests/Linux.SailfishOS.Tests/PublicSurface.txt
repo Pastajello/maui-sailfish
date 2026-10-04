@@ -39,6 +39,7 @@ Microsoft.Maui.SailfishOS.Handlers.SailfishPageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishPickerHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishProgressBarHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishRadioButtonHandler
+Microsoft.Maui.SailfishOS.Handlers.SailfishScrollViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishSearchBarHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishShapeHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishShellHandler
@@ -50,12 +51,12 @@ Microsoft.Maui.SailfishOS.Handlers.SailfishStepperHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishSwipeViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishSwitchHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishTabbedPageHandler
+Microsoft.Maui.SailfishOS.Handlers.SailfishTextInputHandlerBase`1
 Microsoft.Maui.SailfishOS.Handlers.SailfishTimePickerHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishViewHandler`1
 Microsoft.Maui.SailfishOS.Handlers.SailfishViewMapper
 Microsoft.Maui.SailfishOS.Handlers.SailfishWebViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishWindowHandler
-Microsoft.Maui.SailfishOS.Handlers.ScrollViewHandler
 Microsoft.Maui.SailfishOS.Hosting.AppHostBuilderExtensions
 Microsoft.Maui.SailfishOS.Hosting.SailfishMauiApplicationHost
 Microsoft.Maui.SailfishOS.Platform.QtHost.NativeElementHost

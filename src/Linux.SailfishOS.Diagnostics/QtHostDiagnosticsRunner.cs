@@ -578,9 +578,15 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	{
 		Console.Error.WriteLine($"[Sailfish] Qt bridge diag: counters applied={renderer.BridgeApplied} failed={renderer.BridgeFailed} " +
 			$"events={renderer.NativeEventsDelivered} echoes-suppressed={renderer.NativeEventsSuppressed}");
-		var bridgeOk = _qtBridgePushOk && _qtBridgeSuppressionOk && _qtBridgeWriteBackOk && renderer.BridgeFailed == 0;
+		// A result longer than the 8 KB call buffer comes back whole (ABI 4, sailfish_host_last_result): a contacts
+		// dump or a file list used to arrive cut and fail to parse.
+		var longResult = QtHost.QtHostRuntime.Eval("new Array(20001).join('x')");
+		var longOk = longResult.Length == 20000;
+		Console.Error.WriteLine($"[Sailfish] Qt bridge diag: LONG RESULT eval of 20000 chars came back with {longResult.Length} => " +
+			(longOk ? "OK — whole" : "FAIL — cut at the call buffer"));
+		var bridgeOk = _qtBridgePushOk && _qtBridgeSuppressionOk && _qtBridgeWriteBackOk && longOk && renderer.BridgeFailed == 0;
 		Console.Error.WriteLine($"[Sailfish] Qt bridge diag: ACCEPTANCE push={(_qtBridgePushOk ? 1 : 0)} suppression={(_qtBridgeSuppressionOk ? 1 : 0)} " +
-			$"write-back={(_qtBridgeWriteBackOk ? 1 : 0)} failed={renderer.BridgeFailed} => " +
+			$"write-back={(_qtBridgeWriteBackOk ? 1 : 0)} long={(longOk ? 1 : 0)} failed={renderer.BridgeFailed} => " +
 			(bridgeOk ? "OK — typed push, echo suppression and native write-back (PLAN Q6)" : "FAIL — see the leg lines above"));
 		// Leave the bridge end state on screen as the final evidence.
 		var grabRc = QtHost.QtHostRuntime.GrabPng("/tmp/q6-bridge-final.png");

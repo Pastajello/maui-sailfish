@@ -164,6 +164,24 @@ ApplicationWindow {
             out = (out || []).concat(__mauiAppDrain());
         return out ? JSON.stringify(out) : "[]";
     }
+    // The navigation snapshot the renderer reads every poll (QtHostPageRenderer.TryReadNavState), called through
+    // sailfish_host_invoke on the "mauiShell" object below, so no JS is compiled per poll.
+    function mauiNavState() {
+        if (!window.mauiPages)
+            return "{}";
+        // The pageStack itself, not the page registry: a popped page stays registered until its deferred destruction.
+        var ids = [];
+        pageStack.find(function(p) { if (p && p.mauiPageId !== undefined) ids.unshift(String(p.mauiPageId)); return false; });
+        return JSON.stringify({ ids: ids, ver: window.mauiStackVersion || 0, busy: !!pageStack.busy,
+                                topModel: !!(pageStack.currentPage && pageStack.currentPage.mauiPageId !== undefined),
+                                active: !!window.active,
+                                appState: Qt.application ? Qt.application.state : -1 });
+    }
+    // What C# calls on the shell itself (sailfish_host_invoke): findChild finds this object, not the window.
+    QtObject {
+        objectName: "mauiShell"
+        function navState() { return window.mauiNavState(); }
+    }
     function mauiService(name, qml) {
         if (!mauiServices[name]) {
             try {

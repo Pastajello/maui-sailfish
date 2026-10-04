@@ -16,7 +16,7 @@ internal sealed partial class QtHostPageRenderer
 	                             Dictionary<NativeElementHost, Dictionary<string, object?>> props)
 	{
 		var first = desired.Count;
-		_mappingRows = true;
+		_mappingRowsDepth++;
 		try
 		{
 			MapElement(root, desired, props);
@@ -28,19 +28,35 @@ internal sealed partial class QtHostPageRenderer
 		}
 		finally
 		{
-			_mappingRows = false;
+			_mappingRowsDepth--;
 		}
 		// Visual state and corner clips join row snapshots here, since rows never pass through the page reconcile.
+		// Row content isn't attached to the page tree, so the rendered page is the surround-colour fallback.
 		for (var i = first; i < desired.Count; i++)
-		{
-			if (!props.TryGetValue(desired[i], out var p))
-				continue;
-			if (desired[i].Element is VisualElement ve)
-				QtHostVisualState.Merge(p, ve);
-			// Row content isn't attached to the page tree, so the rendered page is the surround-colour fallback.
-			if (desired[i].QmlUri == "image")
-				QtHostClip.Merge(p, desired[i].Element as VisualElement, _rendered);
-		}
+			MergeGenericState(desired[i], props, _rendered);
+	}
+
+	/// <summary>The matrix of a root that sits directly on its canvas (the page canvas, a row placeholder): its own
+	/// transform, then its arranged position plus the canvas offset (W3.5: built three times).</summary>
+	private static Affine2 RootMatrix(VisualElement root, double offsetX = 0, double offsetY = 0) =>
+		QtHostVisualState.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
+			.Then(Affine2.Translation(offsetX + root.Bounds.X, offsetY + root.Bounds.Y));
+
+	/// <summary>
+	/// What joins every host's snapshot besides its handler's (W3.5: three copies): the generic visual state
+	/// (opacity/enabled/z cascades computed managed-side), and on an image the corner clip of a rounded Border it sits
+	/// in. Children of a rounded Border are sibling hosts, so the clip crosses as a spec and the adapter masks itself;
+	/// only adapters that declare mauiClipRadius/mauiClipCorners may get it (an unknown name fails the whole batch).
+	/// </summary>
+	private static void MergeGenericState(NativeElementHost host, Dictionary<NativeElementHost, Dictionary<string, object?>> props,
+	                                      Page? surround)
+	{
+		if (!props.TryGetValue(host, out var hostProps))
+			return;
+		if (host.Element is VisualElement visual)
+			QtHostVisualState.Merge(hostProps, visual);
+		if (host.QmlUri == "image")
+			QtHostClip.Merge(hostProps, host.Element as VisualElement, surround);
 	}
 
 	/// <summary>Lays out one row/slot subtree inside its placeholder, rooted at the cell offset. Nothing depends
@@ -53,11 +69,7 @@ internal sealed partial class QtHostPageRenderer
 			return;
 		// The root's arranged position in its cell is its Margin (the cell is arranged at 0,0), as for the page root.
 		// cellX is the cell's offset across the scroll axis: x in a vertical grid, y in a horizontal one.
-		var rootMatrix = QtHostVisualState
-			.LocalTransform(root, root.Bounds.Width, root.Bounds.Height)
-			.Then(crossAlongY
-				? Affine2.Translation(root.Bounds.X, cellX + root.Bounds.Y)
-				: Affine2.Translation(cellX + root.Bounds.X, root.Bounds.Y));
+		var rootMatrix = RootMatrix(root, crossAlongY ? 0 : cellX, crossAlongY ? cellX : 0);
 		CollectGeometry(root, rootMatrix, rootMatrix, hosts as HashSet<NativeElementHost> ?? new HashSet<NativeElementHost>(hosts),
 			parentVisible: true, hitClip: null);
 		FlushGeometry();
@@ -277,7 +289,6 @@ internal sealed partial class QtHostPageRenderer
 		_cache.Forget(view);
 		view.Handler?.DisconnectHandler();
 		QtHostLayout.AttachHandlers(view, _mauiContext);
-		AdapterRebinds++;
 	}
 
 	private void AddPlaceholder(Element element, string text, List<NativeElementHost> desired,

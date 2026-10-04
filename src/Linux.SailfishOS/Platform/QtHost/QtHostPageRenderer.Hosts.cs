@@ -68,7 +68,7 @@ internal sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>Sends one ordered, suppressed batch through the shim and records the applied state; failures are
-	/// logged once per host/context.</summary>
+	/// logged once per host/context. False when the shim rejected any of it (nothing is then recorded as applied).</summary>
 	internal bool PushBatch(NativeElementHost host, IReadOnlyList<(string Name, string ValueJson)> changed)
 	{
 		var batch = QtHostBridge.BuildBatch(changed, suppress: true);
@@ -86,7 +86,7 @@ internal sealed partial class QtHostPageRenderer
 			BridgeFailed += failed;
 			LogBridgeFailure(host, "batch", failed);
 			HealIfDead(host);   // dead handle → recreate
-			return true;
+			return false;       // not pushed: callers must not count it (W1.7)
 		}
 		foreach (var (name, json) in changed)
 			host.AppliedProperties[name] = json;
@@ -196,14 +196,8 @@ internal sealed partial class QtHostPageRenderer
 	private static void AttachNative(NativeElementHost host, Dictionary<string, object?> props, long scopeHandle = 0)
 	{
 		// Collection rows re-create the same host id, and a ListView may keep a stale twin alive in a cached
-		// delegate, so resolve inside the placeholder first.
-		host.NativeHandle = scopeHandle != 0 ? QtHostRuntime.FindVisual(scopeHandle, $"maui_{host.Id}") : 0;
-		if (host.NativeHandle == 0)
-			host.NativeHandle = QtHostRuntime.FindObject($"maui_{host.Id}");
-		if (host.NativeHandle == 0)
-			// Hosts inside a ListView delegate hang in the visual tree only (the Qt 5.6 incubator never re-parents the
-			// QObject chain), so findChild misses them; BFS childItems like QML's __mauiFindByName.
-			host.NativeHandle = QtHostRuntime.FindVisual(0, $"maui_{host.Id}");
+		// delegate, so the placeholder is searched first (QtHostRuntime.FindScoped).
+		host.NativeHandle = QtHostRuntime.FindScoped($"maui_{host.Id}", scopeHandle);
 		host.AppliedProperties.Clear();
 		host.AppliedGeometrySet = false;   // fresh QML object: geometry must be re-pushed
 		host.AppliedVisible = true;
@@ -256,45 +250,61 @@ internal sealed partial class QtHostPageRenderer
 	/// Deterministic destroy: shim deleteLater through the handle (revoking it in the QPointer registry), then
 	/// drop the handle and property state.
 	/// </summary>
-	private static void DetachNative(NativeElementHost host)
+	private void DetachNative(NativeElementHost host)
 	{
 		if (host.NativeHandle != 0)
 			DestroyNative(host.NativeHandle);
-		host.NativeHandle = 0;
-		host.AppliedProperties.Clear();
+		host.ResetNative();
 	}
 
 	/// <summary>Destroys a native object, after the transition when a popped page slides out: the shim hides and
 	/// unparents a destroyed object at once, and the sliding page must keep painting.</summary>
-	private static void DestroyNative(long handle)
+	private void DestroyNative(long handle)
 	{
 		if (_deferNativeDestroy)
-			PendingNativeDestroys.Add(handle);
+			_pendingNativeDestroys.Add(handle);
 		else
 			QtHostRuntime.DestroyObject(handle);
 	}
 
-	private static void FlushDeferredNativeDestroys()
+	/// <summary>Native objects whose destroy waits for a popped page's slide-out (diagnostics, tests).</summary>
+	internal int DeferredNativeDestroys => _pendingNativeDestroys.Count;
+
+	private void FlushDeferredNativeDestroys()
 	{
-		if (PendingNativeDestroys.Count == 0)
+		if (_pendingNativeDestroys.Count == 0)
 			return;
-		foreach (var handle in PendingNativeDestroys)
+		foreach (var handle in _pendingNativeDestroys)
 			QtHostRuntime.DestroyObject(handle);
-		PendingNativeDestroys.Clear();
+		_pendingNativeDestroys.Clear();
 	}
 
-	/// <summary>Managed side of a destroy: property subscription off, native handle released.</summary>
-	private static void ReleaseHost(NativeElementHost host)
+	/// <summary>
+	/// The one release path for hosts (W3.1): with <paramref name="sendOps"/> the destroy ops go to the page instance
+	/// that owns them (<paramref name="pageId"/>, null = the top model page), descendants first as the caller lists them;
+	/// without, the caller's own batch carries them (the tree diffs) or the page died with its objects. Then for each:
+	/// the native object destroyed (after a slide-out when deferred), native state reset, the event route, the live set
+	/// and a synthetic slot it held dropped.
+	/// </summary>
+	internal void ReleaseHosts(IReadOnlyList<NativeElementHost> hosts, string? pageId, bool sendOps)
 	{
-		DetachNative(host);
+		if (hosts.Count == 0)
+			return;
+		if (sendOps)
+			ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), pageId);
+		foreach (var host in hosts)
+		{
+			DetachNative(host);
+			_byId.Remove(host.Id);
+			_current.Remove(host);
+			ReleaseSyntheticSlot(host);
+		}
 	}
 
 	/// <summary>A row host whose QML object moves to the row pool: the managed side forgets it, the object lives on.</summary>
 	internal void ReleaseToPool(NativeElementHost host)
 	{
-		host.NativeHandle = 0;
-		host.AppliedProperties.Clear();
-		host.AppliedGeometrySet = false;
+		host.ResetNative();
 		_byId.Remove(host.Id);
 	}
 
@@ -338,22 +348,6 @@ internal sealed partial class QtHostPageRenderer
 		else _interactionHosts.Remove(host.Id);
 	}
 
-	/// <summary>
-	/// Destroys <paramref name="hosts"/> in list order on the page instance that owns them (<paramref name="pageId"/>,
-	/// null = top model page) and releases their managed side; <paramref name="unroute"/> also drops event routes.
-	/// </summary>
-	internal void DestroyHosts(IReadOnlyList<NativeElementHost> hosts, string? pageId, bool unroute = false)
-	{
-		if (hosts.Count == 0)
-			return;
-		ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), pageId);
-		foreach (var host in hosts)
-		{
-			ReleaseHost(host);
-			if (unroute)
-				_byId.Remove(host.Id);
-		}
-	}
 
 	/// <summary>
 	/// Self-heal: hosts attached to a model page object that Silica later rebuilt look attached, but every push
@@ -369,9 +363,7 @@ internal sealed partial class QtHostPageRenderer
 
 		// Classify before OnHostHealed, which drops the host from its delegate/slot registry.
 		var collectionCell = _collection.IsCollectionCellHost(host);
-		host.NativeHandle = 0;   // no DestroyObject: the QML object is already gone
-		host.AppliedProperties.Clear();
-		host.AppliedGeometrySet = false;
+		host.ResetNative();   // no DestroyObject: the QML object is already gone
 		_current.Remove(host);   // next reconcile sees it as new → create op
 		_collection.OnHostHealed(host);
 		_layoutDirty = true;

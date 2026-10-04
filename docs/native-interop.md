@@ -164,10 +164,10 @@ static class CounterSetting
 
 Why this works:
 
-- `mauiService` ([MauiShell.qml:153](../src/Linux.SailfishOS/Platform/QtHost/qml/MauiShell.qml#L153)) does
+- `mauiService` ([MauiShell.qml:167](../src/Linux.SailfishOS/Platform/QtHost/qml/MauiShell.qml#L167)) does
   `Qt.createQmlObject` on the app window, so the object survives navigation.
 - Events with the `svc-` prefix bypass the renderer
-  ([SailfishMauiApplication.cs:154](../src/Linux.SailfishOS/Platform/SailfishMauiApplication.cs#L154)).
+  (`RouteHostEvents`, [SailfishMauiApplication.Boot.cs:167](../src/Linux.SailfishOS/Platform/SailfishMauiApplication.Boot.cs#L167)).
 - `QmlEvent` is a public multicast, so the app's handler gets every event.
 
 Limitations (list of gaps in section 3):
@@ -226,7 +226,7 @@ This cannot be done today:
   in the shim's `QPointer` registry, not a pointer. So a native library cannot hook onto an element that
   MAUI rendered.
 - **QML plugins (`qmldir` + `plugin`) from the app directory do not work.** The engine gets only system paths
-  ([sailfish_host.cpp:1083](../src/Linux.SailfishOS/Native/sailfish_host.cpp#L1083)). Under the Harbour booster
+  ([host_core.cpp:969](../src/Linux.SailfishOS/Native/host_core.cpp#L969)). Under the Harbour booster
   `applicationDirPath` points at the booster, not the package.
 - **No toolchain.** [tools/sf native-build](../tools/sf native-build) (zig + sysroot from
   [tools/sf sysroot](../tools/sf sysroot)) builds only the shim. The sysroot has QtCore/Gui/Qml/Quick/Network headers
@@ -238,12 +238,12 @@ This cannot be done today:
 | # | Gap | Effect on the developer | Where |
 |---|---|---|---|
 | L1 | `QtHostServices` is `internal`, and `mauiService`/`mauiAppNotify` are JS without a contract | every QML service is hand-glued JS that may break on update | [QtHostServices.cs:10](../src/Linux.SailfishOS/Platform/QtHost/QtHostServices.cs#L10), [MauiShell.qml:138](../src/Linux.SailfishOS/Platform/QtHost/qml/MauiShell.qml#L138) |
-| L2 | No typed QML object: only `Eval`, no method call, signal connection or errors | stringly-typed code, errors surface only at runtime as `""` | [QtHostRuntime.cs:294](../src/Linux.SailfishOS/Platform/QtHost/QtHostRuntime.cs#L294) |
-| L3 | `Eval` silently truncates the result to 8 KB (C returns the full length, C# does not check it) | corrupted JSON with larger data (contacts, file list) | [QtHostRuntime.cs:298](../src/Linux.SailfishOS/Platform/QtHost/QtHostRuntime.cs#L298) |
+| L2 | No typed QML object for apps: only `Eval`; the method call (`sailfish_host_invoke`, `QtHostRuntime.Invoke`) is internal, no signal connection or errors | stringly-typed code, errors surface only at runtime as `""` | [QtHostRuntime.cs:336](../src/Linux.SailfishOS/Platform/QtHost/QtHostRuntime.cs#L336) |
+| L3 | ~~`Eval` silently truncates the result to 8 KB~~ fixed 2026-10-04 (ABI 4): a longer result is kept by the shim and fetched whole (`sailfish_host_last_result`), for `Invoke` too | — | [QtHostRuntime.cs](../src/Linux.SailfishOS/Platform/QtHost/QtHostRuntime.cs) |
 | L4 | No `QQmlEngine*` and no "before shell load" hook | no image providers, context objects or NAM factory | [sailfish_host.h](../src/Linux.SailfishOS/Native/sailfish_host.h) |
 | L5 | No `QObject*` for a handle | native code cannot touch a MAUI element | [NativeElementHost.cs:44](../src/Linux.SailfishOS/Platform/QtHost/NativeElementHost.cs#L44) |
-| L6 | No QML import paths from the package | QML modules with a C++ plugin and a library's `qmldir` modules do not work | [sailfish_host.cpp:1083](../src/Linux.SailfishOS/Native/sailfish_host.cpp#L1083) |
-| L7 | RPM: `AutoReqProv: no`, `Requires:` hard-coded only for Secrets | the app cannot declare e.g. `nemo-qml-plugin-configuration-qt5`, so on a clean system the QML import fails | [Microsoft.Maui.SailfishOS.targets:761](../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets#L761) |
+| L6 | No QML import paths from the package | QML modules with a C++ plugin and a library's `qmldir` modules do not work | [host_core.cpp:969](../src/Linux.SailfishOS/Native/host_core.cpp#L969) |
+| L7 | RPM: `AutoReqProv: no`, `Requires:` hard-coded only for Secrets | the app cannot declare e.g. `nemo-qml-plugin-configuration-qt5`, so on a clean system the QML import fails | [Microsoft.Maui.SailfishOS.targets:565](../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets#L565) |
 | L8 | No MSBuild items for native `.so` files and QML modules (rpath, strip, Harbour validation) | everyone looks after location, permissions and dependencies themselves | targets, `_PrepareSailfishRpmStaging` |
 | L9 | No toolchain and sysroot for the app's native code | you have to recreate `sf native-build` or set up `sfdk` | [tools/sf native-build](../tools/sf native-build) |
 | L10 | No documentation or example beyond adapters | this section was until now knowledge from the code | — |
@@ -283,12 +283,12 @@ Implementation:
   (code -3, `ObjectDisposedException`).
 - **Signals** need no new C++: in JS `obj[signal].connect(function(){ window.mauiAppNotify(evt,
   JSON.stringify(Array.prototype.slice.call(arguments))) })`. Events get their own namespace `ext-<name>-<signal>`,
-  routed in [SailfishMauiApplication.cs:154](../src/Linux.SailfishOS/Platform/SailfishMauiApplication.cs#L154)
+  routed in `RouteHostEvents` ([SailfishMauiApplication.Boot.cs:167](../src/Linux.SailfishOS/Platform/SailfishMauiApplication.Boot.cs#L167))
   to `SailfishQml` subscribers, next to `svc-`.
-- **Methods**: the JS variant is enough (`Eval` with JSON arguments). For large data a new
-  `sailfish_host_invoke(handle, method, args_json, out, cap)` on `QMetaObject::invokeMethod` with `QVariant` is better, without
-  building JS strings.
-- **L3**: `Eval` and `get_property` retry the call with a buffer of the returned length when `len >= cap`.
+- **Methods**: the JS variant is enough (`Eval` with JSON arguments). For large data
+  `sailfish_host_invoke(handle, method, arg, out, cap)` (on `QMetaObject::invokeMethod`, since ABI 3; internal today as
+  `QtHostRuntime.Invoke`, owner decision 7) avoids building JS strings; making it public is the step.
+- **L3**: done for `Eval` and `Invoke` (the shim keeps an overflowing result for `sailfish_host_last_result`); `get_property` still cuts at its buffer.
 - **Thread**: every method checks `IsQtThread` and throws outside it, instead of only counting `OffThreadCalls`
   (done for the raw shim calls on 2026-10-03; `MAUI_SAILFISH_STRICT_THREAD=0` turns it back into a log).
   A simpler rule is easier to describe.

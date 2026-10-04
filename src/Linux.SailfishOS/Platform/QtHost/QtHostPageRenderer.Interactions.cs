@@ -45,21 +45,21 @@ internal sealed partial class QtHostPageRenderer
 		if (_pullEntries.Count > 0)
 		{
 			if (_pullHost is null) allocated.Add("pull-down-menu");
-			_pullHost ??= new NativeElementHost("synth-pulldown", "pull-down-menu", page);
+			_pullHost ??= new NativeElementHost(SyntheticPrefix + "pulldown", "pull-down-menu", page);
 			props[_pullHost] = new Dictionary<string, object?> { ["mauiItems"] = MenuEntriesJson(_pullEntries) };
 			desired.Add(_pullHost);
 		}
 		if (push.Count > 0)
 		{
 			if (_pushHost is null) allocated.Add("push-up-menu");
-			_pushHost ??= new NativeElementHost("synth-pushup", "push-up-menu", page);
+			_pushHost ??= new NativeElementHost(SyntheticPrefix + "pushup", "push-up-menu", page);
 			props[_pushHost] = new Dictionary<string, object?> { ["mauiItems"] = MenuItemsJson(push) };
 			desired.Add(_pushHost);
 		}
 		if (_contextFlyouts.Count > 0)
 		{
 			if (_ctxMenuHost is null) allocated.Add("context-menu");
-			_ctxMenuHost ??= new NativeElementHost("synth-ctxmenu", "context-menu", page);
+			_ctxMenuHost ??= new NativeElementHost(SyntheticPrefix + "ctxmenu", "context-menu", page);
 			props[_ctxMenuHost] = new Dictionary<string, object?>();
 			desired.Add(_ctxMenuHost);
 		}
@@ -170,7 +170,7 @@ internal sealed partial class QtHostPageRenderer
 		if (!HasTabBar)
 			return;
 		var shown = HasTabAt(dxDp < 0 ? 1 : -1) ? dxDp : dxDp / 3;
-		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiSetTabDrag", BridgeValue.Number(QtHostUnits.ToQtUnits(shown))));
+		CallPage(null, "mauiSetTabDrag", BridgeValue.Number(QtHostUnits.ToQtUnits(shown)));
 	}
 
 	/// <summary>Ends a tab swipe: slides on to the tab <paramref name="delta"/> away ("tab-swipe-commit" switches it
@@ -181,7 +181,7 @@ internal sealed partial class QtHostPageRenderer
 			return;
 		if (delta != 0 && !HasTabAt(delta))
 			delta = 0;
-		QtHostRuntime.Eval(QmlPage.Call(TopModelPageJs, "mauiEndTabDrag", delta.ToString(CultureInfo.InvariantCulture)));
+		CallPage(null, "mauiEndTabDrag", delta.ToString(CultureInfo.InvariantCulture));
 	}
 
 	/// <summary>Tabs of the rendered page, as the root container handler offers them (a Shell item's sections or a
@@ -267,7 +267,7 @@ internal sealed partial class QtHostPageRenderer
 	{
 		_openFlyout = flyout;
 		var rc = QtHostRuntime.Eval(
-			$"{QmlPage.Model}.__openContextMenu('{hostId}',{BridgeValue.Quote(MenuItemsJson(flyout))})");
+			$"{TopModelPageJs}.__openContextMenu('{hostId}',{BridgeValue.Quote(MenuItemsJson(flyout))})");
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"long-press → Silica ContextMenu open rc={rc} " +
 			$"items={flyout.Count} target={hostId}");
 	}
@@ -389,7 +389,7 @@ internal sealed partial class QtHostPageRenderer
 		_dialogTcs = tcs;
 		DialogPushes++;
 		var json = BridgeValue.Serialize(props);
-		var rc = QtHostRuntime.Eval($"{QmlPage.Model}.__pushDialog('{src}',{BridgeValue.Quote(json)})");
+		var rc = QtHostRuntime.Eval($"{TopModelPageJs}.__pushDialog('{src}',{BridgeValue.Quote(json)})");
 		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"{label} dialog open rc={rc}");
 		if (rc != "ok")
 		{
@@ -449,7 +449,7 @@ internal sealed partial class QtHostPageRenderer
 	{
 		var page = ResolveCurrentPage() ?? _window.Page
 			?? throw new InvalidOperationException("AddInteractionHost before any MAUI page");
-		var id = $"synth-{uri}-{++_interactionSeq}";   // monotonic: a removed id is never reused
+		var id = $"{SyntheticPrefix}{uri}-{++_interactionSeq}";   // monotonic: a removed id is never reused
 		_interactionUris[id] = uri;
 		_interactionHosts[id] = new NativeElementHost(id, uri, page);
 		_interactionProps[id] = props;

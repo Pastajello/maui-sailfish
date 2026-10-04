@@ -169,6 +169,20 @@ internal static class BridgeOps
 /// <summary>Reads numbers out of adapter event payloads, with a fallback for missing or non-numeric fields.</summary>
 internal static class BridgeJson
 {
+	/// <summary>One JSON object written by <paramref name="body"/> (between its braces), as a string: what services
+	/// hand to QML. The default encoder escapes non-ASCII and U+2028/U+2029, so the text is also a JS literal.</summary>
+	public static string Write(Action<Utf8JsonWriter> body)
+	{
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream))
+		{
+			writer.WriteStartObject();
+			body(writer);
+			writer.WriteEndObject();
+		}
+		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+	}
+
 	public static double Num(JsonElement element, string name, double fallback = 0) =>
 		NumberProp(element, name, out var prop) && prop.TryGetDouble(out var value) ? value : fallback;
 

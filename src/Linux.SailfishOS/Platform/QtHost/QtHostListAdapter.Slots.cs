@@ -64,9 +64,7 @@ internal sealed partial class QtHostListAdapter
 			}
 		}
 		var objName = $"maui_{Host.Id}__{slot}";
-		var handle = QtHostRuntime.FindObject(objName);
-		if (handle == 0)
-			handle = QtHostRuntime.FindVisual(Host.NativeHandle, objName);
+		var handle = QtHostRuntime.FindScoped(objName, Host.NativeHandle);
 		if (handle == 0)
 		{
 			if (view is null)
@@ -90,14 +88,9 @@ internal sealed partial class QtHostListAdapter
 			_rowTopsDp = null;
 			var desired = new List<NativeElementHost>();
 			var props = new Dictionary<NativeElementHost, Dictionary<string, object?>>();
-			_bridge.SlotMapping = true;   // handler attach and templating raise tree/measure events of their own
-			try
+			using (_bridge.MappingScope())   // handler attach and templating raise tree/measure events of their own
 			{
 				_renderer.MapItemSubtree(view, desired, props);
-			}
-			finally
-			{
-				_bridge.SlotMapping = false;
 			}
 			_bridge.CollectHosts(view, slotState.Children);
 			slotState.Root = view;
@@ -113,14 +106,9 @@ internal sealed partial class QtHostListAdapter
 
 	internal double MeasureSlot(View view, double widthDp, bool alongRows)
 	{
-		_bridge.SlotMapping = true;
-		try
+		using (_bridge.MappingScope())
 		{
 			return alongRows ? MeasureItemExtent(view, widthDp) : _bridge.MeasureItemView(view, widthDp);
-		}
-		finally
-		{
-			_bridge.SlotMapping = false;
 		}
 	}
 
@@ -142,7 +130,7 @@ internal sealed partial class QtHostListAdapter
 			QtHostRuntime.Post(() => MarkSlot(slot, remap));
 			return;
 		}
-		if (_bridge.SlotMapping || slot.MeasureHandler is null)
+		if (_bridge.IsMapping || slot.MeasureHandler is null)
 			return;   // our own measure/map pass, or a retired slot
 		slot.Remeasure = true;
 		slot.Remap |= remap;

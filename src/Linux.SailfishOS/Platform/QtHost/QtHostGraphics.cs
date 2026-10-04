@@ -11,10 +11,10 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 internal static class QtHostGraphics
 {
 	/// <summary>Adapter URI (qml/adapters.json).</summary>
-	public const string AdapterUri = "graphics-view";
+	public const string AdapterUri = Handlers.SailfishKeys.Adapter.GraphicsView;
 
 	/// <summary>Self-drawing library containers (SailfishDrawnViewHandler): the same replay under their children.</summary>
-	public const string DrawnAdapterUri = "drawn-view";
+	public const string DrawnAdapterUri = Handlers.SailfishKeys.Adapter.DrawnView;
 
 	private static readonly List<object?> Empty = new();
 	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, byte> FailedDrawables = new();

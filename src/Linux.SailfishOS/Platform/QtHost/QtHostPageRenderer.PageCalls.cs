@@ -11,8 +11,6 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// <summary>Op batches and the model page's functions, called on a page by its id (sailfish_host_invoke), with the eval of the same call as the fallback.</summary>
 internal sealed partial class QtHostPageRenderer
 {
-	/// <summary>Applies a bridge op batch on the top model page. <paramref name="targetJs"/> overrides the address
-	/// for objects on another page instance (parked or popped); addressing them at the top would leak them.</summary>
 	/// <summary>Applies an op batch on model page <paramref name="pageId"/> (null = the top one). Objects on another
 	/// page instance (parked or popped) must be addressed there; at the top they would leak.</summary>
 	/// <returns>The ops the page could not apply (MauiModelPage's "unknown": a refused rekey, an id it does not
@@ -29,7 +27,6 @@ internal sealed partial class QtHostPageRenderer
 		_opsEvals++;
 		NoteOps(ops);
 		var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
-		static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 		LastApplyOpsSplit = (Ms(t0, t1), Ms(t1, t2), Ms(t2, t3), json.Length);
 		LastOpsExpression = json;
 		var unknownAt = answer.LastIndexOf(':');
@@ -76,6 +73,35 @@ internal sealed partial class QtHostPageRenderer
 		PageCallFallbacks++;
 		var pageJs = pageId is null ? TopModelPageJs : QmlPage.ById(pageId);
 		return QtHostRuntime.Eval(QmlPage.Call(pageJs, method, arg is null ? string.Empty : BridgeValue.Quote(arg)));
+	}
+
+	private long _shellHandle;
+	private bool _shellMissing;   // a shell without the "mauiShell" object (an app's own shell QML): eval from then on
+
+	/// <summary>Calls <paramref name="method"/>(<paramref name="arg"/>) on the shell's "mauiShell" object without
+	/// compiling JS; null when the shell has no such object or method (the caller evals instead).</summary>
+	internal string? CallShell(string method, string? arg = null)
+	{
+		if (_shellMissing)
+			return null;
+		for (var attempt = 0; attempt < 2; attempt++)
+		{
+			if (_shellHandle == 0 && (_shellHandle = QtHostRuntime.FindObject("mauiShell")) == 0)
+			{
+				_shellMissing = true;   // findChild walks the whole tree: not again every poll
+				return null;
+			}
+			var result = QtHostRuntime.Invoke(_shellHandle, method, arg, out var rc);
+			if (result is not null)
+			{
+				PageInvokes++;
+				return result;
+			}
+			if (rc != QtHostRuntime.SfhostEDeadHandle)
+				return null;
+			_shellHandle = 0;
+		}
+		return null;
 	}
 
 	private void NoteOps(IReadOnlyList<Dictionary<string, object?>> ops)

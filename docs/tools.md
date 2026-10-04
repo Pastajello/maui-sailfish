@@ -46,7 +46,7 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf doctor` | blocking pre-flight for the deploy loop: sysroot/shim present, SSH paired, endpoint is a Sailfish device (`--local`, `--fix`, `--for-debug`) |
 | `sf deploy` | publish + RPM build + upload + install + verify (`--run`, `--screenshot`, `--clean`, `--release N`, `--jit`\|`--trim`\|`--trimr2r`; `SF_PUBLISH_PROPS` adds `-p:` arguments for A/B builds) |
 | `sf verify` | proves the installed RPM is byte-for-byte the local build; detects stale processes |
-| `sf run` | launches the installed app with a launcher-like Wayland env; `--env NAME=VALUE` injects variables; tails logs; `--wait S` waits up to S s for the app to exit on its own (0 = exited, 124 = still running) |
+| `sf run` | launches the installed app with a launcher-like Wayland env; `--env NAME=VALUE` injects variables; tails logs; `--wait S` waits up to S s for the app to exit on its own and exits with the app's own code (from its last log line `[Sailfish] exit code N`: 2 = the shim or the QML did not load, 1 = startup threw; 124 = still running) |
 | `sf kill` | kills every instance (launcher/invoker/firejail and direct-binary cmdlines differ); `--list` only lists them |
 | `sf debug-attach` | prepares managed debugging: pushes the linux-arm64 vsdbg to `/tmp/vsdbg`, checks it runs, relaxes ptrace |
 | `sf screenshot` | compositor screenshot → local PNG (lipstick `saveScreenshot`, elevated) |
@@ -145,7 +145,7 @@ Runtime knobs and probes for any app (full names):
 | `MAUI_SAILFISH_LIST_PREFETCH=N` | CollectionView rows (and their images) are built N viewports ahead once a list settles (default 2) |
 | `MAUI_SAILFISH_HTTP_CACHE_MB=N` | disk cache for http(s) sources QML loads itself, e.g. image thumbnails (default 64, `0` disables) |
 | `MAUI_SAILFISH_HTTP_STALL_S=N` | aborts such a request after N seconds without data (default 20, `0` = off); the image loads again twice (1 s, 3 s later) before it counts as failed |
-| `MAUI_SAILFISH_LIST_FIRST_FRAME=0` | A/B switch: a long list builds its first rows in the page's own turn (default: after the page's first frame; header and footer paint at once) |
+| `MAUI_SAILFISH_LIST_FIRST_FRAME=1` | a long list builds its first rows after the page's first frame (header and footer paint at once); off by default since 2026-10-04 |
 | `MAUI_SAILFISH_PUSH_LAYOUT=0` | A/B switch: a pushed page waits for the end of its slide-in before it lays out and reconciles (old behaviour) |
 | `MAUI_SAILFISH_IMAGE_TRACE=1` | logs every image load: ms to Ready, decode size, whether the tile was already visible (`MAUI-IMG`) |
 | `MAUI_SAILFISH_SLOW_WORK_MS=N` | logs every UI-thread work item (dispatch, timer, renderer poll breakdown) that ran N ms or longer (`[SLOW]`) |
@@ -198,8 +198,8 @@ Details:
 
 Both are scripted tours with real touch input on a Jolla phone (Sailfish OS 5.2), recorded
 2026-09-30. The whole screen was captured from the compositor with hardware encoding. The GIFs are
-12 fps; the originals are [`media/sailfish-showcase.mp4`](media/sailfish-showcase.mp4) and
-[`media/sailfish-kitchen.mp4`](media/sailfish-kitchen.mp4). To record them again:
+12 fps. Their MP4 sources are not in the repository (`.gitignore`: every re-recording would stay in the history
+for good); only the GIFs that README and `sailfish-apis.md` show are tracked. To record them again:
 
 ```bash
 # sample app (installed with tools/sf deploy)

@@ -43,9 +43,12 @@ internal sealed partial class QtHostListAdapter
 		FirstVisibleRow = firstRow;
 		LastVisibleRow = lastRow;
 		// Flicks recycle delegates silently, so resync the visible rows.
+		// Raised here: schedule the pass. Already raised: the pending pass reschedules itself while a resync remains.
 		if (ResyncPending < ResyncTicksAfterScroll)
+		{
 			ResyncPending = ResyncTicksAfterScroll;
 			_bridge.SchedulePending(ResyncIntervalMs);
+		}
 		var yDp = QtHostUnits.ToLogical(yQt);
 		if (yDp == LastReportedYDp)
 			return;   // echo of the last reported offset
@@ -87,7 +90,6 @@ internal sealed partial class QtHostListAdapter
 		ThresholdReached = reached;
 		if (!reached)
 			return;
-		_bridge.ThresholdReachedFires++;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal,
 			$"collection '{Host}' remaining {TotalItems - 1 - last} <= threshold {threshold} " +
 			$"(last visible item {last} of {TotalItems}) → RemainingItemsThresholdReached");

@@ -12,7 +12,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 internal static class QtHostImages
 {
 	/// <summary>Adapter URI (qml/adapters.json).</summary>
-	public const string AdapterUri = "image";
+	public const string AdapterUri = Handlers.SailfishKeys.Adapter.Image;
 
 	/// <summary>Sailfish theme and installed app icon directories, probed for icon-like names.</summary>
 	private static readonly string[] ThemeIconDirs =

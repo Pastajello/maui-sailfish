@@ -25,5 +25,9 @@ connect.info
 *.user
 *.suo
 
+# Screen recordings: the GIFs in docs/media are tracked, their MP4 sources are not (each re-recording would add
+# megabytes to the history for good; owner decision 2026-10-04)
+docs/media/**/*.mp4
+
 # OS-generated files
 .DS_Store

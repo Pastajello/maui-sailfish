@@ -17,11 +17,18 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 			[nameof(IStackNavigation.RequestNavigation)] = MapRequestNavigation,
 		};
 
-	public SailfishNavigationViewHandler() : base(Mapper, NavigationCommandMapper)
+	public static new readonly PropertyMapper<IView, SailfishNavigationViewHandler> Mapper = new(SailfishPageHandler.Mapper);
+
+	public SailfishNavigationViewHandler() : this(null)
 	{
 	}
 
-	private NavigationPage? Nav => ((IElementHandler)this).VirtualView as NavigationPage;
+	public SailfishNavigationViewHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? NavigationCommandMapper)
+	{
+	}
+
+	private NavigationPage? Nav => ConnectedView as NavigationPage;
 
 	(IReadOnlyList<Page> Pages, Func<Task>? Pop) ISailfishPageContainer.CurrentStack() =>
 		Nav is { } nav
@@ -44,11 +51,12 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 	{
 		if (args is not NavigationRequest request)
 			return;
-		SailfishHandlerCore.SessionOf(handler)?.NoteNavigationRequest();   // navigation timeline start
+		var session = SailfishHandlerCore.SessionOf(handler);
+		session?.NoteNavigationRequest();   // navigation timeline start
 		void Finish() => view.NavigationFinished(request.NavigationStack);
-		if (SailfishHandlerCore.SessionOf(handler)?.Renderer is { } renderer)
-			renderer.WhenNavigationSettled(Finish);
+		if (session is not null)
+			session.WhenNavigationSettled(Finish);
 		else
-			Finish();   // no native stack to wait for
+			Finish();   // no session (a handler built without the app): nothing to wait for
 	}
 }

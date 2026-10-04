@@ -118,7 +118,6 @@ internal sealed class SailfishContacts : IContacts
 	private const string Service = "contacts";
 	private TaskCompletionSource<JsonElement?>? _pick;
 	private TaskCompletionSource<bool>? _populated;
-	private bool _subscribed;
 
 	private const string Qml = """
 		import QtQuick 2.6
@@ -210,17 +209,16 @@ internal sealed class SailfishContacts : IContacts
 
 	private void EnsureService()
 	{
-		if (!QtHostServices.Ensure(Service, Qml))
+		if (!QtHostServices.Ensure(Service, Qml,
+			    (ShellEvents.ContactsPopulated, _ => _populated?.TrySetResult(true)),
+			    (ShellEvents.ContactsPicked, OnPicked)))
 			throw new FeatureNotSupportedException("The Sailfish contacts components (Sailfish.Contacts, org.nemomobile.contacts) are not available.");
-		if (_subscribed)
-			return;
-		_subscribed = true;
-		QtHostServices.Subscribe(ShellEvents.ContactsPopulated, _ => _populated?.TrySetResult(true));
-		QtHostServices.Subscribe(ShellEvents.ContactsPicked, e =>
-		{
-			var pick = Interlocked.Exchange(ref _pick, null);
-			pick?.TrySetResult(e.TryGetProperty("contact", out var c) && c.ValueKind == JsonValueKind.Object ? c.Clone() : null);
-		});
+	}
+
+	private void OnPicked(JsonElement e)
+	{
+		var pick = Interlocked.Exchange(ref _pick, null);
+		pick?.TrySetResult(e.TryGetProperty("contact", out var c) && c.ValueKind == JsonValueKind.Object ? c.Clone() : null);
 	}
 
 	// A sandboxed app needs the Contacts permission for the contacts D-Bus names and directories at all. The user's

@@ -51,6 +51,45 @@ public class MoreEssentialsTests
 		await Assert.ThrowsAsync<FeatureNotSupportedException>(() => passkeys.AssertAsync(new PasskeyRequestOptions("{}")));
 	}
 
+	// W6.1: one start pattern. Every use site calls Ensure with its subscriptions; the service subscribes and reads its
+	// first state once, however often a reader asks (the flags each service kept for this are gone).
+	[Fact]
+	public void A_service_subscribes_and_reads_its_first_state_once()
+	{
+		using var h = new RendererHarness(new ContentPage { Content = new Label { Text = "x" } });
+		h.Shim.EvalHook = js => js.Contains("mauiService(", StringComparison.Ordinal) ? "ok" : null;
+		var started = 0;
+		var events = 0;
+		for (var i = 0; i < 3; i++)
+			Assert.True(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.Ensure("w6-probe", "import QtQuick 2.6; Item {}",
+				() => started++, ("svc-w6-probe", _ => events++)));
+		Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.Dispatch("svc-w6-probe", "{}");
+		Assert.Equal(1, started);
+		Assert.Equal(1, events);
+	}
+
+	// W2.2: a test's services, subscriptions and cover state do not outlive its harness, so the next test starts its
+	// services again instead of finding them wired to the previous test's instances.
+	[Fact]
+	public void A_renderer_test_leaves_no_subscriber_behind()
+	{
+		using (var h = new RendererHarness(new ContentPage { Content = new Label { Text = "x" } }))
+		{
+			h.Shim.EvalHook = js => js.Contains("mauiService(", StringComparison.Ordinal) ? "ok" : null;
+			Assert.True(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.Ensure("w2-probe", "import QtQuick 2.6; Item {}",
+				("svc-w2-probe", _ => { })));
+			SailfishCover.SetContent("left behind?");
+			Assert.Equal(1, Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.SubscriberCount("svc-w2-probe"));
+		}
+		Assert.Equal(0, Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.SubscriberCount("svc-w2-probe"));
+		using var next = new RendererHarness(new ContentPage { Content = new Label { Text = "y" } });
+		next.Shim.EvalHook = js => js.Contains("mauiService(", StringComparison.Ordinal) ? "ok" : null;
+		var started = 0;
+		Assert.True(Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostServices.Ensure("w2-probe", "import QtQuick 2.6; Item {}",
+			() => started++, ("svc-w2-probe", _ => { })));
+		Assert.Equal(1, started);   // wired again for this test
+	}
+
 	[Fact]
 	public async Task The_flashlight_toggles_the_system_torch_only_when_it_must()
 	{

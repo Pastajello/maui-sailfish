@@ -202,7 +202,7 @@ public class SampleAppRegressionTests
 	{
 		// FontSize 0 is how an unset size reads on the device (Label.qml then paints Theme.fontSizeMedium).
 		var unset = new Label { Text = "Y = ", FontSize = 0 };
-		var themed = new Label { Text = "Y = ", FontSize = Microsoft.Maui.SailfishOS.Handlers.SailfishMeasure.SilicaMediumFontDp() };
+		var themed = new Label { Text = "Y = ", FontSize = Microsoft.Maui.SailfishOS.Handlers.SailfishFontRules.SilicaMediumFontDp() };
 		var small = new Label { Text = "Y = ", FontSize = 14 };
 		using var h = new RendererHarness(Page(unset, themed, small));
 
@@ -210,7 +210,7 @@ public class SampleAppRegressionTests
 		Assert.True(unset.DesiredSize.Width > small.DesiredSize.Width);
 	}
 
-	// Measure and paint share one Label rule (SailfishMeasure.LabelFontSize): a never-sized Label, one at MAUI's 18
+	// Measure and paint share one Label rule (SailfishFontRules.LabelFontSize): a never-sized Label, one at MAUI's 18
 	// and one at 0 are each measured at the size their adapter paints, and none of them names a size, so Label.qml
 	// paints Theme.fontSizeMedium (owner decision 2026-10-03). A sized Label keeps its size.
 	[Fact]
@@ -232,7 +232,7 @@ public class SampleAppRegressionTests
 			var native = h.Shim.ByUri("label").Single(o => h.Renderer.CurrentHosts.Any(x =>
 				ReferenceEquals(x.Element, label) && x.Id == o.Id));
 			var px = double.Parse(native.Text("mauiPixelSize")!, System.Globalization.CultureInfo.InvariantCulture);
-			var paintedDp = px > 0 ? px / SailfishDisplay.Density : Microsoft.Maui.SailfishOS.Handlers.SailfishMeasure.SilicaMediumFontDp();
+			var paintedDp = px > 0 ? px / SailfishDisplay.Density : Microsoft.Maui.SailfishOS.Handlers.SailfishFontRules.SilicaMediumFontDp();
 			var (width, _) = QtHostTextMetrics.Measure("Y = 1234", null, FontAttributes.None, (int)Math.Round(paintedDp),
 				0, QtHostTextMetrics.WordWrap, 1.0, 0, 0);
 			Assert.Equal(width, label.DesiredSize.Width, 3);

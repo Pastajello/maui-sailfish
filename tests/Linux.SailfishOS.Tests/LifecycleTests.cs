@@ -25,6 +25,8 @@ public class LifecycleTests
 		protected override void OnDisplayStateChanged(SailfishDisplayState state) => Calls.Add($"override:display:{state}");
 		protected override void OnScreenLockChanged(bool locked) => Calls.Add($"override:lock:{locked}");
 		protected override void OnMemoryLevelChanged(SailfishMemoryLevel level) => Calls.Add($"override:memory:{level}");
+		protected override void OnColorSchemeChanged(SailfishColorScheme scheme) =>
+			Calls.Add($"override:scheme:{scheme}:theme={SailfishTheme.Current}");
 	}
 
 	[Fact]
@@ -84,5 +86,28 @@ public class LifecycleTests
 		Assert.Equal(SailfishMemoryLevel.Warning, app.MemoryLevel);
 		Assert.True(app.MemoryLevelAnswered);
 		Assert.Equal(new[] { "override:display:Off", "override:lock:True", "override:memory:Warning" }, app.Calls);
+	}
+
+	// W1.9: the application subscribed to the raw ambience event before the theme service (which subscribes on the first
+	// Qt tick), so OnColorSchemeChanged ran while AppInfo.RequestedTheme still had the old value.
+	[Fact]
+	public void The_color_scheme_override_sees_the_new_theme()
+	{
+		var previous = SailfishTheme.Current;
+		var app = new TestApplication(MauiApp.CreateBuilder(useDefaults: false).Build().Services);
+		app.SubscribeNativeEvents();
+		try
+		{
+			SailfishTheme.Apply(previous == Microsoft.Maui.ApplicationModel.AppTheme.Light
+				? Microsoft.Maui.ApplicationModel.AppTheme.Dark : Microsoft.Maui.ApplicationModel.AppTheme.Light);
+			var expected = SailfishTheme.Current == Microsoft.Maui.ApplicationModel.AppTheme.Light
+				? $"override:scheme:{SailfishColorScheme.DarkOnLight}:theme=Light"
+				: $"override:scheme:{SailfishColorScheme.LightOnDark}:theme=Dark";
+			Assert.Equal(new[] { expected }, app.Calls);
+		}
+		finally
+		{
+			SailfishTheme.Apply(previous);
+		}
 	}
 }

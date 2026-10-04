@@ -13,7 +13,7 @@ namespace Microsoft.Maui.SailfishOS.Handlers;
 public class SailfishPageHandler : NullViewHandler
 {
 	/// <summary>The page state the model page shows.</summary>
-	public static readonly PropertyMapper<IView, SailfishPageHandler> Mapper = new(ViewMapper)
+	public static new readonly PropertyMapper<IView, SailfishPageHandler> Mapper = new(NullViewHandler.Mapper)
 	{
 		[nameof(Page.Title)] = MapModelPage,
 		[nameof(VisualElement.BackgroundColor)] = MapModelPage,
@@ -31,11 +31,14 @@ public class SailfishPageHandler : NullViewHandler
 		[nameof(FlyoutPage.IsPresented)] = MapModelPage,
 	};
 
-	public SailfishPageHandler() : base(Mapper, null)
+	public static readonly CommandMapper<IView, SailfishPageHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
+
+	public SailfishPageHandler() : this(null)
 	{
 	}
 
-	protected SailfishPageHandler(IPropertyMapper mapper, CommandMapper? commandMapper) : base(mapper, commandMapper)
+	public SailfishPageHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
 	{
 	}
 

@@ -77,7 +77,7 @@ Trimming really cuts MAUI: `Microsoft.Maui.Controls.dll`
 assembly (`Linux.SailfishOS.csproj`), none to `Microsoft.Maui.*`. This does **not**
 prove MAUI's AOT compatibility — the absence of warnings from assemblies the trimmer does not
 analyze deeply is not proof of cleanliness. The only decisive test
-is a run of `tools/sf matrix` (18 legs) on the device.
+is a run of the full `tools/sf matrix` on the device (18 legs when this was written, 31 now).
 
 Places ILLink actually flagged (`/tmp/pub-full.log`,
 `/tmp/pub-aot.log`):
@@ -116,7 +116,7 @@ sits in three files: `QtHostPageRenderer.cs`, `QtHostInput.cs`,
 
 | # | Place | Construct | Shape of the fix |
 |---|---|---|---|
-| B1 | `QtHost/QtHostBridge.cs:32,33,39,49,139` | `JsonSerializer.Serialize` on statically known `string`/`char`/`Enum.ToString()` — goes through the reflection resolver | Own escaping (already exists: `QtHostTextMetrics.JsonString:87-105`, `QtHostPageRenderer.ToJsString:3494`) |
+| B1 | `QtHost/QtHostBridge.cs:32,33,39,49,139` | `JsonSerializer.Serialize` on statically known `string`/`char`/`Enum.ToString()` — goes through the reflection resolver | Own escaping (done: `BridgeValue.Quote`, the one string escaper now; the two older helpers it replaced are gone) |
 | B2 | ~~`SailfishMauiApplication.cs:4049-4066`~~ (code removed 2026-10-03: nothing read it; the shim resolves the app id, `QtHostRuntime.ResolveAppId`) | `GetType().Assembly` / `Assembly.GetEntryAssembly()` / `GetCustomAttributes<AssemblyMetadataAttribute>()` → reading `MauiApplicationId` for the Qt/Wayland app_id | A constant generated from MSBuild (`$(ApplicationId)`) or rd.xml; a fallback already exists: env `MAUI_SAILFISH_APP_ID` (`QtHostRuntime.cs:516-518`) |
 | B3 | `SailfishMauiApplication.cs:3662, 4405` | `label.SetBinding(Label.TextProperty, new Binding("."))` in the `DataTemplate` of diag pages — an uncompiled binding created at runtime | The dataset is `ObservableCollection<string>` → `label.Text = item?.ToString()` in the factory is enough |
 | B4 | `SailfishMauiApplication.cs:1610, 1618` | `VisualStateManager.GoToState(…, CommonStates.Disabled/Normal)` — static on our side, the risk lives in MAUI | rd.xml / `TrimmerRootAssembly` for `Microsoft.Maui.Controls` or the diag leg outside Release |
@@ -133,7 +133,7 @@ sits in three files: `QtHostPageRenderer.cs`, `QtHostInput.cs`,
 `CultureInfo.InvariantCulture` (the backend is consistently invariant — the exceptions are
 B5/B6); DI in `Hosting/AppHostBuilderExtensions.cs:22,34-70` has correct
 `DynamicallyAccessedMembers` annotations and **zero** assembly scanning; handlers created
-with explicit `new ScrollViewHandler()` / `new NullViewHandler()` /
+with explicit `new SailfishScrollViewHandler()` / `new NullViewHandler()` /
 `new NullElementHandler()` (`QtHostLayout.cs:46-70`) — they bypass MAUI's reflection-based
 factory; the sample XAML has `MauiXamlInflator=SourceGen`, all 20 bindings with
 `x:DataType`, zero `Style`/`ResourceDictionary`/`DynamicResource`/`Effects`/
@@ -226,7 +226,7 @@ Two exceptions found with probes in `ReconcileCore`:
    (`Dictionary<string, object?>`), not the interface.
 
 The fix (items A2/A3/A4/B1 from §2.1, closed): `BridgeValue` got a manual
-`Quote` (escaping identical to `QtHostTextMetrics.JsonString`) and a
+`Quote` (the one JSON/JS string escaper since) and a
 `Dictionary<string, object?> → JSON object` branch before the `IEnumerable` branch;
 all `JsonSerializer.Serialize` sites in `src/` are gone (op batches,
 destroy batches, `ApplyOps`, `MenuItemsJson` ×2, dialog payloads moved
@@ -352,7 +352,7 @@ the JIT and full diagnostics.
 - [x] 2.2 **A2/A3/A4** — closed 2026-09-15 with a manual serializer (§2.3): op/destroy batches and `ApplyOps` go through `BridgeValue.Serialize`, `MenuItemsJson` ×2 and dialog payloads assembled manually/via dictionaries. The cause was deeper than the IL warnings: reflection-based STJ is **disabled by a substituted feature switch** in the published payload and threw at runtime.
 - [x] 2.3 **A6** — closed 2026-09-15: registry `SailfishMauiApplication.RegisterDiagnosticPage(leg, factory)`; the sample registers `TextPage`/`ShapesImagesPage`/`VisualPage` in `MauiProgram`, and legs no longer scan `AppDomain` (an unregistered leg fails loudly instead of sweeping reflection under the rug).
 - [x] 2.4 **A5** — 2026-09-15: `DisplayText` stays with reflection, but with `[UnconditionalSuppressMessage("Trimming","IL2075")]` and a justification: `ItemDisplayBinding` paths address properties of app models, which the app must root (item 1.2); the sample never sets `ItemDisplayBinding`, so acceptance does not go through this path.
-- [x] 2.5 **B1** — closed 2026-09-15: `BridgeValue.Quote` (escaping like `QtHostTextMetrics.JsonString`) replaces `JsonSerializer.Serialize` for string/char/enum/fallback and for keys in `AppendEntry`. The `InvariantGlobalization` decision (B6) stays open.
+- [x] 2.5 **B1** — closed 2026-09-15: `BridgeValue.Quote` replaces `JsonSerializer.Serialize` for string/char/enum/fallback and for keys in `AppendEntry`. The `InvariantGlobalization` decision (B6) stays open.
 - [ ] 2.6 **DEFERRED 2026-09-15 (G2 decision):** app-id via `$(ApplicationId)` from MSBuild returns together with Phase 4; with 0 trim warnings nothing blocks today (the env fallback exists).
 - [x] 2.7 **B3** — closed 2026-09-15: diag templates do not use `new Binding(".")`; `SelfTextLabel()` mirrors the immutable string from `BindingContextChanged` (trim-clean by construction, and the Q14 C2 leg asserts the text update after INCC Replace, so a regression would be caught).
 - [ ] 2.8 **DEFERRED 2026-09-15 (G2 decision):** `[DllImport]` → `[LibraryImport]` (`QtHostNative.cs` 30×) is AOT-readiness hygiene; it returns if a new gate reopens Phase 4.

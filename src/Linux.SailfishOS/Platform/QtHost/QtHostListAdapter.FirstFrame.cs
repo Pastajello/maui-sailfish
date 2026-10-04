@@ -10,10 +10,13 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// whole push stalled the UI thread for both (Kitchen's Beef catalog: 161 ms in one block, 33 ms of it the rows).
 /// Only for lists that will be taller than their viewport: a short list is cheap, and an empty first frame of a list
 /// that fits would only flicker. Owner decision 2026-10-03 (architecture-handoff.md W10, 3c).
+/// Off by default since 2026-10-04 (MAUI_SAILFISH_LIST_FIRST_FRAME=1 turns it on): once a pushed page lays out during
+/// its slide-in (QtHostPageRenderer.PushTransitionRenders) the saving fell into the noise, and the held rows showed
+/// as cards without their pictures for 2–3 frames; recorded side by side, the owner chose the page without the hold.
 /// </summary>
 internal sealed partial class QtHostListAdapter
 {
-	internal static bool FirstBuildWaitsFrame { get; set; } = SailfishEnv.Get("MAUI_SAILFISH_LIST_FIRST_FRAME") != "0";
+	internal static bool FirstBuildWaitsFrame { get; set; } = SailfishEnv.Get("MAUI_SAILFISH_LIST_FIRST_FRAME") == "1";
 
 	/// <summary>The longest a first build waits for its frame: a hidden window renders no frames.</summary>
 	internal const int FirstFrameHoldMs = 200;

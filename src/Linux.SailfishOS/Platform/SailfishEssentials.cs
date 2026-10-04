@@ -48,6 +48,29 @@ internal static class SailfishEssentials
 		return type is not null && type.Assembly == descriptor.ServiceType.Assembly;
 	}
 
+	/// <summary>The statics a MauiProgram reads while it builds the app (FileSystem paths for a log or database file,
+	/// Preferences, AppInfo, DeviceInfo), installed before CreateMauiApp: their plain-net defaults throw
+	/// (MoneyFox's Serilog setup died on FileSystem.AppDataDirectory). <see cref="Install"/> re-installs them from the
+	/// app's services afterwards, so an app's own registration still wins. Only services that need neither the
+	/// container nor the Qt loop belong here.</summary>
+	public static void InstallEarly()
+	{
+		foreach (var entry in SailfishEssentialsRegistry.Entries.Where(e => e.Early))
+			Hook(entry.Facade, entry.Hook, SailfishEssentialsRegistry.DefaultFor(entry));
+	}
+
+	public static void Install(IServiceProvider services)
+	{
+		if (_installed)
+			return;
+		_installed = true;
+		foreach (var entry in SailfishEssentialsRegistry.Entries)
+			Hook(entry.Facade, entry.Hook, services.GetService(entry.Service));
+		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault",
+			services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
+	}
+
+	/// <summary>Installs one more static.</summary>
 	[DynamicDependency("SetDefault", typeof(Clipboard))]
 	[DynamicDependency("SetDefault", typeof(Preferences))]
 	[DynamicDependency("SetDefault", typeof(SecureStorage))]
@@ -86,29 +109,6 @@ internal static class SailfishEssentials
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Authentication.WebAuthenticator))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.ApplicationModel.Communication.Contacts))]
 	[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The hooks are rooted by the DynamicDependency attributes above.")]
-	/// <summary>The statics a MauiProgram reads while it builds the app (FileSystem paths for a log or database file,
-	/// Preferences, AppInfo, DeviceInfo), installed before CreateMauiApp: their plain-net defaults throw
-	/// (MoneyFox's Serilog setup died on FileSystem.AppDataDirectory). <see cref="Install"/> re-installs them from the
-	/// app's services afterwards, so an app's own registration still wins. Only services that need neither the
-	/// container nor the Qt loop belong here.</summary>
-	public static void InstallEarly()
-	{
-		foreach (var entry in SailfishEssentialsRegistry.Entries.Where(e => e.Early))
-			Hook(entry.Facade, entry.Hook, SailfishEssentialsRegistry.DefaultFor(entry));
-	}
-
-	public static void Install(IServiceProvider services)
-	{
-		if (_installed)
-			return;
-		_installed = true;
-		foreach (var entry in SailfishEssentialsRegistry.Entries)
-			Hook(entry.Facade, entry.Hook, services.GetService(entry.Service));
-		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault",
-			services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
-	}
-
-	/// <summary>Installs one more static.</summary>
 	internal static void Hook(
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicMethods)] Type facade, string method, object? implementation)
 	{
@@ -133,12 +133,14 @@ internal static class SailfishEssentials
 	/// <summary>Completes on the first Qt tick, for services that need QCoreApplication (QtDBus).</summary>
 	internal static readonly TaskCompletionSource HostReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+	/// <summary>The host runs and had its first tick: services may talk to it now.</summary>
+	internal static bool IsHostUp => QtHostRuntime.IsRunning && HostReady.Task.IsCompleted;
+
 	/// <summary>First Qt tick: starts the services that need the QML host.</summary>
 	internal static void OnHostReady()
 	{
 		HostReady.TrySetResult();
 		SailfishTheme.Start();
-		SailfishDeviceDisplay.Start();
 		SailfishCover.OnHostReady();
 		(IPlatformApplication.Current as SailfishMauiApplication)?.StartSystemService();
 		SailfishOpenUrl.OnHostReady();
@@ -170,33 +172,41 @@ public static class SailfishTheme
 
 	public static AppTheme Current => _current;
 
-	/// <summary>Theme changes applied (diagnostics).</summary>
-	public static int Changes { get; private set; }
-
-	internal static void Start()
+	/// <summary>Tests: the action puts the current theme back.</summary>
+	internal static Action CaptureForTests()
 	{
-		if (!QtHostServices.Ensure(Service, """
+		var current = _current;
+		return () => _current = current;
+	}
+
+	internal static void Start() =>
+		QtHostServices.Ensure(Service, """
 			import QtQuick 2.6
 			import Sailfish.Silica 1.0
 			QtObject {
 			    property bool light: Theme.colorScheme === Theme.DarkOnLight
 			    onLightChanged: window.mauiAppNotify("svc-theme-changed", JSON.stringify({ light: light }))
 			}
-			"""))
-			return;
-		QtHostServices.Subscribe(ShellEvents.ThemeChanged, e =>
-			Apply(e.TryGetProperty("light", out var light) && light.ValueKind == JsonValueKind.True ? AppTheme.Light : AppTheme.Dark));
-		Apply(QtHostServices.Eval(Service, "s.light") == "true" ? AppTheme.Light : AppTheme.Dark);
-	}
+			""",
+			() => Apply(QtHostServices.Eval(Service, "s.light") == "true" ? AppTheme.Light : AppTheme.Dark),
+			(ShellEvents.ThemeChanged, e => Apply(ThemeOf(ThemeChangedPayload.Parse(e).Scheme))));
+
+	/// <summary>The MAUI theme of a Silica colour scheme: dark text on light is Light.</summary>
+	internal static AppTheme ThemeOf(SailfishColorScheme scheme) =>
+		scheme == SailfishColorScheme.DarkOnLight ? AppTheme.Light : AppTheme.Dark;
+
+	/// <summary>Raised (Qt thread) after <see cref="Current"/> changed, the first read included: the application's
+	/// OnColorSchemeChanged rides this, so AppInfo.RequestedTheme is already the new one there (W1.9).</summary>
+	internal static event Action<AppTheme>? Changed;
 
 	internal static void Apply(AppTheme theme)
 	{
 		if (theme == _current)
 			return;
 		_current = theme;
-		Changes++;
 		Console.Error.WriteLine($"[Sailfish] theme: ambience → {theme}");
 		(Microsoft.Maui.Controls.Application.Current as IApplication)?.ThemeChanged();
+		Changed?.Invoke(theme);
 	}
 }
 
@@ -303,10 +313,10 @@ internal sealed class SailfishDeviceInfo : IDeviceInfo
 internal sealed class SailfishDeviceDisplay : IDeviceDisplay
 {
 	private const string Service = "display";
-	private static SailfishDeviceDisplay? _instance;
 	private bool _keepScreenOn;
 
-	public SailfishDeviceDisplay() => _instance ??= this;
+	public SailfishDeviceDisplay() =>
+		SailfishDisplay.Changed += () => MainDisplayInfoChanged?.Invoke(this, new DisplayInfoChangedEventArgs(MainDisplayInfo));
 
 	public bool KeepScreenOn
 	{
@@ -347,7 +357,4 @@ internal sealed class SailfishDeviceDisplay : IDeviceDisplay
 	}
 
 	public event EventHandler<DisplayInfoChangedEventArgs>? MainDisplayInfoChanged;
-
-	internal static void Start() => SailfishDisplay.Changed += () =>
-		_instance?.MainDisplayInfoChanged?.Invoke(_instance, new DisplayInfoChangedEventArgs(_instance.MainDisplayInfo));
 }

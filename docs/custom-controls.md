@@ -44,6 +44,29 @@ builder.ConfigureMauiHandlers(handlers =>
 });
 ```
 
+A subclass can bring its own mapper and command mapper, as with `LabelHandler(mapper, commandMapper)` elsewhere.
+Chain it from the built-in one: the keys that send the snapshot are read from the chain, so the family still sends
+as one batch, and the subclass's own keys run beside it:
+
+```csharp
+#if SAILFISH
+public class MyLabelHandler : SailfishLabelHandler
+{
+    public static readonly PropertyMapper<ILabel, MyLabelHandler> MyMapper = new(SailfishLabelHandler.Mapper)
+    {
+        ["Badge"] = (handler, label) => { /* a side effect */ },
+    };
+
+    public MyLabelHandler() : base(MyMapper) { }
+}
+#endif
+```
+
+Every Sailfish view handler has these two constructors (`()` and `(IPropertyMapper? mapper, CommandMapper? commandMapper = null)`),
+pages and page containers (`SailfishPageHandler`, `SailfishNavigationViewHandler`, `SailfishTabbedPageHandler`,
+`SailfishFlyoutPageHandler`, `SailfishShellHandler`) included; their mappers chain from `SailfishViewMapper.Mapper`
+too.
+
 Resolution walks the view's type hierarchy. At each level a registration from the app or a library wins, and a
 stock MAUI handler (it throws on this TFM) gives way to the Sailfish handler for that exact type. A type that
 nothing claims falls back to the nearest Sailfish base handler.
@@ -78,7 +101,7 @@ public class RatingViewHandler : SailfishSnapshotHandler
     // Events the adapter raises with mauiEvent(name, payload); payload carries the host "id".
     protected override void OnAdapterEvent(string name, JsonElement payload)
     {
-        if (name == "rating-changed" && VirtualView is RatingView rating)
+        if (name == "rating-changed" && ConnectedView is RatingView rating)   // null once disconnected
             rating.Value = payload.GetProperty("value").GetInt32();
     }
 }

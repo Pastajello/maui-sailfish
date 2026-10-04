@@ -27,6 +27,46 @@ public class HandlerFixTests
 
 		Assert.Equal("#ffff0000", host.Text("mauiBackgroundFill")?.ToLowerInvariant());
 	}
+
+	// W5.5: as LabelHandler(mapper, commandMapper) on the other platforms, an app's subclass can bring a mapper chained
+	// from the built-in one; the snapshot keys come from that chain, so its own keys and the built-in ones both push.
+	public sealed class ShoutingLabelHandler : SailfishLabelHandler
+	{
+		public static readonly PropertyMapper<ILabel, ShoutingLabelHandler> ShoutMapper = new(SailfishLabelHandler.Mapper)
+		{
+			["Shout"] = static (handler, _) => handler.Shouts++,
+		};
+
+		public int Shouts;
+
+		public ShoutingLabelHandler() : base(ShoutMapper)
+		{
+		}
+	}
+
+	[Fact]
+	public void A_subclass_mapper_chained_from_the_built_in_one_keeps_its_snapshot_keys()
+	{
+		var label = new Label { Text = "before" };
+		var handler = new ShoutingLabelHandler();
+		using var h = new RendererHarness(new ContentPage { Content = new VerticalStackLayout { label } });
+		var context = label.Handler!.MauiContext!;
+		label.Handler = null;
+		handler.SetMauiContext(context);
+		label.Handler = handler;
+		h.Poll();
+		h.Poll();
+
+		Assert.True(handler.OwnsProperty(nameof(Label.Text)));
+		Assert.True(handler.OwnsProperty(nameof(Label.TextColor)));
+		Assert.False(handler.OwnsProperty("Shout"));
+		var shouts = handler.Shouts;   // the connect pass mapped it once
+		handler.UpdateValue("Shout");
+		Assert.Equal(shouts + 1, handler.Shouts);
+
+		label.Text = "after";   // no Poll: the chained mapper's snapshot key pushes
+		Assert.Contains(h.Shim.ByUri("label"), o => o.Text("text") == "after");
+	}
 }
 
 [Collection("renderer")]
@@ -279,7 +319,7 @@ public class RowPoolRekeyTests
 		Attach(h, native, 15);
 
 		Assert.Equal(0L, h.Renderer.Collection.RowsAdopted);
-		Assert.Single(h.Shim.ByUri("label").Where(o => !o.Destroyed && o.Text("text") == "item 15"));
+		Assert.Single(h.Shim.ByUri("label"), o => !o.Destroyed && o.Text("text") == "item 15");
 	}
 
 	[Fact]
@@ -548,12 +588,12 @@ public class CollectionConsistencyTests
 		var native = h.Shim.ByUri("list-view").Single();
 		h.Shim.AddNative($"maui_{native.Id}__header");   // the ListView's header placeholder
 		for (var i = 0; i < 3; i++)
-			h.Renderer.KickedPoll();   // list work runs on kicked polls (a heartbeat leaves it to the list's own clock)
+			h.Poll();   // the list's own scheduled pass runs on the harness clock (W2.1)
 		Assert.Contains(h.Shim.ByUri("label"), o => !o.Destroyed && o.Text("text") == "first header");
 
 		list.Header = new Label { Text = "second header" };
 		for (var i = 0; i < 4; i++)
-			h.Renderer.KickedPoll();   // list work runs on kicked polls (a heartbeat leaves it to the list's own clock)
+			h.Poll();   // the list's own scheduled pass runs on the harness clock (W2.1)
 
 		Assert.Contains(h.Shim.ByUri("label"), o => !o.Destroyed && o.Text("text") == "second header");
 		Assert.DoesNotContain(h.Shim.ByUri("label"), o => !o.Destroyed && o.Text("text") == "first header");

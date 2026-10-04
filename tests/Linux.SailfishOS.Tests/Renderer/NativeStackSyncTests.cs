@@ -5,10 +5,10 @@ using Xunit;
 
 namespace Linux.SailfishOS.Tests.Renderer;
 
-/// <summary>The navigation coordinator: one operation at a time, confirmed by the native pageStack, a resync when
-/// the stacks disagree in a way no operation explains.</summary>
+/// <summary>The renderer's native stack sync (NativeStackCoordinator through the renderer): one operation at a time,
+/// confirmed by the native pageStack, a resync when the stacks disagree in a way no operation explains.</summary>
 [Collection("renderer")]
-public class NavigationCoordinatorTests
+public class NativeStackSyncTests
 {
 	private static ContentPage Page(string text) => new() { Title = text, Content = new Label { Text = text } };
 

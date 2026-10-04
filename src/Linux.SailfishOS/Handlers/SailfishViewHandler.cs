@@ -62,15 +62,18 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 
 	bool ISailfishAdapterHandler.WalksChildren => WalksChildren;
 
-	/// <summary>The renderer of this handler's window, once it runs (the session of the MAUI context).</summary>
-	private protected QtHostPageRenderer? Renderer => SailfishHandlerCore.SessionOf(this)?.Renderer;
+	/// <summary>The host, or null once disconnected (the typed <c>PlatformView</c> throws then).</summary>
+	protected NativeElementHost? Host => ((IElementHandler)this).PlatformView as NativeElementHost;
+
+	/// <summary>The render session of this handler's MAUI context: every request for work goes through it.</summary>
+	private SailfishRenderSession? Session => SailfishHandlerCore.SessionOf(this);
 
 	protected override NativeElementHost CreatePlatformView() => SailfishHandlerCore.HostFor(this, VirtualView, AdapterUri);
 
 	/// <summary>As a native view goes with its handler: a host whose element left the page is destroyed now.</summary>
 	protected override void DisconnectHandler(NativeElementHost platformView)
 	{
-		Renderer?.OnHandlerDisconnected(platformView);
+		Session?.OnHandlerDisconnected(platformView);
 		base.DisconnectHandler(platformView);
 	}
 
@@ -105,8 +108,7 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 	protected virtual bool? FocusNatively(bool focus) => null;
 
 	/// <summary>Native focus of a text adapter (mauiFocus → activeFocus).</summary>
-	protected bool? FocusTextInput(bool focus) =>
-		((IElementHandler)this).PlatformView is NativeElementHost host ? Renderer?.FocusHost(host, focus) : null;
+	protected bool? FocusTextInput(bool focus) => Host is { } host ? Session?.FocusHost(host, focus) : null;
 
 	/// <summary>Records nothing itself (the geometry pass reads the arranged Bounds) and arranges the children, as a
 	/// native container's layout pass would.</summary>
@@ -117,39 +119,31 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 	}
 
 	public override Size GetDesiredSize(double widthConstraint, double heightConstraint) =>
-		SailfishHandlerCore.DesiredSize(VirtualView, widthConstraint, heightConstraint, _measure);
+		SailfishHandlerCore.DesiredSize(ConnectedView, widthConstraint, heightConstraint, _measure);
 
-	/// <summary>Pushes adapter props (transient commands, snapshots) to this handler's host.</summary>
-	/// <param name="yieldToNative">Skip the push while native state is being written back into MAUI (the value
-	/// came from native, so pushing it would fight the adapter, e.g. a scroll in flight).</param>
 	/// <summary>
 	/// Sends a one-shot command to the adapter (its <c>mauiCommand(json)</c> function, called directly): a scroll, a
 	/// script, a navigation step — anything that is an action, not state. False when the adapter object does not exist
 	/// yet (an action before the first render has nothing to act on) or does not take commands.
 	/// </summary>
-	protected bool SendCommand(string name, Dictionary<string, object?>? args = null)
-	{
-		if (((IElementHandler)this).PlatformView is not NativeElementHost { IsAttached: true } host)
-			return false;
-		return AdapterCommands.Send(host, name, args);
-	}
+	protected bool SendCommand(string name, Dictionary<string, object?>? args = null) =>
+		Host is { IsAttached: true } host && AdapterCommands.Send(host, name, args);
 
+	/// <summary>Pushes adapter props (snapshots, view state) to this handler's host.</summary>
+	/// <param name="yieldToNative">Skip the push while native state is being written back into MAUI (the value
+	/// came from native, so pushing it would fight the adapter, e.g. a scroll in flight).</param>
 	protected void PushProps(Dictionary<string, object?> props, bool yieldToNative = false)
 	{
-		// The typed PlatformView throws once disconnected.
-		if (((IElementHandler)this).PlatformView is NativeElementHost host)
-			Renderer?.PushHostProps(host, props, yieldToNative);
+		if (Host is { } host)
+			Session?.PushHostProps(host, props, yieldToNative);
 	}
 
 	/// <summary>Pushes transient native state (focus, caret) atomically; skipped while native writes it back.</summary>
 	protected void PushTransient(params (string Name, object? Value)[] values)
 	{
-		if (((IElementHandler)this).PlatformView is NativeElementHost host)
-			Renderer?.PushTransient(host, values);
+		if (Host is { } host)
+			Session?.PushTransient(host, values);
 	}
-
-	/// <summary>Whether the handler's mapper pushes <paramref name="propertyName"/> (the handler-parity measure).</summary>
-	internal virtual bool Covers(string propertyName) => SailfishViewMapper.Covers(propertyName);
 
 	void ISailfishViewHandler.PushViewState()
 	{
@@ -159,8 +153,6 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 		QtHostVisualState.Merge(state, visual);
 		PushProps(state, yieldToNative: true);
 	}
-
-	bool ISailfishViewHandler.Covers(string propertyName) => Covers(propertyName);
 }
 
 /// <summary>
@@ -232,12 +224,12 @@ public static class SailfishViewMapper
 	/// each frame without the whole page being measured and arranged. Row content is placed by its list's own pass.</summary>
 	public static void MapTransform(IViewHandler handler, IView view)
 	{
-		if (SailfishHandlerCore.SessionOf(handler)?.Renderer is not { } renderer)
+		if (SailfishHandlerCore.SessionOf(handler) is not { } session)
 			return;
 		if (view is Element element && !InListRow(element))
-			renderer.RequestScrollGeometry();
+			session.RequestScrollGeometry();
 		else
-			renderer.RequestLayout();
+			session.RequestLayout();
 	}
 
 	// CollectionView/CarouselView rows and the legacy ListView's cells.
@@ -265,9 +257,6 @@ public static class SailfishViewMapper
 				childHandler.UpdateValue(ExcludedWithChildren);
 	}
 
-	internal static bool Covers(string propertyName) =>
-		propertyName == ExcludedWithChildren || Array.IndexOf(Keys, propertyName) >= 0 ||
-		Array.IndexOf(GeometryKeys, propertyName) >= 0;
 }
 
 /// <summary>What the renderer asks a Sailfish handler for a view it has no built-in mapping for.</summary>
@@ -286,6 +275,4 @@ internal interface ISailfishAdapterHandler
 internal interface ISailfishViewHandler
 {
 	void PushViewState();
-
-	bool Covers(string propertyName);
 }

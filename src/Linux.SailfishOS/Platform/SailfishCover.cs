@@ -17,13 +17,20 @@ public static class SailfishCover
 	private static string[] _lines = Array.Empty<string>();
 	private static SailfishCoverAction[] _actions = Array.Empty<SailfishCoverAction>();
 	private static bool _used;
-	private static bool _subscribed;
 
 	/// <summary>True while the cover is visible (the app is in the background).</summary>
 	public static bool IsActive { get; private set; }
 
 	/// <summary>Raised on the main thread when <see cref="IsActive"/> changes.</summary>
 	public static event EventHandler? ActiveChanged;
+
+	/// <summary>Every cover status report, raised after <see cref="IsActive"/> was updated: the application's
+	/// OnCoverStatusChanged rides this (W1.9).</summary>
+	internal static event Action<SailfishCoverStatus>? StatusChanged;
+
+	/// <summary>A cover action was tapped (its index), raised after its handler ran: the application's
+	/// OnCoverActionTriggered rides this.</summary>
+	internal static event Action<int>? ActionTriggered;
 
 	/// <summary>Title (null = the application title) and up to three lines.</summary>
 	public static void SetContent(string? title, params string[] lines)
@@ -51,35 +58,49 @@ public static class SailfishCover
 	/// <summary>Host start (Qt thread): replays state set earlier.</summary>
 	internal static void OnHostReady()
 	{
-		if (!_subscribed)
-		{
-			_subscribed = true;
-			QtHostServices.Subscribe(ShellEvents.CoverAction, e =>
-			{
-				SailfishCoverAction? action;
-				lock (Sync)
-				{
-					var i = e.TryGetProperty("index", out var idx) ? idx.GetInt32() : -1;
-					action = i >= 0 && i < _actions.Length ? _actions[i] : null;
-				}
-				Triggered++;
-				action?.Triggered();
-			});
-			QtHostServices.Subscribe(ShellEvents.CoverStatus, e =>
-			{
-				var active = e.TryGetProperty("active", out var a) && a.ValueKind == JsonValueKind.True;
-				if (active == IsActive)
-					return;
-				IsActive = active;
-				ActiveChanged?.Invoke(null, EventArgs.Empty);
-			});
-		}
+		QtHostServices.SubscribeOnce("cover",
+			(ShellEvents.CoverAction, OnAction),
+			(ShellEvents.CoverStatus, OnStatus));
 		if (_used)
 			PushNow();
 	}
 
-	/// <summary>Diagnostics: cover actions delivered.</summary>
-	internal static int Triggered { get; private set; }
+	private static void OnAction(JsonElement e)
+	{
+		var index = CoverActionPayload.Parse(e).Index;
+		SailfishCoverAction? action;
+		lock (Sync)
+			action = index >= 0 && index < _actions.Length ? _actions[index] : null;
+		action?.Triggered();
+		ActionTriggered?.Invoke(index);
+	}
+
+	private static void OnStatus(JsonElement e)
+	{
+		var status = CoverStatusPayload.Parse(e).Status;
+		var active = status == SailfishCoverStatus.Active;
+		if (active != IsActive)
+		{
+			IsActive = active;
+			ActiveChanged?.Invoke(null, EventArgs.Empty);
+		}
+		StatusChanged?.Invoke(status);
+	}
+
+	/// <summary>Tests: captures the content, actions and status; the action puts them back.</summary>
+	internal static Action CaptureForTests()
+	{
+		lock (Sync)
+		{
+			var (title, lines, actions, used, active) = (_title, _lines, _actions, _used, IsActive);
+			return () =>
+			{
+				lock (Sync)
+					(_title, _lines, _actions, _used) = (title, lines, actions, used);
+				IsActive = active;
+			};
+		}
+	}
 
 	/// <summary>The current actions (AppActions reads them back).</summary>
 	internal static SailfishCoverAction[] Actions
@@ -93,9 +114,9 @@ public static class SailfishCover
 
 	private static void Push()
 	{
-		if (!QtHostRuntime.IsRunning || !SailfishEssentials.HostReady.Task.IsCompleted)
+		if (!SailfishEssentials.IsHostUp)
 			return;   // OnHostReady replays it
-		QtHostRuntime.RunOnQtThread(PushNow);
+		QtThread.Post(PushNow);
 	}
 
 	private static void PushNow()
@@ -103,10 +124,8 @@ public static class SailfishCover
 		string json;
 		lock (Sync)
 		{
-			using var stream = new MemoryStream();
-			using (var w = new Utf8JsonWriter(stream))
+			json = BridgeJson.Write(w =>
 			{
-				w.WriteStartObject();
 				if (_title is null)
 					w.WriteNull("title");
 				else
@@ -119,9 +138,7 @@ public static class SailfishCover
 				foreach (var action in _actions)
 					w.WriteStringValue(action.Icon);
 				w.WriteEndArray();
-				w.WriteEndObject();
-			}
-			json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+			});
 		}
 		var rc = QtHostRuntime.Eval($"(function(){{var w=window;if(!w||!w.mauiSetCover)return 'no shell';w.mauiSetCover({json});return 'ok';}})()");
 		if (rc != "ok")

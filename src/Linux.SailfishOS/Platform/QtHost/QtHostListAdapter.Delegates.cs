@@ -14,27 +14,9 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 internal sealed partial class QtHostListAdapter
 {
 	/// <summary>Parks an unresolvable delegate attach for poll retries (deduped by delegate; newest row wins).</summary>
-	internal void QueueAttachRetry(int rowIndex, string dgObj)
-	{
-		for (var i = 0; i < _bridge.AttachRetries.Count; i++)
-		{
-			if (_bridge.AttachRetries[i].State == this && _bridge.AttachRetries[i].Dg == dgObj)
-			{
-				_bridge.AttachRetries[i] = (this, rowIndex, dgObj, _bridge.AttachRetries[i].Attempts);
-				return;
-			}
-		}
-		QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"delegate '{dgObj}' not resolvable yet (row {rowIndex}) — parked for poll retry (lastError='{QtHostRuntime.LastErrorText}')");
-		_bridge.AttachRetries.Add((this, rowIndex, dgObj, 0));
-		_bridge.SchedulePending(ResyncIntervalMs);
-	}
+	internal void QueueAttachRetry(int rowIndex, string dgObj) => _bridge.ParkAttach(this, rowIndex, dgObj);
 
-	internal void DropAttachRetries(string dgObj)
-	{
-		for (var i = _bridge.AttachRetries.Count - 1; i >= 0; i--)
-			if (_bridge.AttachRetries[i].State == this && _bridge.AttachRetries[i].Dg == dgObj)
-				_bridge.AttachRetries.RemoveAt(i);
-	}
+	internal void DropAttachRetries(string dgObj) => _bridge.CancelAttach(this, dgObj);
 
 	/// <summary>Materializes the row delegates currently in the QML visual tree (idempotent). Needed because
 	/// Qt 5.6 refills from its delegate cache without onCompleted or rebind events.</summary>
@@ -169,9 +151,7 @@ internal sealed partial class QtHostListAdapter
 		// The list's visual tree first: after a jump (ScrollTo) a released delegate can still carry the same name while
 		// Qt deletes it later, and a global name search may return it; the content would die with it. Released
 		// delegates are unparented from the list, so the scoped search finds the live one.
-		var handle = QtHostRuntime.FindVisual(Host.NativeHandle, dgObj);
-		if (handle == 0)
-			handle = QtHostRuntime.FindObject(dgObj);   // a parked page's delegates hang outside the visual tree
+		var handle = QtHostRuntime.FindScoped(dgObj, Host.NativeHandle);   // a parked page's delegates: by name
 		if (handle == 0 && !retryIfMissing)
 			return;   // a deferred row whose delegate Qt released meanwhile: nothing to build
 		if (handle == 0)
@@ -271,7 +251,7 @@ internal sealed partial class QtHostListAdapter
 		var ops = new List<Dictionary<string, object?>>(desired.Count);
 		foreach (var host in desired)
 			ops.Add(QtHostPageRenderer.CreateChildOp(host, props.TryGetValue(host, out var p) ? p : new(), parentObj));
-		_renderer.ApplyOps(ops, _renderer.IsParked(Host) && PageId.Length > 0 ? PageId : null);
+		_renderer.ApplyOps(ops, PageTarget);
 		foreach (var host in desired)
 		{
 			QtHostPageRenderer.AttachHost(host, props.TryGetValue(host, out var p) ? p : new(), placeholderHandle);
@@ -300,16 +280,9 @@ internal sealed partial class QtHostListAdapter
 	/// painting and needs its own host (flat rows). False when this list does not hold it.</summary>
 	internal bool RemapRowContaining(Element element)
 	{
-		static bool Holds(Element root, Element e)
-		{
-			for (Element? x = e; x is not null; x = x.Parent)
-				if (ReferenceEquals(x, root))
-					return true;
-			return false;
-		}
 		foreach (var dg in ByHandle.Values.ToList())
 		{
-			if (dg.Row is not { } row || !dg.Cells.Any(c => Holds(c.Root, element)))
+			if (dg.Row is not { } row || !dg.Cells.Any(c => ElementTree.IsWithin(element, c.Root)))
 				continue;
 			var index = row.Index;
 			ClearDg(dg);
@@ -317,7 +290,7 @@ internal sealed partial class QtHostListAdapter
 			return true;
 		}
 		foreach (var slot in Slots.Values)
-			if (slot.Root is { } root && Holds(root, element))
+			if (slot.Root is { } root && ElementTree.IsWithin(element, root))
 			{
 				MarkSlot(slot, remap: true);
 				return true;
@@ -355,8 +328,11 @@ internal sealed partial class QtHostListAdapter
 	}
 
 	/// <summary>The model page a list's row hosts live on: the top page, except for a back-cached page's list.</summary>
-	internal string ListPageId() =>
-		_renderer.IsParked(Host) && PageId.Length > 0 ? PageId : _bridge.MirrorTop();
+	internal string ListPageId() => PageTarget ?? _bridge.MirrorTop();
+
+	/// <summary>The model-page instance this list's row and slot ops go to (W3.2: one resolution): the page it was
+	/// created on while that page is parked, else null = the top model page.</summary>
+	internal string? PageTarget => _renderer.IsParked(Host) && PageId.Length > 0 ? PageId : null;
 
 	internal void UpdateDgGeometry(DgState dg)
 	{

@@ -35,7 +35,7 @@ Work done on top of `ab808cd` in a separate session; nothing in the packages bel
 | --- | --- | --- |
 | MAUI animations tick on Qt's frame clock (`SailfishFrameTicker`; the service overlay answers `IAnimationManager` unless the app registered its own) | `Platform/QtHost/SailfishFrameTicker.cs`, `SailfishServiceOverlay.cs` | test `An_animation_advances_one_tick_per_Qt_frame_and_then_stops`; leg `visual` G: RotateTo 600 ms = 55 ticks in 644 ms (~85 Hz panel), 0 layout passes |
 | Dialogs as Sailfish system dialogs (owner, 2026-10-03): a panel across the top over the page, page dimmed below and blurred under the panel, text buttons, tap outside cancels, back held while open; nothing on the pageStack | `qml/dialogs/DialogPanel.qml`, `DialogButton.qml`, the three dialogs, `MauiModelPage.__pushDialog` | legs `popup` 15/15, `controls`, `stress`; `tools/sf shots` popup-alert/prompt/sheet |
-| W10 answers 1b, 3c, 13a (see W10) | `SailfishMeasure.LabelFontSize`, `QtHostListAdapter.FirstFrame.cs`, workload manifest | tests; legs; `profiling.md` §6a |
+| W10 answers 1b, 3c, 13a (see W10) | `SailfishFontRules.LabelFontSize`, `QtHostListAdapter.FirstFrame.cs`, workload manifest | tests; legs; `profiling.md` §6a |
 | A pushed page lays out during its slide-in (`MAUI_SAILFISH_PUSH_LAYOUT`): Kitchen's recipe title drew on one overflowing line for 0.4 s, then the page jumped | `QtHostPageRenderer.cs` (`TransitionHolds`), `.Navigation.cs` | test `A_pushed_page_lays_out_while_it_slides_in` (both settings); recording |
 | Animations never started when the first one began before the QML window existed (the frame request found no window and nothing hooked it later): Kitchen's home list stayed at Opacity 0. The 3c hold hid it, and itself held the list's Header (Kitchen's whole home page): a 216 ms black frame at startup | `sailfish_host.cpp` (`hook_frame_signal` on load/show), `QtHostListAdapter.FirstFrame.cs` (`BuildHeldSlots`) | test `A_long_lists_header_paints_with_the_page`; startup recordings without the black frame |
 | Remote images that stopped loading: Qt 5.6 has no transfer timeout, a hung connection blocked the host's six; the shim aborts a reply without data for 20 s (`MAUI_SAILFISH_HTTP_STALL_S`), `Image.qml` loads it again twice | `sailfish_host.cpp` (`arm_stall_watchdog`), `qml/controls/Image.qml` | leg `f3` with a never-answering server: abort, 2 retries, failed after 14 s |
@@ -105,29 +105,40 @@ the legs named. All of them together: full matrix.
    FollowNative, MauiDone: true }` (mirror `NavigationSettled`, `Navigation.cs:127`) and `PopUnsynced` is cleared by
    the coordinator when the follow completes, not by the poll. Test: in `NativeStackCoordinatorTests` style with the
    harness: push a dialog (`DisplayAlert`), pop natively, assert no reconcile until MAUI followed.
-3. **Posted layout/geometry passes lack the reconcile guards.** `RunRequestedLayout`/`RunRequestedGeometry`
+3. ~~**Posted layout/geometry passes lack the reconcile guards.**~~ Done 2026-10-04: `PassesAllowed`; test
+   `A_posted_layout_pass_waits_while_the_native_top_is_not_followed`. **Posted layout/geometry passes lack the reconcile guards.** `RunRequestedLayout`/`RunRequestedGeometry`
    (`QtHostPageRenderer.cs:655-686`) check `_navStackBusy` and `CreationDeferred` only, not `_nativeTopUnfollowed`,
    `PopUnsynced`, `_navOp` or the reset hold `_resetHoldUntilMs` (`:779-783`). A pass in that window flushes
    geometry onto dying hosts → `HealIfDead` → `_fullResetPending` (`Layout.cs:551-552`, `Hosts.cs:382-383`). Fix:
    one `bool PassesAllowed` used by both and by `CanReconcile`'s callers.
-4. **Two reconcile entry points bypass the gate.** `PopModelPages` calls `Reconcile()` directly from inside
+4. ~~**Two reconcile entry points bypass the gate.**~~ Done 2026-10-04: `_reconciledThisPoll`, a poll runs at most
+   one pass; test `A_poll_that_pops_runs_one_reconcile`. **Two reconcile entry points bypass the gate.** `PopModelPages` calls `Reconcile()` directly from inside
    `SyncNativeNavigation` → `Step` (`Navigation.cs:531`; the comment explains the paint-before-reveal reason) and
    `PollCore` then reconciles again (`:568-569`); `ApplyWindowGeometry` calls it directly too (`Layout.cs:211`, now
    gated by `CanReconcile` but still outside `PollCore`). Keep the pop-path paint but mark the pass done for the poll
    (`_reconciledThisPoll`), so a poll runs at most one reconcile.
-5. **Flags that break when nested.** `_mappingRows` (`QtHostPageRenderer.cs:27`, `Walk.cs:19-31`): a handler push
+5. ~~**Flags that break when nested.**~~ Done 2026-10-04: `_mappingRowsDepth`, `EnterSlotMapping`/`ExitSlotMapping`,
+   `_rebuildDepth` (mechanical; the `MapItemSubtree` re-entry is not reachable in the harness without contriving it, the
+   rebuild re-entry test stays green). **Flags that break when nested.** `_mappingRows` (`QtHostPageRenderer.cs:27`, `Walk.cs:19-31`): a handler push
    during `MapItemSubtree` can reach `OnFlattenedPush` → `RemapRowContaining` → `MaterializeRow` → `MapItemSubtree`
    (`Hosts.cs:123-126` → `Walk.cs:229-234`) and the inner `finally` clears the flag under the outer mapping.
    `QtHostCollectionBridge.SlotMapping` (`QtHostListAdapter.Rows.cs:283/308`, `Slots.cs:93-123`) and `_inRebuild`
    (`Rows.cs:18-26`) are the same shape. Fix: depth counters with a `using` scope (`_suppressPush` and
    `LayoutRequestHold` already are counters). Test: a template whose view sets a list property during the build
    (the existing `A_rebuild_triggered_from_inside_a_rebuild_runs_after_it`) plus one for `MapItemSubtree` re-entry.
-6. **Static deferred destroys.** `_deferNativeDestroy` and `PendingNativeDestroys` (`QtHostPageRenderer.cs:1290-1291`)
+6. ~~**Static deferred destroys.**~~ Done 2026-10-04: renderer fields, flushed on pop failure and resync,
+   `DeferredNativeDestroys`; test `A_refused_pop_leaves_no_destroy_queued` (1 handle stayed queued before).
+   **Static deferred destroys.** `_deferNativeDestroy` and `PendingNativeDestroys` (`QtHostPageRenderer.cs:1290-1291`)
    are process-wide; the flag is set around `TearDownHosts` (`Navigation.cs:514-516`) which also retires lists, so
    row destroys are deferred too; the flush runs only when a nav snapshot reads `!busy` (`:265-266`) and never if the
    pop fails at `:544`. Fix: instance fields on the renderer, flushed also from `OnResynced` and from the pop
    failure path. Test: pop with `FaultNextPop`, assert no handle stays queued (expose the count internally).
-7. **Open defects carried over from the plan, still open:** `PushBatch` returns `true` on a partial shim rejection
+7. Done 2026-10-04: `PushBatch` returns false on a partial rejection (test `A_partly_rejected_batch_is_not_counted_as_pushed`,
+   fake shim `RejectNextBatch`); `_createDeferred` cleared only by a pass that creates; the dialog/flyout gate is
+   obsolete (both are in-page layers now); the Indicator formula is right ((2c+1)·s = the dots and gaps plus the
+   dots' tap areas, `IndicatorView.qml:50`); the dispatcher closes when the loop ends (`Dispatch` false, `Send` throws;
+   test `After_the_loop_ended_dispatch_refuses_and_send_does_not_hang`). The original list:
+   **Open defects carried over from the plan, still open:** `PushBatch` returns `true` on a partial shim rejection
    (`Hosts.cs:81-89`), so `ApplyUpdates` counts the batch as pushed and `reconcileDiffPushes` grows; `_createDeferred`
    is cleared before the reset-hold early return (`QtHostPageRenderer.cs:732` vs `BeginPass`); ~~`CanReconcile` ignores
    an open dialog/flyout~~ (obsolete for dialogs since they are panels over the page: the page under one keeps
@@ -135,7 +146,11 @@ the legs named. All of them together: full matrix.
    `Image` sharing a URL~~ (done after `ab808cd`, see above); `SailfishMeasure.Indicator` width formula looks mis-simplified
    (check on the device with the `controls` leg before changing); `SailfishSynchronizationContext.Send` has no
    timeout after the loop ended and `Dispatch` enqueues after shutdown (`SailfishDispatcherProvider.cs`).
-8. **Collections:** `_attachRetries` is both the lock object (`QtHostCollectionBridge.cs:395,403,424,430,442`) and a
+8. Done 2026-10-04: `_pendingSync` guards the pending schedule (the retry list is Qt-thread only); the connectivity
+   state is one snapshot (`State` record, CompareExchange for the off-thread fallback); `SailfishPickers.Pick` hops to
+   the Qt thread (the shared `_pending` stays static: one native picker service for both pickers); both indentations
+   fixed to their intent (`OnPageRestored` schedules once after the loop, `OnListScroll` only when it raised the
+   resync). The original list: **Collections:** `_attachRetries` is both the lock object (`QtHostCollectionBridge.cs:395,403,424,430,442`) and a
    list the adapter mutates without that lock (`QtHostListAdapter.Delegates.cs:19-36`); `SailfishConnectivity`
    getters run `ReadInterfaces()` off the Qt thread and write `_access`/`_profiles` unsynchronized
    (`SailfishDevices.cs:278-280` vs `Apply`); `SailfishPickers._pending` is a **static** `TaskCompletionSource` on
@@ -143,7 +158,11 @@ the legs named. All of them together: full matrix.
    misleading indentations change behaviour from how it reads: `QtHostCollectionBridge.cs:326-327` (`SchedulePending`
    runs once after the loop) and `QtHostListAdapter.Scroll.cs:46-48` (the resync reschedule runs on every scroll
    report).
-9. **Lifecycle ordering.** The app subscribes to theme and cover events in `Run()`
+9. Done 2026-10-04: `SailfishTheme.Changed` / `SailfishCover.StatusChanged` are raised after the services updated
+   their state and the application subscribes to them (the theme callback now also fires once for the initial
+   ambience, as orientation does); `SailfishOpenUrl.Configure` runs before `RaiseLaunched`; `RaiseQuitting` guards the
+   override and the lifecycle delegates separately. Test `The_color_scheme_override_sees_the_new_theme`. The original:
+   **Lifecycle ordering.** The app subscribes to theme and cover events in `Run()`
    (`SailfishMauiApplication.cs:151-168`) but `SailfishTheme`/`SailfishCover` subscribe at the first Qt tick
    (`SailfishEssentials.cs:140-142`), so `OnColorSchemeChanged` runs before `AppInfo.RequestedTheme` changed and
    `OnCoverStatusChanged` before `SailfishCover.IsActive` changed. `SailfishOpenUrl.Configure` runs in
@@ -153,11 +172,18 @@ the legs named. All of them together: full matrix.
    Fix: one subscription per event in the services, the application subscribes to the service's typed event (as
    `SailfishSystemService` does); `Configure` before `RaiseLaunched`. Test: `LifecycleTests` with a theme event,
    assert the override sees the new `RequestedTheme`.
-10. **Leaks on the services.** `SailfishBottomSheet.Close` unsubscribes `PanelOpenChanged` only if the renderer still
+10. Done 2026-10-04: the bottom sheet unsubscribes from the renderer it subscribed to; `SailfishDeviceDisplay.Start`
+    is once per process. Left: `RouteHostEvents` handlers are not removed (only a second `Run()` in one process would
+    double them, which does not happen). The original: **Leaks on the services.** `SailfishBottomSheet.Close` unsubscribes `PanelOpenChanged` only if the renderer still
     exists (`SailfishBottomSheet.cs:76-80`); `SailfishDeviceDisplay.Start()` adds a `SailfishDisplay.Changed`
     handler on every call (`SailfishEssentials.cs:351`); `RouteHostEvents` adds `QtHostRuntime.QmlEvent`/`KeyInput`
     handlers never removed (`Boot.cs:166,185`: a second `Run` would dispatch twice).
-11. **Handlers.** `ScrollViewHandler` answers the legacy `IScrollViewController.ScrollToRequested` event
+11. Done 2026-10-04: checked first, two of the four were not defects: MAUI 11's `ScrollToAsync` raises the legacy event
+    *and* invokes `RequestScrollTo`, so an app's mapping fires (test `ScrollToAsync_completes_and_reaches_an_apps_RequestScrollTo_mapping`);
+    a Label's `FlowDirection` change requests a layout pass through MAUI's own invalidation (test
+    `A_labels_flow_direction_change_asks_for_a_layout_pass`). The double poll request of TabbedPage/FlyoutPage is
+    collapsed by the scheduler latch (harmless). Fixed: the container handlers (TabbedPage, FlyoutPage, Shell) follow
+    `SetVirtualView` (test `A_tabbed_page_handler_moved_to_another_page_follows_it`). The original: **Handlers.** `ScrollViewHandler` answers the legacy `IScrollViewController.ScrollToRequested` event
     (`ScrollViewHandler.cs:51-69`) instead of the `IScrollView.RequestScrollTo` command, so an app's
     `CommandMapper.AppendToMapping(nameof(IScrollView.RequestScrollTo), …)` never fires; verify against MAUI 11's
     `ScrollView` (it calls `Handler.Invoke(RequestScrollTo)`) and map the command, finishing with `ScrollFinished`.
@@ -174,6 +200,14 @@ Acceptance for W1: each item has a host test that fails without the fix; `dotnet
 `treeFixups`, `timerWithWork`, `NavResyncs`, `BridgeFailed` 0 in the device logs.
 
 ### W2. Test harness and process-wide state (do with W1)
+
+Done 2026-10-04 (item 2 with W6.1: the flags are gone, and `TestStatics` also captures `SailfishCover`,
+`SailfishOpenUrl`, `SailfishTheme` and `SailfishRemorse`; test `A_renderer_test_leaves_no_subscriber_behind`). 1 the harness `Poll()` advances a test clock and fires due
+dispatcher timers (list tests run on `Poll()` again); 3 the harness attaches the root through
+`SailfishHandlersFactory.AttachRootHandler`; 4 the parity tables moved to the test project (`ViewKeyCoverage`, coverage
+read from the handlers' public mappers and `OwnsProperty`), the `Covers` chain and `ResolveViewHandlerType` are gone
+(`ResolveViewRow` is internal), `grep ForTests src/` lists only TestStatics capture hooks. 370 tests green serially and
+with parallel collections.
 
 1. **Delayed work never runs in the harness.** `RendererHarness.Poll` drains the dispatcher queue (`DrainQueue`)
    but the delayed dispatches are `SailfishDispatcherTimer`s that only `SailfishRuntime.TickDueTimers(now)` fires
@@ -209,6 +243,15 @@ Acceptance: `dotnet test` green serially and with `xunit.parallelizeTestCollecti
 `KickedPoll` needed for list tests, `grep -rn "ForTests" src/` lists only `TestStatics` capture hooks.
 
 ### W3. Renderer: finish C4 and remove the duplication the split exposed
+
+Done 2026-10-04: 1 `ReleaseHosts(hosts, pageId, sendOps)` is the one release path (unroute, live set, synthetic slot,
+`NativeElementHost.ResetNative()`); the list adapters reach it through the bridge's wrapper. 2 `QtHostListAdapter.PageTarget`,
+the bridge's `MirrorTop` reads the renderer's top, `setMauiScroll` through `CallPage`, `TopModelPageJs` instead of
+`QmlPage.Model` (calls with non-string arguments stay for W8.3). 3 the main batch through `ApplyOps` (unknown ops
+logged once per page). 4 `QtHostRuntime.FindScoped` (scope, name, whole visual tree). 5 `MergeGenericState`,
+`RootMatrix`, one `Ms`, `ElementTree`, `SyntheticPrefix`, `RestartTimeline`, `ReArmPageChrome` (the model-page switch
+now re-sends the tabs too), `WithParked`, the creation gate through `CreationDeferred`. 6 fifteen unread counters
+removed. 7a `ActivationGate`, 7b `PageCache` behind `IPageCacheOwner`. Legs: 17/17 after 1–6.
 
 The renderer is 4 449 lines across ten partials plus `NativeStackCoordinator`, `RenderScheduler`, `HostTreeDiff`.
 The second review found the same logic written several times; unify before extracting anything else.
@@ -262,10 +305,17 @@ The second review found the same logic written several times; unify before extra
    renderer. The push/pop executors stay until W3.1 gives them one release path.
 
 Acceptance: `grep -c "ReleaseHost(\|DestroyHosts(\|DestroyNative(" Platform/QtHost/*.cs` ≤ 4 call sites;
-`NavigationCoordinatorTests`, `RendererTests`, `ArchitectureAlignmentTests`, `SampleAppRegressionTests` green;
+`NativeStackSyncTests` (was `NavigationCoordinatorTests`), `RendererTests`, `ArchitectureAlignmentTests`, `SampleAppRegressionTests` green;
 `tools/sf matrix page nav navback shell tabpulley containers collection collection100 reconcile tree stress`.
 
 ### W4. Collections: bridge ↔ adapter intent methods (C10 rest, C9 rest)
+
+Done 2026-10-04 (both acceptance greps empty): `OnNativeObjectRecreated`, `RequestResync`, `RunPendingWork`,
+`ForgetDeadHost`, `bridge.ParkAttach`/`CancelAttach` (the retry list is private), `bridge.MappingScope()` with
+`IsMapping`, `renderer.HoldLayoutRequests()`, `PageTarget` (W3.2); tests `CollectionBridgeTests` (parked attach retry,
+row keys across an Add, a removed list unregisters). Left for a later pass (encapsulation only, no defect behind them):
+`CellHosts`/`OwnsCellHost`, `RefreshGeometry`/`HandleEvent`, moving `DescribeRow`/`TryGetRowPoint`/`DelegateOf`/`RowView`
+into the adapter, the `ListCounters` object, the C9 naming items.
 
 The adapter is split into responsibility partials and the lookups are pure (`RowLookup`), but the bridge still
 pokes the adapter's fields and the adapter the bridge's. Replace field access with these methods (each replaces
@@ -301,6 +351,29 @@ collection10 collection100 collection500 containers stress`, `RowsPooled`/`RowsA
 tour.
 
 ### W5. Handlers: one idiom per job, the file split by family
+
+Done 2026-10-04 (device run below), what remains is listed at the end. 1 split: `SailfishSnapshotHandler.cs`,
+`SailfishTextHandlers.cs` (with `SailfishTextInputHandlerBase<T>`: native focus and the transient keys once),
+`SailfishValueHandlers.cs`, `SailfishPickerHandlers.cs`, `SailfishDrawingHandlers.cs`, `SailfishCompositeHandlers.cs`,
+`SailfishLayoutHandlers.cs`, `SailfishScrollViewHandler.cs` (renamed; public surface updated), `SailfishHandlerCore.cs`.
+2 `Host`, `ConnectedView` everywhere (also `NullViewHandler.ConnectedView` for the page containers), every handler
+request goes through `SailfishRenderSession` (it forwards props, transient pushes, focus, disconnect and
+`WhenNavigationSettled`; no handler reaches the renderer), `ContainerKeys`, the redundant `nameof` pairs gone, the owned
+keys read from the mapper chain (`SailfishHandlerCore.OwnedKeys`, so a subclass mapper chained from a built-in one
+keeps the family), `Grid.RowDefinitions` dropped (the adapter mirrors the column count only), measures as delegates
+(`SailfishMeasure.IndicatorView`, `.Shape`), `QtHostDiag.Warn` for the WebView permission (once, thread-safe),
+`FailedSources` locked and bounded. 3 `SailfishKeys` (adapter kinds, transient keys, commands and their arguments,
+image events, echo modes); `QtHostAdapters.ScrollView`, `QtHostShapes/Graphics/Images.AdapterUri` alias it; test
+`Every_handler_key_constant_is_known_to_the_adapters`. 4 not done (owner decision 5b: encodings change only when an
+adapter is touched). 5 `(IPropertyMapper?, CommandMapper?)` constructors on every view handler, pages and page
+containers with mappers of their own chained from `SailfishViewMapper.Mapper` (`NullViewHandler.Mapper`), the
+semantics documented in `docs/custom-controls.md` (decision 6b); test
+`A_subclass_mapper_chained_from_the_built_in_one_keeps_its_snapshot_keys`. 6 `SailfishFontRules` (font rules and
+`SilicaMediumFontDp`), `TextInputProps(input)` computes Entry's echo mode and length. 7 all items.
+Left (no defect behind them): the list handler still gets its adapter from the bridge, `SailfishMeasure.Collection`
+reads it through the handler, `SailfishPageContainers.Of` still attaches a nested container's handler on lookup, and
+`SailfishDrawnViewHandler` keeps its poll on resize (it is a `NullViewHandler` re-recorded by every reconcile; moving
+it onto the snapshot base needs a Syncfusion app on the phone to check).
 
 `SailfishControlHandlers.cs` (1 106 lines) holds 29 types of repeated boilerplate; no class is large. Do the
 mechanical part first, then the idioms.
@@ -376,6 +449,24 @@ refactor day (same layout).
 
 ### W6. Platform services: one start pattern, one thread hop, no static TCS
 
+Done 2026-10-04 (both acceptance greps empty; device run below). 1 `QtHostServices.Ensure(name, qml, started?,
+subscriptions…)` subscribes and runs the first read once per service (`Wired`, reset with the rest by `TestStatics`),
+`SubscribeOnce(key, …)` for the shell's own events (cover); Battery, Connectivity, sensors, Geolocation, Pickers,
+Contacts, Theme, OpenUrl use it, every flag is gone (Battery keeps `_kernelOnly`, the MCE-missing mode); test
+`A_service_subscribes_and_reads_its_first_state_once`. 2 `QtThread` only: `QtThread.Later` (always queued, held before
+the host) replaces `QtHostRuntime.Post` in the application, `QtThread.Post` replaces `RunOnQtThread` in Cover and
+Remorse, `OpenUrl.CallSelf` hops. 3 the unread counters are gone (`Vibrations`, `Performed`, `SailfishTheme.Changes`,
+`SailfishCover.Triggered`, `Announced`, `ServiceEvents`, `Readings`); `SailfishDeviceDisplay` subscribes per instance
+(no `_instance`, no `Start`). 4 `QtHostServices.Snapshot(name)`, `BridgeJson.Write` (Cover, Remorse, Notifications,
+Share), one JS quoting (`QtHostServices.Js` is `BridgeValue.Quote`), `SailfishSensor.SetActive` for the six snippets,
+the theme and cover payloads parsed by their records only (the shell sends `status`; `IsActive` derives from it),
+`SailfishEssentials.IsHostUp`. 5 the app hears cover actions through `SailfishCover.ActionTriggered` (one
+subscription), the `DynamicDependency` block sits on `Hook`, the method that reflects.
+Left: Remorse, Cover and OpenUrl stay static (public static APIs, one per process); the 11 `OnX(v); Invoke<OnX>`
+pairs stay written out; the DI registrations of `QtHostAlertSubscription`/`SailfishModalNavigationPlatformFactory`
+stay as the root provider's fallback (the overlay serves the window's own; removing them needs a check of every
+resolution path); `RouteHostEvents`/`StartRendering` stay in `Boot.cs`.
+
 1. **One start pattern.** The Ensure-plus-subscribe-once dance with a flag is written seven times (Battery
    `SailfishDevices.cs:49-64`, Connectivity `:196-203`, Geolocation `SailfishSensors.cs:239-250`, `SailfishSensor`
    `:58-62`, Pickers `SailfishShareAndPickers.cs:162-178`, Contacts `SailfishAppServices.cs:211-224`, Cover
@@ -421,6 +512,12 @@ f4 features silica popup`.
 
 ### W7. Documentation that is out of date (fix any time, no device run)
 
+Done 2026-10-04: `architecture.md` (current-work links, the docked panel path, `NativeStackCoordinator`),
+`native-interop.md` (links to the current lines, `sailfish_host_invoke` exists, L3 fixed), README's leg count, the
+Skia plan gate, the AOT doc (31 legs, `BridgeValue.Quote`), the test class renamed `NativeStackSyncTests`,
+`QmlPage`'s summary, and `architecture-plan.md`'s "uncommitted" lines (all in `ab808cd`). The `PageCalls.cs` double
+summary and the split doc comment were already gone.
+
 - `docs/architecture.md:89` names `NavigationCoordinator` (now `NativeStackCoordinator`, `Step`); `:53` says
   `BottomSheet.qml` (the adapter is `qml/interactions/DockedPanel.qml` behind the `docked-panel` interaction host);
   `:5` lists current work as `parity-plan.md` and `BUG_LIST.md` only (add `architecture-plan.md` and this file).
@@ -442,6 +539,20 @@ f4 features silica popup`.
   `ab808cd` now.
 
 ### W8. Native shim (E4 split, E3 and E5 leftovers)
+
+Done 2026-10-04 except 4 (device run: the full matrix below). 1 split as the recipe says: `host_internal.h`
+(the includes, `HostState`, `extern g`, the helper declarations, `PostEvent`/`PostReceiver`), `host_core.cpp` (the
+helpers, `namespace sfhost`), `host_handles.cpp`, `host_text.cpp`, `host_surface.cpp`, `host_diag.cpp`, and
+`sailfish_host.cpp` with the lifecycle, loop, JS, pages, clipboard, URLs and the crash trap (3426 → 595 lines);
+`native-build.sh` compiles the list, test `The_native_build_compiles_every_host_source`; the contract tests read
+every host source. 2 the input filter comes off the window and the view it was installed on (it was removed from the
+application, where it never was); `measure_text` lays out each paragraph once with `QTextLayout` (the line breaker
+QML `Text` uses, so a hyphen or a slash breaks as the label will; the greedy loop re-measured every growing line).
+3 the per-poll navigation snapshot is a shell function invoked on a `mauiShell` child object (`CallShell`, eval only
+when a custom shell lacks it) and the per-frame tab drag goes through `CallPage`; the rarer multi-argument calls
+(context menu, dialog push, pulley, scroll, remorse, preload, theme probes) still eval through `QmlPage`.
+Also: `Eval`/`Invoke` results longer than the 8 KB buffer come back whole (ABI 4, `sailfish_host_last_result`, the
+`bridge` leg checks a 20000-char result; native-interop L3). 4 left: the per-page payloads are still double-encoded.
 
 1. **The file split.** `sailfish_host.cpp` is two anonymous-namespace blocks (`:91-1273`, `:1846-…`, `:2897-3300`)
    with helpers between the `extern "C"` exports (`:1347-3388`); the crash handler (`:1280-1345`) is static outside
@@ -476,6 +587,16 @@ Acceptance: `tools/sf native-build`, full matrix, `NativeContractTests` green, `
 
 ### W9. Tools, build and packaging
 
+Done 2026-10-04: `sf run --wait` exits with the app's code (the app logs `[Sailfish] exit code N` last), `SF_RPM_ARCH`
+follows `SF_RID`, the duplicate `SailfishOrientation`/`SailfishCover` defaults are gone. Checked and left:
+`sf-kill-remote.sh` already stops the previous instance (TERM, KILL, "still running" is an error) before every
+launch, which covers the matrix overlap; an MSBuild query for the package name does not work at evaluation time
+(`SailfishPackageName` is computed inside a target), so `sf-lib.sh` keeps the directory names; `_SignSailfishRpm`
+already errors when there is nothing to sign; `trimmer.xml` still roots `*MauiProgram` (narrowing it to the app
+assembly needs a generated descriptor, and a `CreateMauiApp` outside a `MauiProgram` class is a documented
+requirement of the generated Main); the Sample's native assets and the Kitchen's CommunityToolkit guard and
+`IDispatcher` singleton stay (packaging and app-visible changes for no defect).
+
 - `tools/lib/sf-lib.sh:89-116` derives the package name, binary and arch from directory names; the plan's D3 wants
   an MSBuild query (`dotnet msbuild -getProperty:SailfishPackageName …`). Every `tools/sf` command sources the
   library, so the query must be lazy and cached (a file under `obj/` keyed by the csproj mtime). `SF_RPM_ARCH`
@@ -492,7 +613,7 @@ Acceptance: `tools/sf native-build`, full matrix, `NativeContractTests` green, `
 - `samples/Linux.SailfishOS.Sample` hand-copies the native assets (`Sample.csproj:44-75`) instead of a
   `ProjectReference` plus the package's `runtimes/`; Kitchen's try/catch around `UseMauiCommunityToolkit` and its
   `IDispatcher` singleton (`MauiProgram.cs:85-116`) are device-visible changes: deploy and run the Kitchen tour.
-- `docs/media` (about 23 MB of mp4/gif) to Git LFS is an owner decision.
+- `docs/media`: decided 2026-10-04 (W10 16): MP4 sources untracked, GIFs stay.
 
 ### W10. Decisions for the owner (decided 2026-10-03)
 
@@ -501,9 +622,9 @@ The owner's answers, then the questions as they were put (options and recommenda
 | # | Decision | Status |
 | --- | --- | --- |
 | — | Dialogs look like Sailfish's system dialogs (a panel across the top, the page visible and dimmed below), not full-screen Silica dialog pages | done: `dialogs/DialogPanel.qml`, legs popup/controls/stress |
-| 1 | (b) an unset Label `FontSize` paints `Theme.fontSizeMedium` | done: `SailfishMeasure.LabelFontSize` = `AppFontSize`; 10 legs PASS, screenshot `controls-gallery` |
+| 1 | (b) an unset Label `FontSize` paints `Theme.fontSizeMedium` | done: `SailfishFontRules.LabelFontSize` = `AppFontSize`; 10 legs PASS, screenshot `controls-gallery` |
 | 2 | (b) a single-button alert's button is the acknowledgement (accepts) | done (centred, as the system's one-button dialogs) |
-| 3 | (c) open a list page in two turns, only for lists taller than the screen, after measuring on the Kitchen catalog | done: `QtHostListAdapter.FirstFrame.cs` (`MAUI_SAILFISH_LIST_FIRST_FRAME=0` turns it off); catalog push stall 164–179 → 136–158 ms (`profiling.md` §6a) |
+| 3 | (c) open a list page in two turns, only for lists taller than the screen, after measuring on the Kitchen catalog | built (`QtHostListAdapter.FirstFrame.cs`), then off by default 2026-10-04 after a side-by-side recording (owner): no gain once pushes lay out during the slide, cards without pictures for 2–3 frames; `MAUI_SAILFISH_LIST_FIRST_FRAME=1` turns it on |
 | 4 | (a) keep the tab title in the swipe strip | closed |
 | 5 | (b) snapshot encodings change only when an adapter is touched anyway | standing rule |
 | 6 | (b) snapshot semantics documented | done: `docs/custom-controls.md` "Customizing a built-in control" |
@@ -513,16 +634,16 @@ The owner's answers, then the questions as they were put (options and recommenda
 | 10 | (b) Syncfusion text gap documented, no add-on | done: `docs/porting-existing-apps.md` "Not supported yet" |
 | 11 | no CommunityToolkit add-on package: the work stays in `Microsoft.Maui.SailfishOS`; gap documented | done: same section |
 | 12 | camera capture, Geocoding, TextToSpeech, BlazorWebView, `MauiSplashScreen` stay out | confirmed in `parity-plan.md` and the porting guide |
-| 13 | (a) `dotnet workload install` tried in an isolated SDK (nothing global) | done: works after the tool's manifest install; two manifest defects fixed (`parity-plan.md`); owner chose (a): tool first, `dotnet workload install sailfish` documented as optional step two |
+| 13 | (a) `dotnet workload install` tried in an isolated SDK (nothing global); the owner's SDK refreshed with the fixed manifest (`tools/sf workload-install`, 2026-10-04) | done: works after the tool's manifest install; two manifest defects fixed (`parity-plan.md`); owner chose (a): tool first, `dotnet workload install sailfish` documented as optional step two |
 | 14 | NativeAOT stays frozen | closed |
 | 15 | armv7hl labelled untested | done: README, `sailfishos-packaging.md` |
-| 16 | `docs/media` | open (no recommendation given) |
+| 16 | (d) MP4 sources out of the tree (`.gitignore`), the GIFs the docs show stay; the history is not rewritten | done |
 | 17 | (a) GitTrends waits for a newer MAUI 11/toolkit | closed until then |
 | 18 | GameSpur skipped | closed |
 
 **Look and behaviour apps see (device-visible)**
 
-1. **Label default font size.** A `Label` without `FontSize` paints 18 dp (`SailfishMeasure.LabelFontSize`); Silica
+1. **Label default font size.** A `Label` without `FontSize` paints 18 dp (`SailfishFontRules.LabelFontSize`); Silica
    controls use `Theme.fontSizeMedium`. (a) keep 18 dp; (b) theme size, which enlarges every unstyled Label in every
    app. Recommendation: (a), it matches what ported apps were laid out against.
 2. **Single-button alert.** `DisplayAlertAsync(title, message, "OK")` is MAUI's *cancel* button, so "OK" sits at the

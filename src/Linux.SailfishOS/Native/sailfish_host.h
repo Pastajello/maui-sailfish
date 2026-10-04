@@ -38,7 +38,7 @@ enum sfhost_err {
 
 /* Bumped whenever an export's signature, a payload format or an error code changes. The managed side
  * (QtHostNative.AbiVersion) refuses to start against another version instead of losing features silently. */
-#define SFHOST_ABI_VERSION 3
+#define SFHOST_ABI_VERSION 4
 
 
 /* Called on the Qt loop every tick_ms milliseconds. */
@@ -109,6 +109,11 @@ int sailfish_host_pop_page(int immediate);
 /* Evaluates JS with the QML root as scope; result as text (use JSON.stringify for objects).
  * Returns the UTF-8 length of the result. */
 int sailfish_host_eval(const char *expression, char *out, int cap);
+
+/* The whole result of the last sailfish_host_eval or sailfish_host_invoke whose result did not fit its buffer: the
+ * caller sees a length >= cap and fetches it here with a buffer of that length + 1, instead of evaluating again.
+ * Kept until the next eval or invoke. Returns its UTF-8 length; 0 when the last call fit. Qt thread. (ABI 4) */
+int sailfish_host_last_result(char *out, int cap);
 
 /* Diagnostic JSON: mode, root/window classes, top-level windows, cover window presence. */
 int sailfish_host_window_info(char *buf, int cap);

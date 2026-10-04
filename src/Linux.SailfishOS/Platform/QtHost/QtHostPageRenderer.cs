@@ -24,7 +24,8 @@ internal sealed partial class QtHostPageRenderer
 	private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Page, object> _largePageWarned = new();   // weak: a warned page may go
 	private readonly HashSet<Type> _unsupportedWarned = new();
 	private readonly HashSet<string> _missingImageWarned = new();
-	private bool _mappingRows;   // MapElement runs for a collection row subtree
+	private bool _mappingRows => _mappingRowsDepth > 0;   // MapElement runs for a collection row subtree
+	private int _mappingRowsDepth;                       // a depth: a row remapped from inside a mapping nests (W1.5)
 
 	private static readonly Dictionary<string, object?> EmptyProps = new();
 
@@ -41,6 +42,9 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>Registry id of the top page on the native pageStack mirror; null when empty.</summary>
 	private string? NativeTopPageId => _nativePageIds.Count > 0 ? _nativePageIds[^1] : null;
+
+	/// <summary>The top model page of the confirmed native mirror, for the collection bridge (W3.2: it kept a copy).</summary>
+	internal string? TopNativePageId => NativeTopPageId;
 
 	private readonly Window _window;
 	private readonly IMauiContext _mauiContext;
@@ -137,6 +141,7 @@ internal sealed partial class QtHostPageRenderer
 	private NativeElementHost? _scrollRefreshHost;
 	private readonly HashSet<string> _layoutFailStackOnce = new(StringComparer.Ordinal);
 	private string _lastScrollPush = string.Empty;          // setMauiScroll diff basis
+	private readonly HashSet<string> _unknownOpsLogged = new(StringComparer.Ordinal);   // pages whose batch had unknown ops
 	private bool _pulleyReattachPending;                    // new pulley hosts: re-attach after the next layout pass
 	private bool _pulleyOpened;                              // diag: MAUI_SAILFISH_OPEN_PULLEY
 	private int _renderedPageSeq;                            // distinct page renders (diag trigger)
@@ -174,9 +179,7 @@ internal sealed partial class QtHostPageRenderer
 	private NavOperation? _navOp => _stack.Operation;
 	private int _nativePageSeq;                              // "mp<N>" id generator (mp1 = shell root)
 	private bool _navStateAdopted;                           // first registry read adopted
-	private bool? _lastWindowActive;                         // activation-bridge state
-	private int _lastAppState = -1;                          // Qt.application.state mirror
-	private bool _appLifecycleStarted;                       // Created/Resumed delivered once
+	private readonly ActivationGate _activation;             // window lifecycle bridge + the creation wait (W3.7a)
 	private Page? _pendingAppearing;                         // SendAppearing after the create batch
 	private long _navOpSeq;                                  // monotonic id for the navigation operation log
 
@@ -186,25 +189,17 @@ internal sealed partial class QtHostPageRenderer
 	internal bool FaultNextPop;
 	private string _topModelPageId = string.Empty;           // registry top — the page the hosts live on
 	private bool _nativeTopUnfollowed;   // the last nav read showed a top the mirror has not followed (a back gesture)
-	private int _deferredModelPageTicks;                     // reconciles spent waiting for a stable activation
-	private long _deferredSinceMs;                           // when that wait began (bounds it in time)
-	private long _activeSinceMs;                             // since when appState==Active (0 = not active)
 	private bool _fullResetPending;                          // a dead host asks for a whole-page rebuild
 	private int _fullResetsDone;                             // per-page cap on full rebuilds (loop guard)
 	private int _healedSinceReconcile;                       // dead-host burst counter (per reconcile)
 	private long _resetHoldUntilMs;                          // creation held after a full-page reset (deferred QML deletes)
-
-	/// <summary>Longest wait for a stable activation before hosts are created anyway, so a stuck depth sync cannot
-	/// leave the app blank.</summary>
-	private const int DeferredModelPageLimitMs = 10_000;
 
 	/// <summary>How long the application must stay Active before hosts are created: Silica rebuilds model pages in
 	/// the activation, and objects created meanwhile die. Tests set 0.</summary>
 	internal static int ActivationSettleMs { get; set; } = 250;
 
 	/// <summary>The application is stably Active (see <see cref="ActivationSettleMs"/>).</summary>
-	private bool ActivationSettled =>
-		_activeSinceMs != 0 && Environment.TickCount64 - _activeSinceMs >= ActivationSettleMs;
+	private bool ActivationSettled => _activation.Settled;
 
 	/// <summary>Runs a kicked poll in <paramref name="ms"/> (see <see cref="RenderScheduler.KickIn"/>).</summary>
 	private void KickIn(long ms) => _scheduler.KickIn(ms);
@@ -212,12 +207,7 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>True while host creation is deferred: before the first window report or until the app is active.
 	/// Silica rebuilds model-page visuals around activation and hosts created earlier die en masse (which has
 	/// crashed QV4); the collection bridge uses the same gate.</summary>
-	internal bool CreationDeferred =>
-		!_windowGeometryKnown || (!ActivationSettled && !DeferralExpired);
-
-	/// <summary>The activation wait ran out (<see cref="DeferredModelPageLimitMs"/>): create the page anyway.</summary>
-	private bool DeferralExpired =>
-		_deferredSinceMs != 0 && Environment.TickCount64 - _deferredSinceMs >= DeferredModelPageLimitMs;
+	internal bool CreationDeferred => !_windowGeometryKnown || !_activation.AllowsCreation;
 
 	/// <summary>Property values pushed through the bridge.</summary>
 	public long BridgeApplied { get; private set; }
@@ -258,8 +248,6 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>Native DockedPanel open-state changes reported over the bridge.</summary>
 	public long PanelOpenChanges => Events.PanelOpenChanges;
 
-	/// <summary>Native Drawer open-state changes reported over the bridge.</summary>
-	public long DrawerOpenChanges => Events.DrawerOpenChanges;
 
 	/// <summary>Managed-driven pageStack pushes.</summary>
 	public long NativePushes { get; private set; }
@@ -327,8 +315,11 @@ internal sealed partial class QtHostPageRenderer
 		PollCore(kicked: true);
 	}
 
-	private static double TlMs(long from, long to) =>
-		from == 0 || to == 0 ? -1 : (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+	/// <summary>Milliseconds between two Stopwatch timestamps.</summary>
+	private static double Ms(long from, long to) => (to - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+
+	/// <summary><see cref="Ms"/> for the navigation timeline, where 0 marks a step not reached (-1).</summary>
+	private static double TlMs(long from, long to) => from == 0 || to == 0 ? -1 : Ms(from, to);
 
 	private void TimelineStart(string kind)
 	{
@@ -355,8 +346,6 @@ internal sealed partial class QtHostPageRenderer
 		_tlStart = 0;
 	}
 
-	/// <summary>Reconciles put off because the native stack's top was not followed yet.</summary>
-	public long ReconcilesDeferredForNativeTop { get; private set; }
 
 	/// <summary>Measured navigations (push/pop with SendAppearing).</summary>
 	public long NavTimings { get; private set; }
@@ -429,14 +418,8 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>Times the coordinator adopted a native stack no operation explained.</summary>
 	public long NavResyncs => _stack.NavResyncs;
 
-	/// <summary>The operation in flight, for diagnostics.</summary>
-	internal string? NavOperationInFlight => _stack.Operation?.ToString();
 
-	/// <summary>Top-model-page changes that re-armed the page-instance-scoped render state.</summary>
-	public long ModelPageSwitches { get; private set; }
 
-	/// <summary>Reconciles that deferred host creation because the MAUI stack outran the native one.</summary>
-	public long DeferredModelPageSyncs { get; private set; }
 
 	/// <summary>Page.SendAppearing deliveries; the backend owns appearing semantics, MAUI core never fires them.</summary>
 	public long AppearingSent { get; private set; }
@@ -454,8 +437,8 @@ internal sealed partial class QtHostPageRenderer
 	public long StoppedSent { get; private set; }
 
 	/// <summary>Last polled Qt::ApplicationState and window.active mirrors (diagnostics).</summary>
-	public int LastAppState => _lastAppState;
-	public bool? LastWindowActive => _lastWindowActive;
+	public int LastAppState => _activation.LastAppState;
+	public bool? LastWindowActive => _activation.LastWindowActive;
 
 	/// <summary>Dialogs (alert / prompt / action sheet) pushed on the Silica pageStack.</summary>
 	public long DialogPushes { get; private set; }
@@ -488,6 +471,8 @@ internal sealed partial class QtHostPageRenderer
 		_cache = session.Cache;
 		_scheduler = new RenderScheduler(RunRequestedLayout, RunRequestedGeometry, RunSubtreeReconciles);
 		_stack = new NativeStackCoordinator(this);
+		_activation = new ActivationGate(RaiseWindowLifecycle);
+		_pageCache = new PageCache(this);
 		_collection = new QtHostCollectionBridge(this);
 		// View children arrive through their layout handler (Add/Insert/Remove) or a content mapper, which reconcile
 		// right away; pages (a Shell section, a tab, a modal) still announce themselves through the window.
@@ -510,8 +495,6 @@ internal sealed partial class QtHostPageRenderer
 	/// never rethrown toward the Qt loop.</summary>
 	public void HandleNativeEvent(string name, string payload) => Events.Handle(name, payload);
 
-	/// <summary>Gecko navigations reported into MAUI (diagnostics).</summary>
-	public long WebViewNavigations => Events.WebViewNavigations;
 
 	/// <summary>Asks for a layout pass on the next loop turn (e.g. a stream image became ready; any thread).</summary>
 	internal void InvalidateLayout() => QtHostRuntime.RunOnQtThread(RequestLayout);
@@ -576,10 +559,13 @@ internal sealed partial class QtHostPageRenderer
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"poll ({(kicked ? "kicked" : "heartbeat")}) with {_navOp} in flight");
 		// Navigation sync runs before the reconcile so teardown/creation targets the actual top page.
 		_stack.PopUnsynced = false;
+		_reconciledThisPoll = false;
 		SyncNativeNavigation();
 		CompleteSettledNavigation();
 		var t1 = t0 != 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-		if (CanReconcile)
+		// At most one pass per poll (W1.4): a pop already reconciled from inside the sync, to paint the returned-to page
+		// before it is revealed; what the pop left for later (the stray sweep) runs on the poll it requested.
+		if (CanReconcile && !_reconciledThisPoll)
 			Reconcile();
 		var t2 = t0 != 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 		// Deferred row builds, slots, resync; the heartbeat leaves scheduled list work to the lists' own clock, so
@@ -588,7 +574,6 @@ internal sealed partial class QtHostPageRenderer
 			_collection.ProcessPending();
 		if (t0 != 0)
 		{
-			static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 			var t3 = System.Diagnostics.Stopwatch.GetTimestamp();
 			if (Ms(t0, t3) >= SailfishRuntime.SlowWorkMs)
 				Console.Error.WriteLine($"[Sailfish][SLOW] poll {(kicked ? "kicked" : "timer")} {Ms(t0, t3):F0} ms: " +
@@ -651,6 +636,17 @@ internal sealed partial class QtHostPageRenderer
 	/// asked directly (W1.2): until MAUI pops, its page is the one the user backed out of.</summary>
 	private bool MauiFollowPending => _navOp is { Kind: NavOpKind.FollowNative, MauiDone: false };
 
+	/// <summary>
+	/// The one gate of the posted layout and geometry passes (W1.3): the reconcile's (no holding transition, MAUI in
+	/// step with the native stack) plus what a pass outside the reconcile must also respect: the native top followed,
+	/// no full-page reset pending or holding, creation not deferred. A pass in that window flushed MAUI's geometry onto
+	/// the hosts of the page being left, dead on the device, and the heal reset the whole page. A skipped pass leaves
+	/// its dirty flag for the next poll's reconcile.
+	/// </summary>
+	private bool PassesAllowed =>
+		!TransitionHolds && !_stack.PopUnsynced && !MauiFollowPending && !_nativeTopUnfollowed &&
+		!_fullResetPending && _resetHoldUntilMs <= Environment.TickCount64 && !CreationDeferred;
+
 	// --- Layout requests ---
 	// As a native view requests a layout pass, a handler asks for one: MAUI's InvalidateMeasure reaches it through
 	// Handler.Invoke, and the geometry keys (transforms, visibility, flow direction, scroll position) through its
@@ -660,12 +656,24 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>Row building: its item views (logical children of their list) re-measure as they are built; the list's
 	/// own size follows from the finished rows (QtHostListAdapter.PushRows), so those requests are not passes.</summary>
-	internal int LayoutRequestHold;
+	private int _layoutRequestHold;
+
+	/// <summary>Holds layout requests for a <c>using</c> (row building; W4: replaces the public counter).</summary>
+	internal LayoutHoldToken HoldLayoutRequests()
+	{
+		_layoutRequestHold++;
+		return new LayoutHoldToken(this);
+	}
+
+	internal readonly struct LayoutHoldToken(QtHostPageRenderer renderer) : IDisposable
+	{
+		public void Dispose() => renderer._layoutRequestHold--;
+	}
 
 	/// <summary>Asks for a layout + geometry pass on the next loop turn (any thread).</summary>
 	internal void RequestLayout()
 	{
-		if (_inLayoutPass || LayoutRequestHold > 0)
+		if (_inLayoutPass || _layoutRequestHold > 0)
 			return;
 		_layoutDirty = true;
 		_scheduler.RequestLayout();
@@ -674,7 +682,7 @@ internal sealed partial class QtHostPageRenderer
 	private void RunRequestedLayout()
 	{
 		// The reconcile lays out itself; during a transition or before the first frame the next poll does.
-		if (!_layoutDirty || TransitionHolds || _rendered is not { } page || CreationDeferred)
+		if (!_layoutDirty || !PassesAllowed || _rendered is not { } page)
 			return;
 		RunLayoutPass(page);
 	}
@@ -694,7 +702,7 @@ internal sealed partial class QtHostPageRenderer
 
 	private void RunRequestedGeometry()
 	{
-		if (!_geometryDirty || TransitionHolds || _rendered is not { } page || CreationDeferred || !_windowGeometryKnown)
+		if (!_geometryDirty || !PassesAllowed || _rendered is not { } page || !_windowGeometryKnown)
 			return;
 		if (_layoutDirty)
 		{
@@ -713,6 +721,8 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>Reconcile core: diffs the current page's logical tree against the persistent hosts and applies
 	/// the minimal create/update/destroy set (Qt thread only), timed for diagnostics.</summary>
+	private bool _reconciledThisPoll;   // a pass already ran in this poll (the pop path paints before the reveal)
+
 	private void Reconcile()
 	{
 		// The pageStack shows another model page than the mirror's top (a back gesture's transition, not yet
@@ -721,12 +731,12 @@ internal sealed partial class QtHostPageRenderer
 		// page and the revealed one flashed empty with the old title. The next poll follows the stack first.
 		if (_nativeTopUnfollowed)
 		{
-			ReconcilesDeferredForNativeTop++;
 			_layoutDirty = true;
 			RequestPoll();
 			return;
 		}
 		_skippedUnarranged = false;
+		_reconciledThisPoll = true;
 		var sw = System.Diagnostics.Stopwatch.StartNew();
 		try
 		{
@@ -750,13 +760,15 @@ internal sealed partial class QtHostPageRenderer
 	{
 		if (!_adapterPreloadArmed && _current.Count > 0)
 			ArmAdapterPreload();   // the first page is up: the rest of the adapters can load behind it
-		_createDeferred = false;
 		if (BeginPass(out var handlerReported) is not { } page)
 			return;
 		var (desired, props, awaitedBefore) = WalkPage(page);
 		var pageChanged = SwitchRenderedPage(page, desired, props, out var previousPage);
 		if (!CreationAllowed())
 			return;
+		// Cleared only by a pass that gets to create: one stopped by the reset hold or the creation gate leaves the
+		// earlier pass's deferred hosts pending (W1.7).
+		_createDeferred = false;
 		var ops = PageChromeOps(page, out var title);
 		if (desired.Count > LargePageHostWarning && _largePageWarned.TryAdd(page, page))
 			QtHostDiag.Warn(QtHostDiagChannel.QtHost,
@@ -765,7 +777,7 @@ internal sealed partial class QtHostPageRenderer
 		// A tab, section or detail switch keeps the page switched away from, and brings the page switched to back.
 		if (pageChanged)
 			SwitchPageInPlace(previousPage, page);
-		ReclaimParked(desired);
+		_pageCache.Reclaim(desired);
 
 		var change = DiffHostTree(desired, props, awaitedBefore, pageChanged, ops);
 		ApplyTreeChange(title, ops, change, props, pageChanged, handlerReported);
@@ -829,14 +841,7 @@ internal sealed partial class QtHostPageRenderer
 		foreach (var host in desired)
 		{
 			_byId[host.Id] = host;   // event routing table (ids follow the reconcile)
-			// Generic visual state (opacity/enabled/z cascades computed managed-side) joins every snapshot.
-			if (host.Element is VisualElement visualState && props.TryGetValue(host, out var hostProps))
-				QtHostVisualState.Merge(hostProps, visualState);
-			// Children of a rounded Border are sibling hosts, so the corner clip crosses as a spec and the adapter
-			// masks itself. Only adapters that declare mauiClipRadius/mauiClipCorners may get it: an unknown name
-			// fails the whole apply_props batch.
-			if (host.QmlUri == "image" && props.TryGetValue(host, out var clipProps))
-				QtHostClip.Merge(clipProps, host.Element as VisualElement, page);
+			MergeGenericState(host, props, page);
 		}
 		_collection.ContributeRouting(_byId);   // item/slot child ids join the table
 		if (_strayScanPending)
@@ -844,7 +849,7 @@ internal sealed partial class QtHostPageRenderer
 			_strayScanPending = false;
 			// Parked hosts are known too: a Shell's other tab pages wait hidden on this same model page (Profitocracy's
 			// Home lost all 78 hosts here after a back gesture on Settings, and the next tab switch reset the page).
-			var known = BridgeValue.Serialize(_byId.Keys.Concat(_parkedHosts.Select(h => h.Id))
+			var known = BridgeValue.Serialize(_byId.Keys.Concat(_pageCache.ParkedHostIds)
 				.Concat(_collection.PooledHostIds).Distinct().ToList());
 			CallPage(null, "__destroyHostsNotIn", known);
 		}
@@ -877,18 +882,8 @@ internal sealed partial class QtHostPageRenderer
 			_renderedPageSeq++;   // diag trigger (MAUI_SAILFISH_OPEN_PULLEY page seq)
 		if (pageChanged)
 		{
-			// A fresh setMauiScroll push for the new page's flickable state.
-			_lastScrollPush = string.Empty;
 			_fullResetsDone = 0;   // the rebuild cap is per page
-			// Title/background/tabs belong to the model page instance, which is fresh or cleared after navigation, so re-emit them.
-			_renderedTitle = string.Empty;
-			_renderedBusy = string.Empty;
-			_renderedBack = string.Empty;
-			_renderedOrientations = string.Empty;
-			_renderedScheme = string.Empty;
-			_renderedBackground = string.Empty;
-			_renderedTabs = string.Empty;
-			_layoutDirty = true;
+			ReArmPageChrome();
 			// MAUI core never fires appearing/disappearing; the backend owns them. Disappearing fires before the new
 			// hosts exist, Appearing after the create batch + layout.
 			if (previousPage is not null)
@@ -906,6 +901,7 @@ internal sealed partial class QtHostPageRenderer
 	/// so a stuck sync cannot leave the app blank).</summary>
 	private bool CreationAllowed()
 	{
+		// The gate is CreationDeferred (W3.5: this restated it); here it also keeps the deferral's bookkeeping.
 		// Before the first window report Silica still rebuilds model pages and hosts created then keep dead handles.
 		// Defer all creation until the geometry is known; ApplyWindowGeometry reconciles again.
 		if (!_windowGeometryKnown)
@@ -914,31 +910,18 @@ internal sealed partial class QtHostPageRenderer
 		// Until the app is active the Silica stack is in motion: hosts would attach to a model page about to be
 		// replaced or die in the activation rebuild. Defer creation until ApplicationActive (or the native stack
 		// catches up); bounded so a stuck sync can't leave the app blank.
-		if (!ActivationSettled && !DeferralExpired)
+		if (CreationDeferred)
 		{
-			_deferredModelPageTicks++;
-			DeferredModelPageSyncs++;
-			if (_deferredSinceMs == 0)
-			{
-				_deferredSinceMs = Environment.TickCount64;
+			if (_activation.Wait(out var recheckMs))
 				QtHostDiag.Warn(QtHostDiagChannel.Navigation,
-					$"activation: app not stably active yet (Qt.application.state={_lastAppState}, MAUI depth {ExpectedNativeDepth()} vs native {_nativePageIds.Count}) — " +
+					$"activation: app not stably active yet (Qt.application.state={_activation.LastAppState}, MAUI depth {ExpectedNativeDepth()} vs native {_nativePageIds.Count}) — " +
 					"deferring host creation until the Silica stack settles at activation");
-			}
-			// Come back when the gate opens (the app-state event covers the not-yet-active case).
-			KickIn(_activeSinceMs != 0
-				? ActivationSettleMs - (Environment.TickCount64 - _activeSinceMs)
-				: DeferredModelPageLimitMs - (Environment.TickCount64 - _deferredSinceMs));
+			KickIn(recheckMs);
 			return false;
 		}
-		if (_deferredModelPageTicks > 0)
-		{
+		if (_activation.EndWait(out var ticks, out var waitedMs))
 			QtHostDiag.Trace(QtHostDiagChannel.Navigation,
-				$"activation: native stack caught up after {_deferredModelPageTicks} deferred reconcile(s), " +
-				$"{Environment.TickCount64 - _deferredSinceMs} ms — creating the page now");
-			_deferredModelPageTicks = 0;
-		}
-		_deferredSinceMs = 0;
+				$"activation: native stack caught up after {ticks} deferred reconcile(s), {waitedMs} ms — creating the page now");
 		return true;
 	}
 
@@ -1023,7 +1006,7 @@ internal sealed partial class QtHostPageRenderer
 		var desiredSet = new HashSet<NativeElementHost>(desired);
 		// Retire lists that left the tree, except those of the parked page: its rows must stay materialized for the
 		// back gesture. DropRetention retires them later.
-		_collection.SyncDesired(_parkedHosts.Count == 0 ? desired : desired.Concat(_parkedHosts).ToList());
+		_collection.SyncDesired(WithParked(desired));
 		var currentSet = new HashSet<NativeElementHost>(_current);
 		var survivors = _current.Where(desiredSet.Contains).ToList();       // in QML order
 		var created = desired.Where(h => !currentSet.Contains(h)).ToList(); // in desired order
@@ -1061,13 +1044,10 @@ internal sealed partial class QtHostPageRenderer
 		var destroyed = _current.Where(h => !desiredSet.Contains(h)).ToList();
 		destroyed.Reverse();
 		foreach (var host in destroyed)
-		{
 			diff.Destroy(host);
-			ReleaseHost(host);
-			_current.Remove(host);
-			// A destroyed synthetic host drops its slot so a reappearance gets a fresh object (a stale diff would swallow the first push).
-			ReleaseSyntheticSlot(host);
-		}
+		// The ops are in the diff's batch. A destroyed synthetic host drops its slot, so a reappearance gets a fresh
+		// object (a stale diff would swallow the first push).
+		ReleaseHosts(destroyed, pageId: null, sendOps: false);
 
 		// A survivor that moved to another container keeps its QML object and is re-attached in the new parent;
 		// the order ops below settle its position.
@@ -1119,7 +1099,6 @@ internal sealed partial class QtHostPageRenderer
 			NoteTreeFixup(ops, pageChanged || createCount == _current.Count, handlerReported);
 			foreach (var host in created)
 				_awaitingArrange.Remove(host.Element);   // a skipped shape got its size and its host
-			var json = BridgeValue.Serialize(ops);
 			// A pulley created in this batch attaches to the page flickable only if it is already interactive;
 			// otherwise it settles on a hosted list and is moved later, which Silica does not fully follow (the
 			// push-up bar stayed unpainted). So the flickable state goes first, as in a Silica page's declaration.
@@ -1128,11 +1107,13 @@ internal sealed partial class QtHostPageRenderer
 				PushScrollState();
 				_pulleyReattachPending = true;   // after the layout pass shows this page's hosts
 			}
-			// Addressed to the top model page by its id.
+			// Addressed to the top model page by its id, through ApplyOps (W3.3: the main batch bypassed it, so
+			// LastOpsExpression/LastApplyOpsSplit missed it and the page's unknown count went unread).
 			var opsTs = System.Diagnostics.Stopwatch.GetTimestamp();
-			CallPage(null, "applyMauiOps", json);
-			_opsEvals++;
-			NoteOps(ops);
+			var unknown = ApplyOps(ops);
+			if (unknown > 0 && _unknownOpsLogged.Add(NativeTopPageId ?? string.Empty))
+				QtHostDiag.Warn(QtHostDiagChannel.QmlObject,
+					$"'{title}': the page could not apply {unknown} of {ops.Count} ops (ids it does not hold); logged once per page");
 			if (_navIdleWallMs != 0)
 			{
 				// QML transition end → the next page content natively (the reconcile waits out the animation).
@@ -1235,7 +1216,7 @@ internal sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>The page in traces and diagnostics: its title, else its type name.</summary>
-	private static string TitleOf(Page page) => ExplicitTitleOf(page) ?? page.GetType().Name;
+	internal static string TitleOf(Page page) => ExplicitTitleOf(page) ?? page.GetType().Name;
 
 	/// <summary>The PageHeader text: the page's title, else the app's name (ApplicationTitle), not the type name a
 	/// bare `new Window(new MainPage())` would show. The header stays: Canvas-painted shapes on a page without a
@@ -1314,8 +1295,10 @@ internal sealed partial class QtHostPageRenderer
 
 	// Animated pop: the popped page's hosts leave the managed mirror at once, but their native objects are released
 	// only after the transition (the pageStack deletes the page with them; the shim then just forgets the handles).
-	private static bool _deferNativeDestroy;
-	private static readonly List<long> PendingNativeDestroys = new();
+	// This renderer's own state (W1.6: it was process-wide), flushed when the stack is idle again, when a pop fails
+	// and when the mirror is resynced.
+	private bool _deferNativeDestroy;
+	private readonly List<long> _pendingNativeDestroys = new();
 
 	// --- Collection bridge integration: the same create/attach/route/geometry machinery for hosts inside
 	// ListView delegates/slots ---
@@ -1344,7 +1327,5 @@ internal sealed partial class QtHostPageRenderer
 	private static readonly object s_flatMarker = new();
 	private readonly System.Runtime.CompilerServices.ConditionalWeakTable<VisualElement, object> _flatRowContainers = new();
 
-	/// <summary>Hosts re-created because their handler chose another adapter.</summary>
-	public long AdapterRebinds { get; private set; }
 
 }

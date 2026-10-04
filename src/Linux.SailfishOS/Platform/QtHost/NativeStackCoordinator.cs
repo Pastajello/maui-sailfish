@@ -102,8 +102,6 @@ internal sealed class NativeStackCoordinator(INativeStackOwner owner)
 	/// <summary>Times the coordinator adopted a native stack no operation explained.</summary>
 	public long NavResyncs { get; private set; }
 
-	/// <summary>The operation in flight, for diagnostics.</summary>
-	internal string? NavOperationInFlight => _navOp?.ToString();
 
 	/// <summary>
 	/// One coordinator step on a settled snapshot (not animating, no transient page on top). Verifies the operation in

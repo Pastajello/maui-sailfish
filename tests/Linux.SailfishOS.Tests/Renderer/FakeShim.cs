@@ -356,11 +356,21 @@ internal sealed class FakeShim : IQtHostShim
 		return 0;
 	}
 
+	/// <summary>The next property batch reports this many rejected properties (a partial failure); 0 = none.</summary>
+	public int RejectNextBatch { get; set; }
+
 	public int ApplyProperties(long handle, string propsJson)
 	{
 		if (!_byHandle.TryGetValue(handle, out var o) || o.Destroyed)
 			return -3;
 		PropertyBatches++;
+		if (RejectNextBatch > 0)
+		{
+			// The real shim applies what it can and returns how many properties it rejected.
+			var rejected = RejectNextBatch;
+			RejectNextBatch = 0;
+			return rejected;
+		}
 		using var doc = JsonDocument.Parse(propsJson);
 		foreach (var entry in doc.RootElement.EnumerateArray())
 			o.Props[entry.GetProperty("name").GetString()!] = entry.GetProperty("value").Clone();

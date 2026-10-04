@@ -3,7 +3,9 @@
 The durable design rules of the Sailfish OS backend and the platform facts they rest on. The
 quarter-by-quarter migration plan (Q0–Q24, `PLAN.md` + `PLAN-checklist.md`) that got the backend here is
 finished and was removed on 2026-09-28; it and its per-quarter device evidence remain in git history.
-Current work: [`parity-plan.md`](parity-plan.md) (roadmap) and [`../BUG_LIST.md`](../BUG_LIST.md) (defects).
+Current work: [`parity-plan.md`](parity-plan.md) (roadmap), [`../BUG_LIST.md`](../BUG_LIST.md) (defects),
+[`architecture-plan.md`](architecture-plan.md) (the architecture review and its device evidence) and
+[`architecture-handoff.md`](architecture-handoff.md) (the packages that remain).
 
 ## Fixed constraints
 
@@ -50,7 +52,8 @@ container's layout pass does elsewhere; a pass runs only when a handler asks for
 
 **C# does not know Silica classes.** No `if (element is DockedPanel)` in C#, and no C function per Silica
 control. A MAUI element maps to a generic native host that loads a QML adapter; the adapter decides how a
-semantic MAUI API (`IsOpen`, `Open()`) is implemented (`BottomSheet → BottomSheet.qml → DockedPanel`).
+semantic MAUI API (`IsOpen`, `Open()`) is implemented (`SailfishBottomSheet` → the `docked-panel` interaction host →
+`qml/interactions/DockedPanel.qml` → Silica `DockedPanel`).
 
 **Generic native ABI.** The boundary is a host/object system (create, destroy, load, set/get property,
 invoke, post, tick, event callback, last error). No ABI function exists merely because a Silica class exists.
@@ -86,8 +89,9 @@ build (`tools/sf verify`), run the self-verifying diagnostic leg (`tools/sf matr
 compositor screenshot (`tools/sf screenshot`). A host-only test does not close a device-visible change.
 
 **MAUI navigation idioms map to native Sailfish ones.** Silica has one `pageStack` per window; container
-handlers (Shell, TabbedPage, FlyoutPage, NavigationPage) say what to show and the `NavigationCoordinator` runs one
-operation at a time on that stack, completing it only when the native stack shows the result.
+handlers (Shell, TabbedPage, FlyoutPage, NavigationPage) say what to show and the `NativeStackCoordinator` runs one
+operation at a time on that stack (one `Step` per settled native snapshot), completing it only when the native stack
+shows the result.
 
 | MAUI idiom | On Sailfish | Why |
 |---|---|---|

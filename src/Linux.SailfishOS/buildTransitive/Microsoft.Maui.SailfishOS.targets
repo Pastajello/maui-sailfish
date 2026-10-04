@@ -76,9 +76,7 @@
     <!-- A Platforms/SailfishOS/Program.cs brings its own Main (like Platforms/iOS/Program.cs); otherwise one is generated. -->
     <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == '' And Exists('$(MSBuildProjectDirectory)/Platforms/SailfishOS/Program.cs')">false</SailfishGenerateMain>
     <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == ''">true</SailfishGenerateMain>
-    <!-- Author manifest: shell orientation and optional generic cover. -->
-    <SailfishOrientation Condition="'$(SailfishOrientation)' == ''">Any</SailfishOrientation>
-    <SailfishCover Condition="'$(SailfishCover)' == ''">false</SailfishCover>
+    <!-- SailfishOrientation / SailfishCover (the author manifest) default with the packaging identity above. -->
   </PropertyGroup>
 
   <!-- Bakes the metadata the Qt shell reads at startup next to the QML payload. -->

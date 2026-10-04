@@ -148,7 +148,7 @@ reloaded when their property changes. The core gets a small resolver hook in `Qt
 
 | Phase | Work | Exit |
 |---|---|---|
-| **P1 — primitives** (~3 d) | Surface + frame callback (done natively, managed `QtHostSurface` left); touch primitive in the shim (item touch/mouse events → synchronous callback with `handled`, ungrab → cancel) + multi-touch test injection; image resolver hook; registrar metadata hook | host tests for the primitives; matrix 25/25 still PASS |
+| **P1 — primitives** (~3 d) | Surface + frame callback (done natively, managed `QtHostSurface` left); touch primitive in the shim (item touch/mouse events → synchronous callback with `handled`, ungrab → cancel) + multi-touch test injection; image resolver hook; registrar metadata hook | host tests for the primitives; the matrix still passes (25 legs then, 31 now) |
 | **P2 — SKCanvasView** (~3 d) | `SailfishSKCanvasViewHandler` (C1–C12) in a new `src/Linux.SailfishOS.SkiaSharp`, compiled against SkiaSharp 3.116.1 (lowest 3.x the apps use), dependency `SkiaSharp.Views.Maui.Controls >= 3.116.1` | U-R*, U-C*, D-1 |
 | **P3 — touch** (~2 d) | Touch mapping (T1–T7) | U-T1, D-2 |
 | **P4 — SKGLView + image sources** (~2 d) | 3.4, 3.5 | U-G1, U-I1, D-1 |

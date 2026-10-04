@@ -71,7 +71,16 @@ while [ "$waited" -lt "$WAIT" ]; do
 	# A failed ssh round trip says nothing about the app: poll again instead of calling it exited.
 	st="$(sf_ssh_out "if pgrep -f '$PKG_PATTERN' >/dev/null; then grep -q 'event loop exited' /tmp/sf_run.log && echo ENDING || echo ALIVE; else echo EXITED; fi" 2>/dev/null)" || st=UNKNOWN
 	case "$st" in
-		*EXITED*) sf_ok "$SF_PKG exited (~${waited}s after the launch window)"; exit 0 ;;
+		*EXITED*)
+			# The app logs its exit code last ("[Sailfish] exit code N"); a failed start (2: the shim or the QML did
+			# not load, 1: startup threw) is a failed run, not just "exited".
+			code="$(sf_ssh_out "grep -oE 'exit code -?[0-9]+' /tmp/sf_run.log | tail -1" 2>/dev/null | grep -oE -- '-?[0-9]+$')" || code=""
+			if [ -z "$code" ]; then
+				sf_note "$SF_PKG exited (~${waited}s after the launch window) without logging an exit code (killed or crashed?)"
+				exit 0
+			fi
+			[ "$code" = 0 ] || { sf_error "$SF_PKG exited with code $code (~${waited}s after the launch window)"; exit "$code"; }
+			sf_ok "$SF_PKG exited with code 0 (~${waited}s after the launch window)"; exit 0 ;;
 		*ENDING*)
 			ending=$((ending + 3))
 			[ "$ending" -gt 15 ] && { sf_ok "$SF_PKG ended its event loop (~${waited}s after the launch window)"; exit 0; } ;;

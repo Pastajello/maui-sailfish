@@ -19,6 +19,26 @@ public static class SailfishRemorse
 	private static readonly Dictionary<int, (TaskCompletionSource<bool> Done, Action? Execute)> Pending = new();
 	private static int _nextToken;
 
+	/// <summary>Tests: captures the pending countdowns and the token counter; the action puts them back.</summary>
+	internal static Action CaptureForTests()
+	{
+		lock (Sync)
+		{
+			var pending = Pending.ToArray();
+			var next = _nextToken;
+			return () =>
+			{
+				lock (Sync)
+				{
+					Pending.Clear();
+					foreach (var (token, entry) in pending)
+						Pending[token] = entry;
+					_nextToken = next;
+				}
+			};
+		}
+	}
+
 	/// <summary>A RemorsePopup at the top of the current page. <paramref name="text"/> null shows Silica's localized
 	/// "Deleted". Completes true after <paramref name="onExecute"/> ran, false when the user tapped it away.</summary>
 	public static Task<bool> ExecuteAsync(string? text, Action? onExecute = null, int timeoutMs = DefaultTimeoutMs) =>
@@ -41,7 +61,7 @@ public static class SailfishRemorse
 			tokens = Pending.Keys.ToArray();
 		if (tokens.Length == 0 || !QtHostRuntime.IsRunning)
 			return;
-		QtHostRuntime.RunOnQtThread(() =>
+		QtThread.Post(() =>
 		{
 			foreach (var token in tokens)
 				QtHostRuntime.Eval($"{QmlPage.Model}.mauiRemorseCancel({token})");
@@ -59,7 +79,7 @@ public static class SailfishRemorse
 			token = ++_nextToken;
 			Pending[token] = (done, onExecute);
 		}
-		QtHostRuntime.RunOnQtThread(() =>
+		QtThread.Post(() =>
 		{
 			string? dg = null, host = null;
 			if (item is not null && SailfishRenderSession.OfApp?.Renderer is { } renderer)
@@ -72,10 +92,8 @@ public static class SailfishRemorse
 					return;
 				}
 			}
-			using var stream = new MemoryStream();
-			using (var w = new Utf8JsonWriter(stream))
+			var json = BridgeJson.Write(w =>
 			{
-				w.WriteStartObject();
 				w.WriteNumber("token", token);
 				if (text is null)
 					w.WriteNull("text");
@@ -86,9 +104,7 @@ public static class SailfishRemorse
 					w.WriteString("dg", dg);
 				if (host is not null)
 					w.WriteString("host", host);
-				w.WriteEndObject();
-			}
-			var json = System.Text.Encoding.UTF8.GetString(stream.ToArray());
+			});
 			var rc = QtHostRuntime.Eval(QmlPage.Call(QmlPage.Model, "mauiRemorse", BridgeValue.Quote(json)));
 			QtHostDiag.Trace(QtHostDiagChannel.QtHost, $"remorse {token} ({(dg ?? host ?? "page")}) → {rc}");
 		});

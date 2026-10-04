@@ -41,14 +41,10 @@ internal sealed class AdapterEventRouter
 	/// <summary>Native DockedPanel open-state changes reported over the bridge.</summary>
 	public long PanelOpenChanges { get; private set; }
 
-	/// <summary>Native Drawer open-state changes reported over the bridge.</summary>
-	public long DrawerOpenChanges { get; private set; }
 
 	/// <summary>Layout passes armed by native write-backs (text/scroll/date/time).</summary>
 	public long LayoutDirtyFromWriteback { get; private set; }
 
-	/// <summary>Gecko navigations reported into MAUI.</summary>
-	public long WebViewNavigations { get; private set; }
 
 	/// <summary>Delivers a QML tap to the mapped MAUI button. The payload is the adapter's event JSON
 	/// <c>{"id":…}</c> (qml/lib/adapter.js), as for every adapter event.</summary>
@@ -207,7 +203,6 @@ internal sealed class AdapterEventRouter
 					_r.RoutePanelOpenChanged(payload); // SailfishBottomSheet native write-back
 					break;
 				case "drawer-open-changed":
-					DrawerOpenChanges++;            // Drawer native open write-back
 					QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"drawer open state changed: {payload}");
 					break;
 				case "alert-accepted":
@@ -598,7 +593,6 @@ internal sealed class AdapterEventRouter
 					view.CanGoBack = root.TryGetProperty("back", out var b) && b.ValueKind == JsonValueKind.True;
 					view.CanGoForward = root.TryGetProperty("fwd", out var f) && f.ValueKind == JsonValueKind.True;
 					view.Navigated(WebNavigationEvent.NewPage, root.GetProperty("url").GetString() ?? string.Empty, WebNavigationResult.Success);
-					WebViewNavigations++;
 					break;
 				case "webview-js":
 					if (web.Handler is Handlers.SailfishWebViewHandler handler)

@@ -148,14 +148,14 @@ internal sealed partial class QtHostListAdapter
 				{
 					["op"] = "rekey", ["from"] = pooled[i].Id, ["to"] = hosts[i].Id, ["parent"] = hosts[i].Parent?.Id ?? string.Empty,
 				});
-			var refused = _renderer.ApplyOps(ops, PageTarget());
+			var refused = _renderer.ApplyOps(ops, PageTarget);
 			if (refused != 0)
 			{
 				// Some objects kept their old id: binding them would drive objects the page knows by another name. Both
 				// names go, and the caller creates the row.
 				QtHostDiag.Warn(QtHostDiagChannel.QmlObject,
 					$"pooled row rekey refused ({refused} of {hosts.Count}) for [{string.Join(",", hosts.Select(h => h.Id))}] — creating the row");
-				_renderer.ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), PageTarget());
+				_renderer.ApplyOps(hosts.Select(h => BridgeOps.Destroy(h.Id)).ToList(), PageTarget);
 				DestroyPooled(pooled);
 				_bridge.RowRekeysRefused++;
 				return false;
@@ -225,12 +225,9 @@ internal sealed partial class QtHostListAdapter
 		return true;
 	}
 
-	private string? PageTarget() =>
-		_renderer.IsParked(Host) && PageId.Length > 0 ? PageId : null;
-
 	private void DestroyPooled(List<PooledHost> pooled)
 	{
-		_renderer.DestroyPooledHosts(pooled.Select(h => (h.Id, h.Handle)).Reverse().ToList(), PageTarget());
+		_renderer.DestroyPooledHosts(pooled.Select(h => (h.Id, h.Handle)).Reverse().ToList(), PageTarget);
 	}
 
 	/// <summary>Destroys every pooled row (the list is retired).</summary>

@@ -35,13 +35,9 @@ internal sealed class RendererHarness : IDisposable
 		Renderer = new QtHostPageRenderer(Window, context);
 		// As SailfishMauiApplication.Run: the root page's handler attaches before the first render, so a root
 		// NavigationPage navigates through its handler (RequestNavigation) instead of MAUI's handler-less path.
+		// The production path (W2.3), so an app's handler registration for the root page type counts here too.
 		if (page.Handler is null)
-		{
-			var rootHandler = (Microsoft.Maui.IViewHandler)Activator.CreateInstance(
-				Microsoft.Maui.SailfishOS.Handlers.SailfishHandlersFactory.ResolveViewHandlerType(page.GetType()))!;
-			rootHandler.SetMauiContext(context);
-			rootHandler.SetVirtualView(page);
-		}
+			Microsoft.Maui.SailfishOS.Handlers.SailfishHandlersFactory.AttachRootHandler(page, context);
 		Renderer.HandleNativeEvent("window-geometry",
 			"{\"pageWidth\":1080,\"pageHeight\":2160,\"headerHeight\":110,\"statusHeight\":40}");
 		Renderer.Render();
@@ -52,12 +48,18 @@ internal sealed class RendererHarness : IDisposable
 	}
 
 	/// <summary>One 250 ms poll (native sync + reconcile + pending rows), after the work dispatched to this thread,
-	/// as the Qt loop's tick drains the dispatcher.</summary>
+	/// as the Qt loop's tick drains the dispatcher. The test clock moves 250 ms on and the delayed work due by then
+	/// runs (W2.1: DispatchDelayed timers only the real loop fired, so a list's own scheduled pass never ran here).</summary>
 	public void Poll()
 	{
 		_loop.DrainQueue();
+		_clock = (_clock > DateTime.UtcNow ? _clock : DateTime.UtcNow) + TimeSpan.FromMilliseconds(250);
+		Microsoft.Maui.SailfishOS.Platform.SailfishRuntime.TickDueTimers(_clock);
+		_loop.DrainQueue();
 		Renderer.Poll();
 	}
+
+	private DateTime _clock;
 
 	private readonly SailfishDispatcher _loop;
 	private readonly TestStatics _statics;

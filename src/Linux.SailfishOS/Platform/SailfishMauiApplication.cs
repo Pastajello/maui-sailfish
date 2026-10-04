@@ -112,8 +112,12 @@ public abstract partial class SailfishMauiApplication : IPlatformApplication
 
 	internal void RaiseQuitting()
 	{
-		OnQuitting();
-		Invoke<SailfishLifecycle.OnQuitting>(d => d(this));
+		// Runs from the QML event callback while the loop ends: the app's override failing must not skip the lifecycle
+		// delegates (W1.9).
+		try { OnQuitting(); }
+		catch (Exception ex) { Console.Error.WriteLine($"[Sailfish] OnQuitting failed: {ex}"); }
+		try { Invoke<SailfishLifecycle.OnQuitting>(d => d(this)); }
+		catch (Exception ex) { Console.Error.WriteLine($"[Sailfish] SailfishLifecycle.OnQuitting failed: {ex}"); }
 	}
 
 	private void ApplyOrientation(SailfishOrientation orientation)
@@ -142,30 +146,29 @@ public abstract partial class SailfishMauiApplication : IPlatformApplication
 		});
 		QtHost.QtHostServices.Subscribe(ShellEvents.AppOrientation, e => ApplyOrientation(AppOrientationPayload.Parse(e).Orientation));
 		// The shell turns while it starts, before this subscription exists, so the first orientation is read here.
-		QtHost.QtHostRuntime.Post(() =>
+		QtHost.QtThread.Later(() =>
 		{
 			if (int.TryParse(QtHost.QtHostRuntime.Eval("typeof window!=='undefined'&&window?window.orientation:0").Trim('"'),
 			        out var orientation) && orientation > 0)
 				ApplyOrientation((SailfishOrientation)orientation);
 		});
-		QtHost.QtHostServices.Subscribe(ShellEvents.CoverStatus, e =>
+		// The services update their state first (SailfishCover.IsActive, AppInfo.RequestedTheme), then the app hears it.
+		SailfishCover.StatusChanged += status =>
 		{
-			var status = CoverStatusPayload.Parse(e).Status;
 			OnCoverStatusChanged(status);
 			Invoke<SailfishLifecycle.OnCoverStatusChanged>(d => d(this, status));
-		});
-		QtHost.QtHostServices.Subscribe(ShellEvents.CoverAction, e =>
+		};
+		SailfishCover.ActionTriggered += index =>
 		{
-			var index = CoverActionPayload.Parse(e).Index;
 			OnCoverActionTriggered(index);
 			Invoke<SailfishLifecycle.OnCoverActionTriggered>(d => d(this, index));
-		});
-		QtHost.QtHostServices.Subscribe(ShellEvents.ThemeChanged, e =>
+		};
+		SailfishTheme.Changed += theme =>
 		{
-			var scheme = ThemeChangedPayload.Parse(e).Scheme;
+			var scheme = theme == AppTheme.Light ? SailfishColorScheme.DarkOnLight : SailfishColorScheme.LightOnDark;
 			OnColorSchemeChanged(scheme);
 			Invoke<SailfishLifecycle.OnColorSchemeChanged>(d => d(this, scheme));
-		});
+		};
 		_system.Subscribe();
 		_system.DisplayStateChanged += state =>
 		{
@@ -220,8 +223,6 @@ public abstract partial class SailfishMauiApplication : IPlatformApplication
 				? new Uri(Path.Combine(AppContext.BaseDirectory, "qml", coverQml)).AbsoluteUri
 				: string.Empty;
 			var coverUrlJs = System.Text.Json.JsonSerializer.Serialize(coverUrl, SailfishJsonContext.Default.String);
-			// SailfishUrlSchemes / SailfishMimeTypes: the app's D-Bus openUrl service (SailfishOpenUrl).
-			SailfishOpenUrl.Configure(meta.DbusName, meta.DbusPath, meta.DbusIface);
 			var mask = SailfishAppMeta.OrientationMask(orientation);
 			// Source-generated: reflection-based System.Text.Json is off in the trimmed app.
 			var titleJs = System.Text.Json.JsonSerializer.Serialize(title, SailfishJsonContext.Default.String);
@@ -229,7 +230,7 @@ public abstract partial class SailfishMauiApplication : IPlatformApplication
 			Console.Error.WriteLine($"[Sailfish] app meta: orientation={orientation} mask={mask} cover={cover}{(coverUrl.Length > 0 ? " coverQml=" + coverQml : "")} title={title}");
 			// `window` is MauiShell's ApplicationWindow; pageStack.parent is an inner item, where these would land as
 			// unused dynamic properties (the app stayed portrait and the cover off).
-			QtHost.QtHostRuntime.Post(() => QtHost.QtHostRuntime.Eval(
+			QtHost.QtThread.Later(() => QtHost.QtHostRuntime.Eval(
 				"(function(){if(typeof window==='undefined'||!window)return 'no window';"
 				+ "window.mauiOrientations=" + mask + ";window.mauiCoverEnabled=" + coverJs + ";window.mauiCoverTitle=" + titleJs
 				+ ";window.mauiCoverUrl=" + coverUrlJs + ";return 'ok';})()"));

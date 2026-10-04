@@ -46,7 +46,7 @@ internal static class QtHostLayout
 				handler = null;   // unregistered element: fall back below
 			}
 			handler ??= element is ScrollView
-				? new ScrollViewHandler()
+				? new SailfishScrollViewHandler()
 				: element is IView
 					? EmptyViewHandler(element)
 					: new NullElementHandler();

@@ -52,12 +52,12 @@ public sealed class ListFirstFrameTests
 		using var h = new RendererHarness(page, firstBuildWaitsFrame: true);
 		h.Shim.AddNative($"maui_{h.Shim.ByUri("list-view").Single().Id}__header");   // the ListView's header placeholder
 		for (var i = 0; i < 3; i++)
-			h.Renderer.KickedPoll();   // list work runs on kicked polls
+			h.Poll();
 		Assert.Equal(string.Empty, Rows(h));
 		Assert.Contains(h.Shim.ByUri("label"), l => l.Text("text") == "Sailfish Kitchen header" && !l.Destroyed);
 
 		QtHostSurface.RunFrame();
-		h.Renderer.KickedPoll();   // list work runs on kicked polls
+		h.Poll();
 		Assert.StartsWith("[{", Rows(h));
 		Assert.Single(h.Shim.ByUri("label"), l => l.Text("text") == "Sailfish Kitchen header" && !l.Destroyed);
 	}

@@ -226,9 +226,8 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 	}
 
 	/// <summary>The Sailfish handler type for a view type with no registrations (also used by the parity test).</summary>
-	internal static Type ResolveViewHandlerType(Type type) => ResolveViewRow(type).Handler;
 
-	private static HandlerRow ResolveViewRow(Type type)
+	internal static HandlerRow ResolveViewRow(Type type)
 	{
 		foreach (var row in ViewHandlers)
 			if (row.View.IsAssignableFrom(type))
@@ -243,7 +242,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		Row<Shell, SailfishShellHandler>(),
 		Row<TabbedPage, SailfishTabbedPageHandler>(),
 		Row<FlyoutPage, SailfishFlyoutPageHandler>(),
-		Row<ScrollView, ScrollViewHandler>(),
+		Row<ScrollView, SailfishScrollViewHandler>(),
 		Row<ItemsView, SailfishListViewHandler>(),
 		Row<IndicatorView, SailfishIndicatorViewHandler>(),
 		Row<WebView, SailfishWebViewHandler>(),

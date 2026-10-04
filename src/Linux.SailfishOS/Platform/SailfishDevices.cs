@@ -15,7 +15,7 @@ internal sealed class SailfishBattery : IBattery
 	private BatteryState _state = BatteryState.Unknown;
 	private BatteryPowerSource _source = BatteryPowerSource.Unknown;
 	private EnergySaverStatus _saver = EnergySaverStatus.Unknown;
-	private bool _started;
+	private bool _kernelOnly;   // MCE is missing: the kernel's power_supply answers
 
 	private const string Qml = """
 		import QtQuick 2.6
@@ -48,30 +48,23 @@ internal sealed class SailfishBattery : IBattery
 	/// <summary>Started on first use. MCE answers asynchronously, so the first read comes from the kernel until it does.</summary>
 	internal void Start() => QtThread.Run(() =>
 	{
-		if (_started)
+		if (_kernelOnly || QtHostServices.Ensure(Service, Qml, ReadFirst, (ShellEvents.BatteryChanged, Apply)))
 			return;
-		if (!QtHostServices.Ensure(Service, Qml))
+		// MCE missing while the host runs: the kernel's power_supply is the answer from now on.
+		if (QtHostServices.IsUnavailable(Service))
 		{
-			// MCE missing while the host runs: the kernel's power_supply is the answer from now on.
-			if (QtHostServices.IsUnavailable(Service))
-			{
-				_started = true;
-				ReadKernel();
-			}
-			return;
-		}
-		_started = true;
-		QtHostServices.Subscribe(ShellEvents.BatteryChanged, Apply);
-		var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
-		if (snapshot.Length > 0)
-		{
-			using var doc = JsonDocument.Parse(snapshot);
-			if (doc.RootElement.TryGetProperty("percent", out var p) && p.GetInt32() >= 0)
-				Apply(doc.RootElement.Clone());
-			else
-				ReadKernel();
+			_kernelOnly = true;
+			ReadKernel();
 		}
 	});
+
+	private void ReadFirst()
+	{
+		if (QtHostServices.Snapshot(Service) is { } e && BridgeJson.Int(e, "percent", -1) >= 0)
+			Apply(e);
+		else
+			ReadKernel();
+	}
 
 	/// <summary>Reads battery state and the online supply from /sys/class/power_supply.</summary>
 	private void ReadKernel()
@@ -172,9 +165,11 @@ internal sealed class SailfishBattery : IBattery
 internal sealed class SailfishConnectivity : IConnectivity
 {
 	private const string Service = "connectivity";
-	private NetworkAccess _access = NetworkAccess.Unknown;
-	private ConnectionProfile[] _profiles = Array.Empty<ConnectionProfile>();
-	private bool _started;
+	// Access and profiles as one snapshot: Connman's events write it on the Qt thread, the kernel-route fallback may run
+	// on the caller's (W1.8: two fields written separately, so a reader could pair one source's access with the
+	// other's profiles).
+	private sealed record State(NetworkAccess Access, ConnectionProfile[] Profiles);
+	private State _state = new(NetworkAccess.Unknown, Array.Empty<ConnectionProfile>());
 
 	private const string Qml = """
 		import QtQuick 2.6
@@ -193,27 +188,21 @@ internal sealed class SailfishConnectivity : IConnectivity
 		""";
 
 	/// <summary>Started on first use, since NetworkManager follows all Connman D-Bus traffic.</summary>
-	internal void Start() => QtThread.Run(() =>
-	{
-		if (_started)
-			return;
-		if (!QtHostServices.Ensure(Service, Qml))
-			return;
-		_started = true;
-		QtHostServices.Subscribe(ShellEvents.ConnectivityChanged, e => Apply(e, raise: true));
-		var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
-		if (snapshot.Length > 0)
-		{
-			using var doc = JsonDocument.Parse(snapshot);
-			Apply(doc.RootElement.Clone(), raise: false);
-		}
-		// Connman's first answer can say offline for seconds on an online phone, so kernel routes decide until it changes.
-		if (_access != NetworkAccess.Internet)
-			ReadInterfaces();
-	});
+	internal void Start() =>
+		QtHostServices.Ensure(Service, Qml, ReadFirst, (ShellEvents.ConnectivityChanged, e => Apply(e, raise: true)));
 
-	/// <summary>Fallback: an up interface with a gateway means Internet; its name gives the technology.</summary>
-	private void ReadInterfaces()
+	private void ReadFirst()
+	{
+		if (QtHostServices.Snapshot(Service) is { } e)
+			Apply(e, raise: false);
+		// Connman's first answer can say offline for seconds on an online phone, so kernel routes decide until it changes.
+		if (Volatile.Read(ref _state).Access != NetworkAccess.Internet && ReadInterfaces() is { } read)
+			Volatile.Write(ref _state, read);
+	}
+
+	/// <summary>Fallback: an up interface with a gateway means Internet; its name gives the technology. Null when the
+	/// interfaces cannot be read.</summary>
+	private static State? ReadInterfaces()
 	{
 		try
 		{
@@ -235,11 +224,11 @@ internal sealed class SailfishConnectivity : IConnectivity
 				if (gateway && profile != ConnectionProfile.Unknown && !profiles.Contains(profile))
 					profiles.Add(profile);
 			}
-			_access = routed ? NetworkAccess.Internet : NetworkAccess.None;
-			_profiles = profiles.ToArray();
+			return new State(routed ? NetworkAccess.Internet : NetworkAccess.None, profiles.ToArray());
 		}
 		catch (System.Net.NetworkInformation.NetworkInformationException)
 		{
+			return null;
 		}
 	}
 
@@ -267,17 +256,27 @@ internal sealed class SailfishConnectivity : IConnectivity
 		var profiles = access is NetworkAccess.Internet or NetworkAccess.ConstrainedInternet or NetworkAccess.Local && profile != ConnectionProfile.Unknown
 			? new[] { profile }
 			: Array.Empty<ConnectionProfile>();
-		var changed = access != _access || !profiles.SequenceEqual(_profiles);
-		_access = access;
-		_profiles = profiles;
+		var previous = Volatile.Read(ref _state);
+		var changed = access != previous.Access || !profiles.SequenceEqual(previous.Profiles);
+		Volatile.Write(ref _state, new State(access, profiles));
 		if (raise && changed)
-			ConnectivityChanged?.Invoke(this, new ConnectivityChangedEventArgs(_access, _profiles));
+			ConnectivityChanged?.Invoke(this, new ConnectivityChangedEventArgs(access, profiles));
 	}
 
-	// Off the Qt thread Start() cannot create the watcher, so kernel routes answer instead of Unknown.
-	public NetworkAccess NetworkAccess { get { Start(); if (_access == NetworkAccess.Unknown) ReadInterfaces(); return _access; } }
+	/// <summary>The current snapshot. Off the Qt thread Start() cannot create the watcher, so kernel routes answer instead
+	/// of Unknown; that answer is stored only if no Connman event replaced the snapshot meanwhile.</summary>
+	private State Current()
+	{
+		Start();
+		var state = Volatile.Read(ref _state);
+		if (state.Access == NetworkAccess.Unknown && ReadInterfaces() is { } read)
+			state = Interlocked.CompareExchange(ref _state, read, state) == state ? read : Volatile.Read(ref _state);
+		return state;
+	}
 
-	public IEnumerable<ConnectionProfile> ConnectionProfiles { get { Start(); if (_access == NetworkAccess.Unknown) ReadInterfaces(); return _profiles; } }
+	public NetworkAccess NetworkAccess => Current().Access;
+
+	public IEnumerable<ConnectionProfile> ConnectionProfiles => Current().Profiles;
 
 	public event EventHandler<ConnectivityChangedEventArgs>? ConnectivityChanged;
 }
@@ -303,7 +302,6 @@ internal sealed class SailfishVibration : IVibration
 			return;
 		var ms = (int)Math.Clamp(duration.TotalMilliseconds, 1, 5000);
 		QtHostServices.Eval(Service, $"(function(){{s.stop();s.duration={ms};s.start();return s.state;}})()");
-		Vibrations++;
 	}
 
 	public void Cancel()
@@ -314,9 +312,6 @@ internal sealed class SailfishVibration : IVibration
 
 	/// <summary>Native effect state (diagnostics: QFeedbackEffect Running = 2).</summary>
 	public static string NativeState => QtHostServices.Eval(Service, "s.state");
-
-	/// <summary>Diagnostics: vibrations started.</summary>
-	public static int Vibrations { get; private set; }
 }
 
 /// <summary>HapticFeedback on QtFeedback theme effects: Click is Press, LongPress is PressStrong.</summary>
@@ -339,14 +334,10 @@ internal sealed class SailfishHapticFeedback : IHapticFeedback
 		// ThemeEffect values (the enum is not in scope of the eval): Press 0, PressStrong 4.
 		var effect = type == HapticFeedbackType.LongPress ? "4" : "0";
 		QtHostServices.Eval(Service, $"(function(){{s.effect={effect};s.play();return s.effect;}})()");
-		Performed++;
 	}
 
 	/// <summary>The native effect of the last Perform (diagnostics).</summary>
 	public static string NativeEffect => QtHostServices.Eval(Service, "s.effect");
-
-	/// <summary>Diagnostics: feedback effects played.</summary>
-	public static int Performed { get; private set; }
 }
 
 /// <summary>
@@ -388,9 +379,14 @@ public static class SailfishNotifications
 		if (!QtHostServices.Ensure(Service, Qml))
 			return 0;
 		var app = Microsoft.Maui.ApplicationModel.AppInfo.Current.Name;
-		var json = "{\"appName\":" + QtHostServices.Js(app) + ",\"icon\":" + QtHostServices.Js(icon ?? "icon-lock-information") +
-		           ",\"summary\":" + QtHostServices.Js(summary) + ",\"body\":" + QtHostServices.Js(body) +
-		           ",\"preview\":" + (preview ? "true" : "false") + "}";
+		var json = BridgeJson.Write(w =>
+		{
+			w.WriteString("appName", app);
+			w.WriteString("icon", icon ?? "icon-lock-information");
+			w.WriteString("summary", summary);
+			w.WriteString("body", body);
+			w.WriteBoolean("preview", preview);
+		});
 		return uint.TryParse(QtHostServices.Eval(Service, $"s.show({QtHostServices.Js(json)})"), out var id) ? id : 0;
 	}
 

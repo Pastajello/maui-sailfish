@@ -128,7 +128,6 @@ internal sealed partial class QtHostListAdapter
 		    TryFindRowTap(cellRoot, row.CellX[cellIndex], Horizontal, QtHostUnits.ToLogical(xQt), QtHostUnits.ToLogical(yQt),
 			    out var tap, out var owner, out var position))
 		{
-			_bridge.RowTapsFired++;
 			QtHostDiag.Trace(QtHostDiagChannel.Input, $"collection row {rowIndex} cell {cellIndex} tapped → {owner!.GetType().Name} TapGestureRecognizer");
 			QtHostInputRouter.SendTapped(tap!, owner, position);
 			return;

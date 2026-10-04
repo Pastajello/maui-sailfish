@@ -43,4 +43,25 @@ internal sealed class SailfishRenderSession
 	public void RequestLayout() => Renderer?.RequestLayout();
 
 	public void RequestScrollGeometry() => Renderer?.RequestScrollGeometry();
+
+	/// <summary>Runs <paramref name="done"/> once the native stack matches MAUI's; at once when nothing renders.</summary>
+	public void WhenNavigationSettled(Action done)
+	{
+		if (Renderer is { } renderer)
+			renderer.WhenNavigationSettled(done);
+		else
+			done();   // no native stack to wait for
+	}
+
+	/* --- what a handler does to its own host --- */
+
+	public void PushHostProps(NativeElementHost host, Dictionary<string, object?> props, bool yieldToNative) =>
+		Renderer?.PushHostProps(host, props, yieldToNative);
+
+	public void PushTransient(NativeElementHost host, IReadOnlyList<(string Name, object? Value)> values) =>
+		Renderer?.PushTransient(host, values);
+
+	public bool? FocusHost(NativeElementHost host, bool focus) => Renderer?.FocusHost(host, focus);
+
+	public void OnHandlerDisconnected(NativeElementHost host) => Renderer?.OnHandlerDisconnected(host);
 }

@@ -585,10 +585,16 @@ internal sealed partial class QtHostDiagnosticsRunner
 		_qtSilicaChecks.Check($"M the keyboard raised OnInputMethodChanged ({Count("OnInputMethodChanged")}) and the rotation OnOrientationChanged ({Count("OnOrientationChanged")}×)",
 			Count("OnInputMethodChanged") > 0 && Count("OnOrientationChanged") >= 2);
 		var scheme0 = Count("OnColorSchemeChanged");
-		// The ambience report the shell sends on a switch, with the current scheme (the theme stays as it is).
+		var theme0 = SailfishTheme.Current;
+		// The reports the shell sends on an ambience switch: to the other scheme, then back. OnColorSchemeChanged comes
+		// after the theme service updated (AppInfo.RequestedTheme is already the new one there), once per change.
+		QtHost.QtHostRuntime.Eval("window.mauiAppNotify('svc-theme-changed', JSON.stringify({ light: Theme.colorScheme !== Theme.DarkOnLight }))");
+		await SilicaWait(dispatcher, 400);
+		var switched = SailfishTheme.Current;
 		QtHost.QtHostRuntime.Eval("window.mauiAppNotify('svc-theme-changed', JSON.stringify({ light: Theme.colorScheme === Theme.DarkOnLight }))");
-		await SilicaWait(dispatcher, 600);
-		_qtSilicaChecks.Check($"M an ambience report raises OnColorSchemeChanged ({scheme0} → {Count("OnColorSchemeChanged")})", Count("OnColorSchemeChanged") > scheme0);
+		await SilicaWait(dispatcher, 400);
+		_qtSilicaChecks.Check($"M an ambience switch and back raise OnColorSchemeChanged twice ({scheme0} → {Count("OnColorSchemeChanged")}), theme {theme0} → {switched} → {SailfishTheme.Current}",
+			Count("OnColorSchemeChanged") == scheme0 + 2 && switched != theme0 && SailfishTheme.Current == theme0);
 		var cover0 = Count("OnCoverStatusChanged");
 		var state0 = Count("OnApplicationStateChanged");
 		QtHost.QtHostRuntime.Eval("window.deactivate()");

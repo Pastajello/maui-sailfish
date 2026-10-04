@@ -112,6 +112,10 @@ public class AdaptersContractTests
 			var text = File.ReadAllText(file);
 			foreach (var rx in new[] { @"case ""([a-z0-9-]+)""\s*:", @"name == ""([a-z0-9-]+)""", @"Subscribe\(""([a-z0-9-]+)""" })
 				names.UnionWith(System.Text.RegularExpressions.Regex.Matches(text, rx).Select(m => m.Groups[1].Value));
+			// Handlers compare against SailfishKeys.Event constants.
+			foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(text, @"name == SailfishKeys\.Event\.(\w+)"))
+				if (typeof(Microsoft.Maui.SailfishOS.Handlers.SailfishKeys.Event).GetField(m.Groups[1].Value)?.GetRawConstantValue() is string value)
+					names.Add(value);
 		}
 		return names;
 	}

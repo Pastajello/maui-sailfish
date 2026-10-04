@@ -22,14 +22,14 @@ internal sealed partial class QtHostListAdapter
 			return;
 		}
 		_everBuilt = true;
-		_inRebuild = true;
+		_rebuildDepth++;
 		try
 		{
 			RebuildRowsCore(widthDp);
 		}
 		finally
 		{
-			_inRebuild = false;
+			_rebuildDepth--;
 		}
 	}
 
@@ -74,15 +74,8 @@ internal sealed partial class QtHostListAdapter
 		var view = View;
 		var grouped = view is GroupableItemsView { IsGrouped: true } gv ? gv : null;
 		var items = view.ItemsSource;
-		_renderer.LayoutRequestHold++;
-		try
-		{
+		using (_renderer.HoldLayoutRequests())
 			BuildRows(items, grouped, widthDp);
-		}
-		finally
-		{
-			_renderer.LayoutRequestHold--;
-		}
 		ReleaseRowViews(previous, keep: Rows);
 
 		// RemainingItemsThreshold counts flat items, not rows.
@@ -275,7 +268,7 @@ internal sealed partial class QtHostListAdapter
 			QtHostRuntime.Post(() => MarkRow(row));
 			return;
 		}
-		if (_bridge.SlotMapping || _inRebuild || row.MeasureHandler is null)
+		if (_bridge.IsMapping || _inRebuild || row.MeasureHandler is null)
 			return;   // our own measure/map pass, or a released row
 		row.Remeasure = true;
 		RowsRemeasure = true;
@@ -288,8 +281,7 @@ internal sealed partial class QtHostListAdapter
 	{
 		RowsRemeasure = false;
 		var changed = false;
-		_bridge.SlotMapping = true;   // measuring raises measure events of its own
-		try
+		using (_bridge.MappingScope())   // measuring raises measure events of its own
 		{
 			foreach (var row in Rows)
 			{
@@ -306,14 +298,9 @@ internal sealed partial class QtHostListAdapter
 					continue;
 				row.HeightDp = height;
 				changed = true;
-				RowsRemeasured++;
 				if (row.DgObj is { } obj && Delegates.TryGetValue(obj, out var dg))
 					UpdateDgGeometry(dg);
 			}
-		}
-		finally
-		{
-			_bridge.SlotMapping = false;
 		}
 		if (!changed)
 			return;

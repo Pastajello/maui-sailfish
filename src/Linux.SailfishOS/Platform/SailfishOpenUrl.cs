@@ -30,6 +30,19 @@ internal static class SailfishOpenUrl
 
 	internal static bool Enabled => _service is not null;
 
+	/// <summary>Tests: captures the configuration, the queued launch URLs and the interceptor; the action puts them back.</summary>
+	internal static Action CaptureForTests()
+	{
+		var (service, path, iface, ready, intercept) = (_service, _path, _iface, _ready, Intercept);
+		var pending = PendingLaunch.ToArray();
+		return () =>
+		{
+			(_service, _path, _iface, _ready, Intercept) = (service, path, iface, ready, intercept);
+			PendingLaunch.Clear();
+			PendingLaunch.AddRange(pending);
+		};
+	}
+
 	/// <summary>Launch arguments that are URLs or existing files (the %U of the .desktop Exec line).</summary>
 	internal static void QueueLaunchArguments(IEnumerable<string> arguments)
 	{
@@ -44,14 +57,6 @@ internal static class SailfishOpenUrl
 		_ready = true;
 		if (Enabled)
 		{
-			QtHostServices.Subscribe(ShellEvents.OpenUrl, e =>
-			{
-				if (!e.TryGetProperty("urls", out var urls) || urls.ValueKind != System.Text.Json.JsonValueKind.Array)
-					return;
-				foreach (var url in urls.EnumerateArray())
-					if (ToUri(url.GetString()) is { } uri)
-						Deliver(uri);
-			});
 			var qml = $$"""
 				import QtQuick 2.6
 				import Nemo.DBus 2.0
@@ -66,12 +71,21 @@ internal static class SailfishOpenUrl
 				    }
 				}
 				""";
-			if (!QtHostServices.Ensure("open-url", qml))
+			if (!QtHostServices.Ensure("open-url", qml, (ShellEvents.OpenUrl, OnOpenUrl)))
 				QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"D-Bus service {_service} not registered — a running instance will not receive URLs");
 		}
 		foreach (var uri in PendingLaunch)
 			Deliver(uri);
 		PendingLaunch.Clear();
+	}
+
+	private static void OnOpenUrl(System.Text.Json.JsonElement e)
+	{
+		if (!e.TryGetProperty("urls", out var urls) || urls.ValueKind != System.Text.Json.JsonValueKind.Array)
+			return;
+		foreach (var url in urls.EnumerateArray())
+			if (ToUri(url.GetString()) is { } uri)
+				Deliver(uri);
 	}
 
 	internal static void Deliver(Uri uri)
@@ -108,12 +122,12 @@ internal static class SailfishOpenUrl
 	internal static string CallSelf(string url) =>
 		!Enabled || !_ready
 			? "disabled"
-			: QtHostRuntime.Eval($$"""
+			: QtThread.Run(() => QtHostRuntime.Eval($$"""
 				(function(){
 				  var c = Qt.createQmlObject('import QtQuick 2.6; import Nemo.DBus 2.0; DBusInterface { service: "{{_service}}"; path: "{{_path}}"; iface: "{{_iface}}" }', window);
 				  c.call("openUrl", [[{{BridgeValue.Quote(url)}}]]);
 				  c.destroy(2000);
 				  return "called";
 				})()
-				""");
+				"""));
 }

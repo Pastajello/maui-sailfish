@@ -140,7 +140,9 @@ Not there yet: opening a URL or file in the app (`OpenUrl` / `OnNewIntent`; need
 D-Bus service for a running instance), display blank/lock and memory pressure (MCE over D-Bus).
 
 Without the folder the build generates a `Main` that finds `MauiProgram.CreateMauiApp()`. With
-`Platforms/SailfishOS/Program.cs` present, generation turns off by itself.
+`Platforms/SailfishOS/Program.cs` present, generation turns off by itself. The generated `Main` finds the method by
+reflection, and a trimmed publish keeps it only on a class whose name ends in `MauiProgram`; an app that builds its
+`MauiApp` elsewhere writes its own `Program.cs`.
 
 ## 4. Build, package, run
 

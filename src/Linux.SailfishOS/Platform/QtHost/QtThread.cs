@@ -54,4 +54,8 @@ internal static class QtThread
 
 	/// <summary>Queues <paramref name="work"/> on the Qt thread without waiting (inline when already there).</summary>
 	public static void Post(Action work) => QtHostRuntime.RunOnQtThread(work);
+
+	/// <summary>Queues <paramref name="work"/> for a later turn of the Qt loop, even from the Qt thread; work queued
+	/// before the host exists runs once it does (startup code that needs the shell window).</summary>
+	public static void Later(Action work) => QtHostRuntime.Post(work);
 }

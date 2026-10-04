@@ -11,6 +11,24 @@ public class NativeContractTests
 	private static readonly string NativeDir = Path.Combine(Repo.Root, "src", "Linux.SailfishOS", "Native");
 	private static string Header => File.ReadAllText(Path.Combine(NativeDir, "sailfish_host.h"));
 
+	/// <summary>The shim's sources (sailfish_host.cpp, the host_*.cpp families and host_internal.h) as one text.</summary>
+	internal static string HostSources() => string.Join("\n", Directory.GetFiles(NativeDir)
+		.Where(f => Path.GetFileName(f) is var n && (n == "sailfish_host.cpp" || n == "host_internal.h" ||
+		                                             n.StartsWith("host_", StringComparison.Ordinal) && n.EndsWith(".cpp", StringComparison.Ordinal)))
+		.Order(StringComparer.Ordinal).Select(File.ReadAllText));
+
+	// W8.1: the shim is split by family; the build must compile every one of them (a file it misses links fine into a
+	// library without those exports, which fails only at the first P/Invoke on the phone).
+	[Fact]
+	public void The_native_build_compiles_every_host_source()
+	{
+		var script = File.ReadAllText(Path.Combine(Repo.Root, "tools", "cmd", "native-build.sh"));
+		var sources = Directory.GetFiles(NativeDir, "*.cpp").Select(Path.GetFileName)
+			.Where(n => n == "sailfish_host.cpp" || n!.StartsWith("host_", StringComparison.Ordinal)).ToList();
+		Assert.True(sources.Count > 1);
+		Assert.All(sources, name => Assert.Contains($"\"$SRC/{name}\"", script));
+	}
+
 	[Fact]
 	public void The_header_abi_version_is_the_managed_one()
 	{
@@ -57,7 +75,7 @@ public class NativeContractTests
 	[Fact]
 	public void Cross_thread_state_is_atomic_and_the_error_text_is_locked()
 	{
-		var source = File.ReadAllText(Path.Combine(NativeDir, "sailfish_host.cpp"));
+		var source = HostSources();
 		// The one direct write is set_error's own, under the lock (and set_error must not call itself).
 		var writes = Regex.Matches(source, @"\bg\.error\s*=(?!=)");
 		Assert.Single(writes);
@@ -140,7 +158,6 @@ public class EventDrainContractTests
 		Assert.True(drainAll.Success);
 		Assert.Contains("mauiPages", drainAll.Groups["body"].Value);
 		Assert.Contains("__mauiAppDrain()", drainAll.Groups["body"].Value);
-		var native = File.ReadAllText(Path.Combine(Repo.Root, "src", "Linux.SailfishOS", "Native", "sailfish_host.cpp"));
-		Assert.Contains("return __mauiDrainAll();", native);
+		Assert.Contains("return __mauiDrainAll();", NativeContractTests.HostSources());
 	}
 }

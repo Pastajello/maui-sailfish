@@ -3,6 +3,7 @@ using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.SailfishOS.Platform.QtHost;
 using Microsoft.Maui.SailfishOS.Platform.Text;
+using static Microsoft.Maui.SailfishOS.Handlers.SailfishFontRules;
 
 namespace Microsoft.Maui.SailfishOS.Handlers;
 
@@ -14,27 +15,6 @@ internal static class SailfishMeasure
 {
 	/// <summary>MAUI's default font size (dp), for text with no size anywhere (a span model, a FontSizeOf fallback).</summary>
 	public const double DefaultFontSize = 14;
-
-	/// <summary>
-	/// The font size the app chose, or null when it chose none and the adapter paints the Silica theme size. Once the
-	/// handler attaches MAUI stores the font manager's default (<see cref="Platform.SailfishFontManager.DefaultSize"/>,
-	/// 18) as a set value without PropertyChanged, so that value counts as unset; an explicit FontSize="18" therefore
-	/// paints at the theme size too (docs/handler-parity.md). Measure and paint both decide through here.
-	/// </summary>
-	public static double? AppFontSize(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>
-		element.IsSet(property) && size > 0 && Math.Abs(size - Platform.SailfishFontManager.DefaultSize) > 0.01 ? size : null;
-
-	/// <summary>
-	/// A Label's size: the app's, else null and Label.qml paints Theme.fontSizeMedium, as every Silica label and every
-	/// other control here (<see cref="AppFontSize"/>, owner decision 2026-10-03; until then an unset Label painted
-	/// MAUI's 18). Snapshot and measure both read it.
-	/// </summary>
-	public static double? LabelFontSize(Microsoft.Maui.Controls.Label label) =>
-		AppFontSize(label, Microsoft.Maui.Controls.Label.FontSizeProperty, label.FontSize);
-
-	/// <summary>The size (dp) the adapter paints with: the app's, else the Silica theme size.</summary>
-	public static double PaintFontSizeDp(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>
-		AppFontSize(element, property, size) ?? SilicaMediumFontDp();
 
 	/// <summary>
 	/// Shared measure wrapper: applies Width/HeightRequest and explicit sizes, defers layouts to the
@@ -86,19 +66,10 @@ internal static class SailfishMeasure
 	{
 		switch (view)
 		{
-			case IStepper:
-				return Constrain(180, 40, wc, hc);
-
 			// Border/Frame must precede IContentView so padding and stroke are added around the content.
-			case IBorderView borderView when borderView.PresentedContent is IView borderInner:
-				return MeasureBoxed(borderInner,
-					(borderView as IPadding)?.Padding ?? Thickness.Zero,
-					borderView.StrokeThickness, wc, hc);
-
 #pragma warning disable CS0618 // Frame is obsolete but must still measure.
-			case Frame legacyFrameView when legacyFrameView.Content is IView frameInner:
-				return MeasureBoxed(frameInner, legacyFrameView.Padding,
-					legacyFrameView.BorderColor is not null ? 1 : 0, wc, hc);
+			case IBorderView { PresentedContent: IView } or Frame { Content: IView }:
+				return Boxed(view, wc, hc);
 #pragma warning restore CS0618
 
 			case ScrollView scroll when ((IContentView)scroll).PresentedContent is IView scrolled:
@@ -213,6 +184,14 @@ internal static class SailfishMeasure
 		return Constrain(2 * h + 8, h, wc, hc);
 	}
 
+	/// <summary>An IndicatorView: the dot strip, or with an IndicatorTemplate the template MAUI lays out.</summary>
+	public static Size IndicatorView(IView view, double wc, double hc) =>
+		view is IndicatorView { IndicatorTemplate: null } ? Indicator(view, wc, hc) : Generic(view, wc, hc);
+
+	/// <summary>A BoxView's default box; a bare Shape measures 0 × 0, its path derives from the arranged size.</summary>
+	public static Size Shape(IView view, double wc, double hc) =>
+		view is BoxView ? Box(view, wc, hc) : Constrain(0, 0, wc, hc);
+
 	public static Size Indicator(IView view, double wc, double hc)
 	{
 		if (view is not IndicatorView indicator)
@@ -268,7 +247,7 @@ internal static class SailfishMeasure
 	private static readonly Dictionary<string, double> _themeDp = new(StringComparer.Ordinal);
 
 	/// <summary>A Silica Theme expression (Qt px) in dp, queried once and cached; <paramref name="fallback"/> when headless.</summary>
-	private static double ThemeDp(string expression, double fallback)
+	internal static double ThemeDp(string expression, double fallback)
 	{
 		if (_themeDp.TryGetValue(expression, out var cached))
 			return cached;
@@ -462,40 +441,11 @@ internal static class SailfishMeasure
 	public static int FontSizeOf(IView view) =>
 		view is ITextStyle ts && ts.Font.Size > 0 ? (int)Math.Round(ts.Font.Size) : (int)DefaultFontSize;
 
-	private static double _valueBoxHeightDp = double.NaN;
-
 	/// <summary>
 	/// Native minimum height (dp) of Silica value boxes (Theme.itemSizeSmall); measure must match it or
-	/// following controls overlap. Queried on the Qt thread and cached; 44dp until available.
+	/// following controls overlap. 44 dp until the theme answers.
 	/// </summary>
-	public static double ValueBoxHeightDp()
-	{
-		if (!double.IsNaN(_valueBoxHeightDp))
-			return _valueBoxHeightDp;
-		if (!QtHostTextMetrics.Enabled || !QtHostRuntime.IsRunning)
-			return 44;
-		var raw = QtHostRuntime.Eval("Theme.itemSizeSmall");
-		if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var qt) || qt <= 0)
-			return 44;
-		_valueBoxHeightDp = QtHostUnits.ToLogical(qt);
-		return _valueBoxHeightDp;
-	}
-
-	private static double _silicaButtonFontDp = double.NaN;
-
-	/// <summary>Theme.fontSizeMedium in dp, what an unset Button, Entry or Label FontSize paints with; 25dp until available.</summary>
-	public static double SilicaMediumFontDp()
-	{
-		if (!double.IsNaN(_silicaButtonFontDp))
-			return _silicaButtonFontDp;
-		if (!QtHostTextMetrics.Enabled || !QtHostRuntime.IsRunning)
-			return 25;
-		var raw = QtHostRuntime.Eval("Theme.fontSizeMedium");
-		if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var qt) || qt <= 0)
-			return 25;
-		_silicaButtonFontDp = QtHostUnits.ToLogical(qt);
-		return _silicaButtonFontDp;
-	}
+	public static double ValueBoxHeightDp() => ThemeDp("Theme.itemSizeSmall", 44);
 
 	/// <summary>Single-line text size: Qt metrics when the host is running, else a font-size estimate.</summary>
 	public static (int w, int h) MeasureText(string? text, string? family, FontAttributes attributes, int ptsize, double letterSpacingDp = 0)

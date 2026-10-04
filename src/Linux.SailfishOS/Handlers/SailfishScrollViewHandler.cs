@@ -10,7 +10,7 @@ namespace Microsoft.Maui.SailfishOS.Handlers;
 /// ScrollX/ScrollY (the mapper pushes them to the flickable) and always calls SendScrollFinished; ShouldAnimate is a
 /// jump. Inside collection rows the ListView delegate scrolls, so the host is a plain container there.
 /// </summary>
-public class ScrollViewHandler : SailfishSnapshotHandler<IScrollView>
+public class SailfishScrollViewHandler : SailfishSnapshotHandler<IScrollView>
 {
 	private static readonly string[] Keys =
 	{
@@ -19,14 +19,19 @@ public class ScrollViewHandler : SailfishSnapshotHandler<IScrollView>
 		nameof(VisualElement.BackgroundColor), nameof(IView.Background),
 	};
 
-	public static readonly PropertyMapper<IScrollView, ScrollViewHandler> Mapper = SnapshotMapper<ScrollViewHandler>(Keys);
+	public static readonly PropertyMapper<IScrollView, SailfishScrollViewHandler> Mapper = SnapshotMapper<SailfishScrollViewHandler>(Keys);
 
-	public static readonly CommandMapper<IScrollView, ScrollViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
+	public static readonly CommandMapper<IScrollView, SailfishScrollViewHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
 	private IScrollViewController? _controller;
 	private EventHandler<ScrollToRequestedEventArgs>? _onScrollToRequested;
 
-	public ScrollViewHandler() : base(Mapper, CommandMapper, Keys)
+	public SailfishScrollViewHandler() : this(null)
+	{
+	}
+
+	public SailfishScrollViewHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
 	{
 	}
 
@@ -44,14 +49,14 @@ public class ScrollViewHandler : SailfishSnapshotHandler<IScrollView>
 
 	protected override Dictionary<string, object?>? Snapshot(IScrollView view) =>
 		view is not ScrollView scroll ? null
-		: ((IElementHandler)this).PlatformView is NativeElementHost { QmlUri: QtHostAdapters.ScrollView }
+		: Host is { QmlUri: SailfishKeys.Adapter.ScrollView }
 			? AdapterSnapshots.ScrollProps(scroll)
 			: AdapterSnapshots.ContainerProps(scroll);
 
 	protected override void ConnectHandler(NativeElementHost platformView)
 	{
 		base.ConnectHandler(platformView);
-		if (VirtualView is IScrollViewController controller)
+		if (ConnectedView is IScrollViewController controller)
 		{
 			_controller = controller;
 			_onScrollToRequested = OnScrollToRequested;

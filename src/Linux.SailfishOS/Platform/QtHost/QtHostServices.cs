@@ -12,6 +12,7 @@ internal static class QtHostServices
 {
 	private static readonly Dictionary<string, List<Action<JsonElement>>> Subscribers = new(StringComparer.Ordinal);
 	private static readonly HashSet<string> Created = new(StringComparer.Ordinal);
+	private static readonly HashSet<string> Wired = new(StringComparer.Ordinal);   // SubscribeOnce keys
 
 	/// <summary>Creates the service object once (idempotent). False when the
 	/// Qt host is not running or the QML failed to load (logged).</summary>
@@ -34,11 +35,63 @@ internal static class QtHostServices
 
 	private static readonly HashSet<string> Unavailable = new(StringComparer.Ordinal);
 
+	/// <summary>
+	/// The start of every service: creates it once and, the first time it exists, subscribes
+	/// <paramref name="subscriptions"/> and runs <paramref name="started"/> (an initial read), so a service needs no
+	/// flag of its own. False when the host is not running or the QML failed to load; a later call tries again.
+	/// </summary>
+	public static bool Ensure(string name, string qml, Action? started,
+		params (string Event, Action<JsonElement> Handler)[] subscriptions) => QtThread.Run(() =>
+	{
+		if (!Ensure(name, qml))
+			return false;
+		if (SubscribeOnce(name, subscriptions))
+			started?.Invoke();
+		return true;
+	});
+
+	/// <summary><see cref="Ensure(string, string, Action?, ValueTuple{string, Action{JsonElement}}[])"/> without an
+	/// initial read.</summary>
+	public static bool Ensure(string name, string qml, params (string Event, Action<JsonElement> Handler)[] subscriptions) =>
+		Ensure(name, qml, null, subscriptions);
+
+	/// <summary>Subscribes <paramref name="subscriptions"/> the first time <paramref name="key"/> is seen; true then.
+	/// For events of the shell itself (the cover), which no <see cref="Ensure(string, string)"/> creates.</summary>
+	public static bool SubscribeOnce(string key, params (string Event, Action<JsonElement> Handler)[] subscriptions) =>
+		QtThread.Run(() =>
+		{
+			if (!Wired.Add(key))
+				return false;
+			foreach (var (name, handler) in subscriptions)
+				Subscribe(name, handler);
+			return true;
+		});
+
+	/// <summary>The service's <c>s.snapshot()</c> (a JSON string), parsed; null when the service is missing or the
+	/// snapshot is empty.</summary>
+	public static JsonElement? Snapshot(string name)
+	{
+		var json = Eval(name, "s.snapshot()");
+		if (json.Length == 0)
+			return null;
+		try
+		{
+			using var doc = JsonDocument.Parse(json);
+			return doc.RootElement.Clone();
+		}
+		catch (JsonException ex)
+		{
+			QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"platform service '{name}': malformed snapshot ({ex.Message})");
+			return null;
+		}
+	}
+
 	/// <summary>Tests: captures the created/unavailable services and the subscribers; the action puts them back.</summary>
 	internal static Action CaptureForTests()
 	{
 		var created = Created.ToArray();
 		var unavailable = Unavailable.ToArray();
+		var wired = Wired.ToArray();
 		var subscribers = Subscribers.ToDictionary(kv => kv.Key, kv => kv.Value.ToList(), StringComparer.Ordinal);
 		return () =>
 		{
@@ -46,6 +99,8 @@ internal static class QtHostServices
 			Created.UnionWith(created);
 			Unavailable.Clear();
 			Unavailable.UnionWith(unavailable);
+			Wired.Clear();
+			Wired.UnionWith(wired);
 			Subscribers.Clear();
 			foreach (var (name, list) in subscribers)
 				Subscribers[name] = list;
@@ -73,12 +128,15 @@ internal static class QtHostServices
 		list.Add(handler);
 	});
 
+	/// <summary>Subscribers of <paramref name="eventName"/> (tests).</summary>
+	internal static int SubscriberCount(string eventName) =>
+		QtThread.Run(() => Subscribers.TryGetValue(eventName, out var list) ? list.Count : 0);
+
 	/// <summary>True when <paramref name="name"/> is a service event (routed here).</summary>
 	public static bool IsServiceEvent(string name) => name.StartsWith(ShellEvents.Prefix, StringComparison.Ordinal);
 
 	public static void Dispatch(string name, string payload)
 	{
-		ServiceEvents++;
 		if (!Subscribers.TryGetValue(name, out var list))
 			return;
 		JsonElement root;
@@ -105,8 +163,5 @@ internal static class QtHostServices
 		}
 	}
 
-	/// <summary>Diagnostics: service events delivered.</summary>
-	public static int ServiceEvents { get; private set; }
-
-	internal static string Js(string value) => JsonSerializer.Serialize(value, SailfishJsonContext.Default.String);
+	internal static string Js(string value) => BridgeValue.Quote(value);
 }

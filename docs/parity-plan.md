@@ -219,9 +219,10 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   one composite 1583 µs against five createObject calls 1667 µs, −5%): the cost is the adapters' own instantiation.
 - Opening a page with a list: done 2026-10-03 (owner decision 3c). A list estimated taller than its viewport (item
   count, span, a grid cell as tall as wide, at least 40 dp a row) builds its first rows after the page's first frame,
-  at most 200 ms later (`QtHostListAdapter.FirstFrame.cs`, `MAUI_SAILFISH_LIST_FIRST_FRAME=0` turns it off). Kitchen
-  Beef catalog push stall 164–179 → 136–158 ms. What is left is the app's push work and the page creation in one
-  block (75 + 67 ms).
+  at most 200 ms later (`QtHostListAdapter.FirstFrame.cs`). Kitchen Beef catalog push stall 164–179 → 136–158 ms.
+  Off by default since 2026-10-04 (`MAUI_SAILFISH_LIST_FIRST_FRAME=1` turns it on): with the pushed page laying out
+  during its slide-in the saving fell into the noise (174 vs 186 ms), and the held cards showed without pictures for
+  2–3 frames; the owner chose the recording without the hold.
 
 **Platform**
 - Per-page orientation: done 2026-10-02, `SailfishPage.AllowedOrientations` (Silica `Page.allowedOrientations`,

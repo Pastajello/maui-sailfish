@@ -230,6 +230,7 @@ public static class QtHostRuntime
 		{
 			IsRunning = false;
 			SailfishRuntime.WakeHook = null;
+			dispatcher.Close();   // nothing drains its queue any more
 		}
 	}
 
@@ -342,7 +343,25 @@ public static class QtHostRuntime
 		{
 			CheckThread("eval");
 			var len = QtHostNative.sailfish_host_eval(expression, buf, cap);
-			return len < 0 ? string.Empty : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
+			return len < 0 ? string.Empty : len >= cap ? WholeResult(len) : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
+		}
+		finally
+		{
+			Marshal.FreeHGlobal(buf);
+		}
+	}
+
+	/// <summary>A result longer than the call's buffer (a contacts dump, a file list): the shim kept it whole, fetched
+	/// once with a buffer of its length instead of evaluating again (the call may have side effects).</summary>
+	private static string WholeResult(int length)
+	{
+		var buf = Marshal.AllocHGlobal(length + 1);
+		try
+		{
+			var kept = QtHostNative.sailfish_host_last_result(buf, length + 1);
+			if (kept != length)
+				QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"result of {length} bytes: the shim kept {kept}");
+			return Marshal.PtrToStringUTF8(buf) ?? string.Empty;
 		}
 		finally
 		{
@@ -367,9 +386,7 @@ public static class QtHostRuntime
 			rc = QtHostNative.sailfish_host_invoke(handle, method, arg, buf, cap);
 			if (rc < 0)
 				return null;
-			if (rc >= cap)
-				QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"invoke {method}: result of {rc} bytes cut at {cap - 1}");
-			return Marshal.PtrToStringUTF8(buf) ?? string.Empty;
+			return rc >= cap ? WholeResult(rc) : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
 		}
 		finally
 		{
@@ -498,6 +515,22 @@ public static class QtHostRuntime
 			return shim.FindObject(objectName);
 		CheckThread("find_object");
 		return QtHostNative.sailfish_host_find_object(objectName);
+	}
+
+	/// <summary>
+	/// A host's QML object by name, in the one documented order (W3.4: four lookups used three orders): inside
+	/// <paramref name="scopeHandle"/>'s visual tree first, since a delegate Qt released keeps the global name until it is
+	/// deleted (its content would die with it); then the QObject tree by name (a parked page's items hang outside the
+	/// visual tree); then the whole visual tree (ListView delegate content is visually parented only). 0 = not found.
+	/// </summary>
+	public static long FindScoped(string objectName, long scopeHandle)
+	{
+		var handle = scopeHandle != 0 ? FindVisual(scopeHandle, objectName) : 0;
+		if (handle == 0)
+			handle = FindObject(objectName);
+		if (handle == 0)
+			handle = FindVisual(0, objectName);
+		return handle;
 	}
 
 	/// <summary>

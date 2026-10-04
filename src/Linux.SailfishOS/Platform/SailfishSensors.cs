@@ -14,7 +14,6 @@ internal abstract class SailfishSensor
 	private readonly string _name;
 	private readonly string _qmlType;
 	private readonly string _readingJs;
-	private bool _subscribed;
 
 	protected SailfishSensor(string name, string qmlType, string readingJs)
 	{
@@ -40,7 +39,7 @@ internal abstract class SailfishSensor
 	{
 		get
 		{
-			if (!QtHostServices.Ensure(Service, Qml))
+			if (!QtHostServices.Ensure(Service, Qml, (ShellEvents.SensorPrefix + _name, OnReading)))
 				return false;
 			// The QML sensor connects on completion; connectToBackend() is not exposed.
 			return QtHostServices.Eval(Service, "s.connectedToBackend") == "true";
@@ -55,11 +54,6 @@ internal abstract class SailfishSensor
 			throw new FeatureNotSupportedException($"{_qmlType} is not available on this device.");
 		if (IsMonitoring)
 			throw new InvalidOperationException($"{_qmlType} is already monitoring.");
-		if (!_subscribed)
-		{
-			_subscribed = true;
-			QtHostServices.Subscribe(ShellEvents.SensorPrefix + _name, OnReading);
-		}
 		var hz = sensorSpeed switch
 		{
 			SensorSpeed.Fastest => 100,
@@ -67,7 +61,7 @@ internal abstract class SailfishSensor
 			SensorSpeed.UI => 16,
 			_ => 5,
 		};
-		QtHostServices.Eval(Service, $"(function(){{s.dataRate={hz};s.active=true;return s.active;}})()");
+		SetActive(Service, true, $"s.dataRate={hz};");
 		IsMonitoring = true;
 	}
 
@@ -75,20 +69,20 @@ internal abstract class SailfishSensor
 	{
 		if (!IsMonitoring)
 			return;
-		QtHostServices.Eval(Service, "(function(){s.active=false;return s.active;})()");
+		SetActive(Service, false);
 		IsMonitoring = false;
 	}
 
 	private void OnReading(JsonElement e)
 	{
 		if (IsMonitoring)
-			Readings++;
-		if (IsMonitoring)
 			Raise(e);
 	}
 
-	/// <summary>Readings delivered while monitoring (diagnostics).</summary>
-	public int Readings { get; private set; }
+	/// <summary>Switches a sensor or positioning service on or off, after the <paramref name="before"/> statements
+	/// (a data rate, an update interval).</summary>
+	internal static void SetActive(string service, bool active, string before = "") =>
+		QtHostServices.Eval(service, $"(function(){{{before}s.active={(active ? "true" : "false")};return s.active;}})()");
 
 	protected abstract void Raise(JsonElement reading);
 
@@ -207,7 +201,6 @@ internal sealed class SailfishGeolocation : IGeolocation
 {
 	private const string Service = "geolocation";
 	private Location? _last;
-	private bool _subscribed;
 	private readonly List<TaskCompletionSource<Location?>> _pending = new();
 	private GeolocationListeningRequest? _listening;
 
@@ -236,18 +229,8 @@ internal sealed class SailfishGeolocation : IGeolocation
 		}
 		""";
 
-	private bool EnsureService()
-	{
-		if (!QtHostServices.Ensure(Service, Qml))
-			return false;
-		if (!_subscribed)
-		{
-			_subscribed = true;
-			QtHostServices.Subscribe(ShellEvents.GeolocationFix, OnFix);
-			QtHostServices.Subscribe(ShellEvents.GeolocationError, OnError);
-		}
-		return true;
-	}
+	private bool EnsureService() =>
+		QtHostServices.Ensure(Service, Qml, (ShellEvents.GeolocationFix, OnFix), (ShellEvents.GeolocationError, OnError));
 
 	/// <summary>A positioning backend is present (diagnostics).</summary>
 	public static string NativeState => QtHostServices.Eval(Service, "JSON.stringify({valid:s.valid,error:s.sourceError,name:s.name,methods:s.supportedPositioningMethods})");
@@ -258,15 +241,8 @@ internal sealed class SailfishGeolocation : IGeolocation
 	{
 		if (Missing() is { } missing)
 			return Task.FromException<Location?>(missing);
-		if (_last is null && EnsureService())
-		{
-			var snapshot = QtHostServices.Eval(Service, "s.snapshot()");
-			if (snapshot.Length > 0)
-			{
-				using var doc = JsonDocument.Parse(snapshot);
-				_last = ToLocation(doc.RootElement);
-			}
-		}
+		if (_last is null && EnsureService() && QtHostServices.Snapshot(Service) is { } snapshot)
+			_last = ToLocation(snapshot);
 		return Task.FromResult(_last);
 	}
 
@@ -279,7 +255,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 		var tcs = new TaskCompletionSource<Location?>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_pending)
 			_pending.Add(tcs);
-		QtHostServices.Eval(Service, "(function(){s.active=true;s.update();return s.active;})()");
+		SailfishSensor.SetActive(Service, true, "s.update();");
 		var timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : TimeSpan.FromSeconds(30);
 		using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken);
 		cts.CancelAfter(timeout);
@@ -293,7 +269,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 				idle = _pending.Count == 0;
 			}
 			if (_listening is null && idle)
-				QtHostServices.Eval(Service, "(function(){s.active=false;return s.active;})()");
+				SailfishSensor.SetActive(Service, false);
 			return location;
 		}
 	}
@@ -314,7 +290,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 			return Task.FromResult(false);
 		_listening = request;
 		var ms = (int)Math.Clamp(request.MinimumTime.TotalMilliseconds, 100, 60_000);
-		QtHostServices.Eval(Service, $"(function(){{s.updateInterval={ms};s.active=true;return s.active;}})()");
+		SailfishSensor.SetActive(Service, true, $"s.updateInterval={ms};");
 		return Task.FromResult(true);
 	}
 
@@ -325,7 +301,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 		lock (_pending)
 			idle = _pending.Count == 0;
 		if (idle)
-			QtHostServices.Eval(Service, "(function(){s.active=false;return s.active;})()");
+			SailfishSensor.SetActive(Service, false);
 	}
 
 	private void OnFix(JsonElement e)

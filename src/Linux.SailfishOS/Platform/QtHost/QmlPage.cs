@@ -1,8 +1,10 @@
 namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 /// <summary>
-/// Builds the JS that addresses a model page (MauiModelPage.qml) and calls its entry points.
-/// Hosts must be created and destroyed on the page instance that owns them, so every eval goes through here.
+/// Builds the JS that addresses a model page (MauiModelPage.qml) and calls its entry points, for the calls that
+/// still evaluate JS: the fallback of <c>QtHostRuntime.Invoke</c> page calls (a page without a handle yet, a stale
+/// shell) and the few calls with more than one argument. Hosts must be created and destroyed on the page instance
+/// that owns them, so a page is always addressed by its id or as the top model page.
 /// </summary>
 internal static class QmlPage
 {

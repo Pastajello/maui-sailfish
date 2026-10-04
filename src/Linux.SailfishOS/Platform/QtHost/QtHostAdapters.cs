@@ -10,7 +10,7 @@ public static class QtHostAdapters
 {
 	/// <summary>The SilicaFlickable host of a ScrollView outside collection rows. The reconcile chooses it (in a row the
 	/// ListView delegate scrolls and the ScrollView is a plain container), so the handler follows the bound host.</summary>
-	public const string ScrollView = "scroll-view";
+	public const string ScrollView = Handlers.SailfishKeys.Adapter.ScrollView;
 
 	/// <summary>Built-in copy of qml/adapters.json (fallback when the file is missing/corrupt).</summary>
 	private static readonly Dictionary<string, string> Fallback = new(StringComparer.Ordinal)

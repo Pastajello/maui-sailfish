@@ -11,7 +11,7 @@ internal static class QtHostNative
 	private const string Lib = "sailfishhost";
 
 	/// <summary>SFHOST_ABI_VERSION of the shim this code was written against (sailfish_host.h).</summary>
-	internal const int AbiVersion = 3;
+	internal const int AbiVersion = 4;
 
 	/* Log levels match QtMsgType: 0=debug 1=warning 2=critical 3=fatal. */
 	public delegate void LogFn(int level, IntPtr message, IntPtr userData);
@@ -81,6 +81,9 @@ internal static class QtHostNative
 
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_eval(string expression, IntPtr outBuf, int cap);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_last_result(IntPtr outBuf, int cap);
 
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern void sailfish_host_inject_pointer(int kind, double x, double y);

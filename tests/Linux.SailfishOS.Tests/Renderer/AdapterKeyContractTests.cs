@@ -44,9 +44,9 @@ public class AdapterKeyContractTests
 	/// apply_generic_prop / apply_item_matrix / the letter-spacing pass).</summary>
 	private static HashSet<string> ShimOwnedKeys()
 	{
-		var cpp = File.ReadAllText(System.IO.Path.Combine(Repo.Root, "src/Linux.SailfishOS/Native/sailfish_host.cpp"));
+		var cpp = NativeContractTests.HostSources();
 		var generic = Regex.Match(cpp, @"const bool generic = (?<list>[^;]+);");
-		Assert.True(generic.Success, "sailfish_host.cpp: the generic-key list moved; update this test");
+		Assert.True(generic.Success, "host_handles.cpp: the generic-key list moved; update this test");
 		var keys = Regex.Matches(generic.Groups["list"].Value, @"""(maui\w+)""").Select(m => m.Groups[1].Value)
 			.ToHashSet(StringComparer.Ordinal);
 		keys.Add("mauiMatrix");          // apply_item_matrix when the adapter has no such property
@@ -69,6 +69,44 @@ public class AdapterKeyContractTests
 		var cs = Regex.Matches(visualState, @"props\[""(maui\w+)""\]").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
 		Assert.Equal(cpp.Order(), qml.Order());
 		Assert.Equal(cpp.Order(), cs.Order());
+	}
+
+	// W5.3: the names handlers share with QML live in SailfishKeys; each must still exist on the QML side.
+	[Fact]
+	public void Every_handler_key_constant_is_known_to_the_adapters()
+	{
+		var sources = AdapterSources();
+		var adapterConsts = typeof(Microsoft.Maui.SailfishOS.Handlers.SailfishKeys.Adapter)
+			.GetFields().Where(f => f.IsLiteral).Select(f => (string)f.GetRawConstantValue()!).ToList();
+		Assert.NotEmpty(adapterConsts);
+		Assert.All(adapterConsts, uri => Assert.True(sources.ContainsKey(uri), $"adapters.json has no '{uri}'"));
+
+		var transient = typeof(Microsoft.Maui.SailfishOS.Handlers.SailfishKeys.Transient)
+			.GetFields().Where(f => f.IsLiteral).Select(f => (string)f.GetRawConstantValue()!).ToList();
+		foreach (var uri in new[] { "entry", "editor", "search-bar" })
+		{
+			var declared = DeclaredKeys(sources[uri]);
+			Assert.All(transient, key => Assert.True(declared.Contains(key), $"{uri} does not declare {key}"));
+		}
+
+		// Commands and events: the adapter's QML names them.
+		string Qml(string uri) => File.ReadAllText(sources[uri]);
+		var web = Qml("web-view");
+		foreach (var name in new[] { "nav", "js", "back", "forward", "reload" })
+			Assert.Contains($"\"{name}\"", web);
+		Assert.Contains("c.action", web);
+		Assert.Contains("c.req", web);
+		Assert.Contains("c.script", web);
+		var swipe = Qml("swipe-view");
+		Assert.Contains("\"open\"", swipe);
+		Assert.Contains("c.side", swipe);
+		var image = Qml("image");
+		Assert.Contains("\"image-natural\"", image);
+		Assert.Contains("\"image-failed\"", image);
+		Assert.Equal(
+			new[] { "nav", "action", "back", "forward", "reload", "js", "req", "script", "open", "side" }.Order(),
+			typeof(Microsoft.Maui.SailfishOS.Handlers.SailfishKeys.Command).GetFields()
+				.Select(f => (string)f.GetRawConstantValue()!).Order());
 	}
 
 	// A page with one of every control kind, set away from its defaults so the conditional keys are pushed too.

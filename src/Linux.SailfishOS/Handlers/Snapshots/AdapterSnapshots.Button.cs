@@ -57,7 +57,7 @@ internal static partial class AdapterSnapshots
 				Button.ButtonContentLayout.ImagePosition.Top or Button.ButtonContentLayout.ImagePosition.Bottom);
 		// An unset FontSize paints at Theme.fontSizeMedium, larger than the 14 dp MAUI layouts are made for: let the
 		// label shrink to fit a narrower button (a fixed 100 dp column) down to that 14 dp instead of fading out.
-		buttonProps["mauiFitPixelSize"] = SailfishMeasure.AppFontSize(button, Button.FontSizeProperty, button.FontSize) is not null
+		buttonProps["mauiFitPixelSize"] = SailfishFontRules.AppFontSize(button, Button.FontSizeProperty, button.FontSize) is not null
 			? 0.0
 			: Handlers.SailfishMeasure.DefaultFontSize * density;
 		return buttonProps;

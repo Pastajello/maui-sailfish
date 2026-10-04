@@ -96,5 +96,15 @@ public sealed class NativeElementHost
 	/// <summary>Parent id last applied natively, the diff basis for reparent ops; "" is the page canvas.</summary>
 	internal string? AppliedParentId { get; set; }
 
+	/// <summary>The native object is gone or handed over: no handle and nothing applied, so a new object gets its
+	/// properties, geometry and parent again (W3.1: five hand copies reset different subsets).</summary>
+	internal void ResetNative()
+	{
+		NativeHandle = 0;
+		AppliedProperties.Clear();
+		AppliedGeometrySet = false;
+		AppliedParentId = null;
+	}
+
 	public override string ToString() => $"{QmlUri}:{Id}{(IsAttached ? $"@{NativeHandle:x}" : string.Empty)}";
 }

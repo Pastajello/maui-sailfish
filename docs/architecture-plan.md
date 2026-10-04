@@ -6,8 +6,8 @@ step names the files, the types, the tests and the acceptance check. The review 
 diagrams) is the Claude Doc "Przegląd architektury maui-sailfish" (2026-10-02/03, HEAD `1cfd712`); this file is
 the part that gets executed. Keep it current: tick a step when its acceptance check passed and note the commit.
 
-Line numbers below are from HEAD `1cfd712` plus the uncommitted fixes of 2026-10-03 (see "Already fixed"); they
-drift as steps land, so grep for the named symbol when a number no longer matches.
+Line numbers below are from HEAD `1cfd712` plus the fixes of 2026-10-03 (see "Already fixed"), all committed in
+`ab808cd`; they drift as steps land, so grep for the named symbol when a number no longer matches.
 
 ## Status at the end of 2026-10-03 (committed as `ab808cd`)
 
@@ -72,7 +72,7 @@ Host tests: 352. Closing full device matrix with every change above: 31/31 PASS 
 | Collections | row pool landed first (`1cfd712`) | list steps build on `QtHostListAdapter.RowPool.cs` (C6+) |
 | Diagnostics | separate package later | core hooks go `internal` + InternalsVisibleTo now (D5) |
 | Dialogs (2026-10-03) | Sailfish system-dialog look: a top panel over the page, not a pageStack page | `dialogs/DialogPanel.qml`; legs find the panel as `pageStack.currentPage.__dialog` |
-| Label default size (2026-10-03) | unset `FontSize` paints `Theme.fontSizeMedium` | `SailfishMeasure.LabelFontSize` follows `AppFontSize` |
+| Label default size (2026-10-03) | unset `FontSize` paints `Theme.fontSizeMedium` | `SailfishFontRules.LabelFontSize` follows `AppFontSize` |
 | Add-on packages (2026-10-03) | none: no CommunityToolkit or Syncfusion add-ons, only `Microsoft.Maui.SailfishOS` | gaps documented in `porting-existing-apps.md` |
 | Other W10 answers (2026-10-03) | see `architecture-handoff.md` W10 | D5 deferred, AOT frozen, `Invoke` internal, encodings only when touched |
 
@@ -93,7 +93,7 @@ tools/sf pack-local                           # local feed + template
 Feature flags that gate paths touched below (all `MAUI_SAILFISH_*`): `ROW_POOL`, `LIST_FIRST_FRAME`, `ADAPTER_PRELOAD`,
 `HANDLER_TREE`, `PAGE_CACHE`, `CREATE_CHUNK`, `CREATE_FIRST_CHUNK`, `OPS_TIMING`, `QT_HOST_DIAG`, `SLOW_WORK_MS`.
 
-## Already fixed during the review (uncommitted on 2026-10-03, verify they are in HEAD before starting)
+## Already fixed during the review (2026-10-03, committed in `ab808cd`)
 
 - `QtHostRuntime.cs`: the `QmlEvent` callback catches exceptions like the pointer/key/post/timer callbacks (a
   throwing subscriber used to fail fast inside the shim's drain timer).
@@ -113,6 +113,13 @@ Feature flags that gate paths touched below (all `MAUI_SAILFISH_*`): `ROW_POOL`,
 
 | When | Build | Legs | Result |
 | --- | --- | --- | --- |
+| 2026-10-04 10:13 | + W7, W8 (shim split into host_*.cpp, QTextLayout measure, shell invoke for the nav poll, ABI 4 whole results), W9 (run exit code) | full matrix: all 31 legs | 31/31 PASS (`/tmp/sf-matrix-summary-20261004-101347.txt`); deploy D6: installed shim matches the local build |
+| 2026-10-04 09:41 | + W6 (service start pattern, one thread hop, counters gone) + W2.2 | f4 features silica popup stress | 5/5 PASS (`/tmp/sf-matrix-summary-20261004-094135.txt`) |
+| 2026-10-04 09:05 | + W5 (handlers split by family, `SailfishKeys`, mapper constructors) | controls text input visual geometry page popup features | 8/8 PASS (`/tmp/sf-matrix-summary-20261004-090536.txt`); screenshot `controls-gallery` (scratchpad `shots-w5/`) has the B5 layout, Labels at the theme size (decision 1b) |
+| 2026-10-04 08:51 | + W4 (bridge ↔ adapter intent methods, mapping scope, attach retries in the bridge) | collection collection10 collection100 collection500 containers stress features f3 | 8/8 PASS (`/tmp/sf-matrix-summary-20261004-085156.txt`) |
+| 2026-10-04 08:40 | + W3 page cache split (`PageCache`, `ActivationGate`) | 10 legs incl. containers nav navback shell | 10/10 PASS (`/tmp/sf-matrix-summary-20261004-084029.txt`) |
+| 2026-10-04 08:16 | + W3 renderer items | 17 legs | 17/17 PASS (`/tmp/sf-matrix-summary-20261004-081646.txt`) |
+| 2026-10-04 07:50 | + W1.9 silica leg M (scheme switch and back) | silica | 1/1 PASS (`/tmp/sf-matrix-summary-20261004-075043.txt`); with the full run before it (30/31, silica M the one failure) the full matrix is green |
 | 2026-10-03 08:29 | A1–A4, D4, D6 + review fixes | popup input pulley controls navback features collection containers visual | 9/9 PASS (`/tmp/sf-matrix-summary-20261003-082945.txt`) |
 | 2026-10-03 08:35 | + visual leg D2 "XAML colours at create" check | `tools/sf shots` visual | CHECK OK; screenshot `visual-xaml-colours.png`: the XAML-coloured Button shows #2E6BB0 / white on first paint |
 | 2026-10-03 08:45 | + C1 HostTreeDiff, C2 AdapterEventRouter, image-failed | tree reconcile input popup controls shell | 6/6 PASS (`/tmp/sf-matrix-summary-20261003-084509.txt`) |
@@ -498,10 +505,10 @@ done first. E goes last because it changes the ABI; E1 (version symbol) can be p
     setter in MAUI); the element gets a new handler, as a platform view is recreated elsewhere. Tests
     `An_image_whose_source_resolves_later_gets_the_image_adapter` (missing file → existing file),
     `An_indicator_view_switches_between_dots_and_its_template`.
-  - Font size: `SailfishMeasure.AppFontSize` / `PaintFontSizeDp` (18 = unset, the theme size paints) for Button,
+  - Font size: `SailfishFontRules.AppFontSize` / `PaintFontSizeDp` (18 = unset, the theme size paints) for Button,
     RadioButton, value boxes and text inputs, snapshot and measure alike; `AdapterSnapshots.HasAppFontSize` deleted;
     `LabelTextMapper`/`TextSpan` defaults read `SailfishMeasure.DefaultFontSize`. Deviation: Label keeps its own,
-    device-visible rule in `SailfishMeasure.LabelFontSize` (any positive size paints, MAUI's default 18 included), now
+    device-visible rule in `SailfishFontRules.LabelFontSize` (any positive size paints, MAUI's default 18 included), now
     shared by the Label snapshot and measure. On the device a never-sized Label reads FontSize 18 (set) and paints
     18 dp; moving it to the theme size (25 dp there) measured it larger than it painted and pushed the controls
     page's Border button off screen (controls leg FAIL 10:25, bisected 10:30). Test
@@ -532,7 +539,7 @@ done first. E goes last because it changes the ABI; E1 (version symbol) can be p
   Covers Image with late `Source` (`:742-743`), RadioButton (`:530`), IndicatorView (`:708-709`), RefreshView
   (`:875`). Test: `new Image()` on a page, poll, set `Source`, poll, assert one `"image"` host and no
   `"content-view"` host for that element.
-- One font-size convention: `SailfishMeasure.AppFontSize(BindableObject, BindableProperty, double) → double?`
+- One font-size convention: `SailfishFontRules.AppFontSize(BindableObject, BindableProperty, double) → double?`
   (null = unset) with today's `HasAppFontSize` rule and `PaintFontSizeDp(...)`; replace `Props.cs:603`,
   `SailfishMeasure.cs:137,440`, `LabelTextMapper.cs:70-73`; `TextModel.FontSize` default reads
   `SailfishMeasure.DefaultFontSize`. Do not change the 18 sentinel (device-visible); record the explicit-18 trap
@@ -962,7 +969,7 @@ renderer (`grep -o 'renderer\.[A-Z]\w*' src/Linux.SailfishOS.Diagnostics/*.cs | 
 
 ## Phase D: build, tests, diagnostics, hygiene (parallel to A–C)
 
-### D1. Test harness hardening (do first) — DONE 2026-10-03 (uncommitted)
+### D1. Test harness hardening (do first) — DONE 2026-10-03 (`ab808cd`)
 - Done as: `FakeShim.Strict` records unmodelled evals in `UnhandledEvals` and `RendererHarness.Dispose` fails the
   test (not a throw inside `Eval`: the renderer catches eval failures, so a throw would change the path and still
   pass); `FakeShim.AllowedUnanswered` lists the probe prefixes with their reason; `FakeShim.PageCalls` records page
@@ -1094,14 +1101,14 @@ renderer (`grep -o 'renderer\.[A-Z]\w*' src/Linux.SailfishOS.Diagnostics/*.cs | 
   location; the phantom IVT in `Linux.SailfishOS.SkiaSharp.csproj`; `Linux.SailfishOS.csproj` native-build
   messages; sailfishos-packaging.md product name; a note in aot-and-trimming.md that its Q/A codes refer to the
   removed PLAN (the dated log itself is left as history) and B2 marked removed.
-- Open (needs the owner or the phone): `docs/media` to Git LFS (repo policy); `Directory.Packages.props` is not
+- Open (needs the owner or the phone): ~~`docs/media` to Git LFS~~ (decided 2026-10-04: MP4 sources untracked, GIFs stay); `Directory.Packages.props` is not
   empty (it turns CPM off) and stays; Sample csproj hand copies and `Program.cs`, Kitchen's CTK try/catch and
   `IDispatcher` pin are device-visible changes — do them with a deploy + Kitchen tour.
 - Docs: `README.md:24`, `docs/tools.md:25,157-159`, `docs/parity-plan.md:10,25,131-132,167` → 31 legs, drop the
   CI claim; `docs/architecture.md:23` → heartbeat wording; `docs/skiasharp-plan.md:161,183` → the real test folder,
   no diagnostics assembly; `SkiaSharp.csproj:27` delete the phantom IVT; `docs/aot-and-trimming.md:141,355,435-438`
   cite legs instead of Q-numbers; `docs/sailfishos-packaging.md:4` product name.
-- Repo: `docs/media/*.mp4|gif` (about 23 MB) to Git LFS or a release asset; delete the empty
+- Repo: ~~`docs/media/*.mp4|gif` (about 23 MB) to Git LFS or a release asset~~ (MP4s untracked 2026-10-04); delete the empty
   `Directory.Build.targets` and `Directory.Packages.props` (or give them the common props); `Sample.csproj:44-75`
   → `ProjectReference` + the package's `runtimes/` assets instead of hand copies; Sample `Program.cs` → the
   template's shape; Kitchen `MauiProgram.cs:85-99` drop the try/catch around `UseMauiCommunityToolkit`, `:115-116`

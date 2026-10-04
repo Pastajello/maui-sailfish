@@ -113,7 +113,14 @@ if [ -z "${SF_TFM:-}" ]; then
 fi
 SF_PUBLISH_DIR="${SF_PUBLISH_DIR:-$SF_SAMPLE_DIR/bin/$SF_CONFIGURATION/$SF_TFM/$SF_RID/publish}"
 SF_RPM_DIR="${SF_RPM_DIR:-$SF_SAMPLE_DIR/bin/SailfishRpm}"
-SF_RPM_ARCH="${SF_RPM_ARCH:-aarch64}"
+# The RPM architecture follows the RID, as SailfishRpmArch does in the targets.
+if [ -z "${SF_RPM_ARCH:-}" ]; then
+	case "$SF_RID" in
+		linux-arm) SF_RPM_ARCH=armv7hl ;;
+		linux-x64) SF_RPM_ARCH=x86_64 ;;
+		*) SF_RPM_ARCH=aarch64 ;;
+	esac
+fi
 
 # Managed payload profile (docs/aot-and-trimming.md): jit, trim or trimr2r (default).
 # SF_PROFILE_PROPS is expanded unquoted into the dotnet publish command line.

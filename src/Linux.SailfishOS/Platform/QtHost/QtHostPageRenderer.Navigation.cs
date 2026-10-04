@@ -158,15 +158,12 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			if (!settled)
 				QtHostDiag.Warn(QtHostDiagChannel.Navigation,
 					$"navigation not settled natively in time (busy={_navStackBusy}, native {_nativePageIds.Count} vs MAUI {ExpectedNativeDepth()}) — completing anyway");
-			NavigationsSettled += settled ? 1 : 0;
 			// Next loop turn: the awaiting app code (PushAsync continuations) must not run inside this poll and fuse
 			// with its reconcile into one long frame.
 			QtHostRuntime.Post(done);
 		}
 	}
 
-	/// <summary>Navigations MAUI saw complete on a settled native stack (the rest timed out).</summary>
-	public long NavigationsSettled { get; private set; }
 
 	private int ExpectedNativeDepth()
 	{
@@ -271,39 +268,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		}
 
 		// --- activation bridge (window focus + application foreground) ---
-		if (_lastWindowActive is null)
-		{
-			if (!_appLifecycleStarted)
-			{
-				// No Created: MAUI startup already sent it (re-sending throws).
-				_appLifecycleStarted = true;
-				if (appState == 4)
-					RaiseWindowLifecycle(w => w.Resumed(), "Resumed (Qt.application.state=ApplicationActive)", 3);
-			}
-			if (active)
-				RaiseWindowLifecycle(w => w.Activated(), "Activated (window active at startup)", 1);
-		}
-		else if (active != _lastWindowActive.Value)
-		{
-			if (active) RaiseWindowLifecycle(w => w.Activated(), "Activated", 1);
-			else RaiseWindowLifecycle(w => w.Deactivated(), "Deactivated", 2);
-		}
-		_lastWindowActive = active;
-
-		if (_lastAppState != -1 && appState != _lastAppState)
-		{
-			// Qt.ApplicationState: Suspended=0, Hidden=1, Inactive=2, Active=4.
-			if (appState == 4)
-				RaiseWindowLifecycle(w => w.Resumed(), $"Resumed (appState {_lastAppState}→{appState})", 3);
-			else if (appState == 0)
-				RaiseWindowLifecycle(w => w.Stopped(), $"Stopped (appState {_lastAppState}→{appState})", 4);
-		}
-		_lastAppState = appState;
-		// Host creation waits for a stable Active state: objects created in the activation rebuild die.
-		if (appState != 4)
-			_activeSinceMs = 0;
-		else if (_activeSinceMs == 0)
-			_activeSinceMs = Environment.TickCount64;
+		_activation.Observe(active, appState);
 
 		// --- first registry read: adopt the shell-created root page(s) ---
 		if (!_navStateAdopted)
@@ -324,7 +289,6 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		if (topId != _topModelPageId)
 		{
 			_topModelPageId = topId;
-			ModelPageSwitches++;
 			ResetModelPageScopedState($"top model page → '{topId}'");
 		}
 
@@ -349,7 +313,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 	private void FullPageReset(string reason)
 	{
 		// The blanket destroy takes parked back-cache hosts too, so retire the mirror first.
-		DropRetention();
+		_pageCache.DropAll();
 		CallPage(null, "__destroyAllHosts");
 		TearDownHosts(pageId: null, pageAlive: false);   // also retires every collection list
 		ResetModelPageScopedState(reason);
@@ -363,17 +327,29 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 	/// </summary>
 	private void ResetModelPageScopedState(string reason)
 	{
+		ReArmPageChrome();
+		foreach (var host in _current)
+			host.AppliedGeometrySet = false;
+		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"model page switched ({reason}) — title/background/scroll/geometry re-armed");
+	}
+
+	/// <summary>
+	/// The page chrome (title, busy, back, orientations, colour scheme, background, tabs) and the flickable state belong
+	/// to the model page instance, which is fresh or cleared after a navigation or a model-page switch: their diff bases
+	/// are dropped so they are sent again, and a layout pass follows (W3.5: two resets kept different subsets; the
+	/// model-page switch missed the tabs).
+	/// </summary>
+	private void ReArmPageChrome()
+	{
 		_renderedTitle = string.Empty;
 		_renderedBusy = string.Empty;
 		_renderedBack = string.Empty;
 		_renderedOrientations = string.Empty;
 		_renderedScheme = string.Empty;
 		_renderedBackground = string.Empty;
+		_renderedTabs = string.Empty;
 		_lastScrollPush = string.Empty;
 		_layoutDirty = true;
-		foreach (var host in _current)
-			host.AppliedGeometrySet = false;
-		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"model page switched ({reason}) — title/background/scroll/geometry re-armed");
 	}
 
 	private bool TryReadNavState(out List<string> ids, out bool busy, out bool topModel, out bool active, out int appState,
@@ -388,7 +364,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		string json;
 		try
 		{
-			json = QtHostRuntime.Eval(NavStateJs);
+			json = CallShell("navState") ?? QtHostRuntime.Eval(NavStateJs);
 		}
 		catch
 		{
@@ -446,8 +422,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 	{
 		// Navigation timing starts at the first push and closes at the new page's SendAppearing.
 		_navStopwatch ??= System.Diagnostics.Stopwatch.StartNew();
-		_tlStart = 0;
-		TimelineStart("push");
+		RestartTimeline("push");
 		for (var i = 0; i < count; i++)
 		{
 			// Park the outgoing page's hosts in the back cache so a pop-back restores them. Only safe after the
@@ -502,8 +477,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		if (count <= 0 || _nativePageIds.Count == 0)
 			return;
 		_navStopwatch ??= System.Diagnostics.Stopwatch.StartNew();
-		_tlStart = 0;
-		TimelineStart("pop");
+		RestartTimeline("pop");
 		for (var i = 0; i < count; i++)
 		{
 			if (_nativePageIds.Count == 0)
@@ -512,7 +486,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			// Animated back like the Silica gesture: the popped page keeps its QML hosts while sliding out and the
 			// mirror drops them without an eval. Requires the returned-to page to be its restored back-cache self.
 			var animated = count == 1 && NavAnimation && RetentionArmed &&
-			               _nativePageIds.Count > 1 && IsParkedOn(ResolveCurrentPage(), _nativePageIds[_nativePageIds.Count - 2]);
+			               _nativePageIds.Count > 1 && _pageCache.IsParkedOn(ResolveCurrentPage(), _nativePageIds[_nativePageIds.Count - 2]);
 			if (animated)
 			{
 				// The page slides out with its content (Silica keeps a popped page painted until the transition ends).
@@ -553,6 +527,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 					$"pageStack.pop '{id}' FAILED (native rc={rc}) — mirror rolled back, retried shortly " +
 					$"(mauiDepth={ExpectedNativeDepth()} nativeMirror={_nativePageIds.Count + 1})");
 				KickIn(250);
+				FlushDeferredNativeDestroys();   // the torn-down hosts' objects: the retry rebuilds them, nothing slides out
 				_nativePageIds.Add(id);   // the page never left the stack
 				// Undo the restore: re-park the returned-to page's hosts under their own id instead of leaving them live on
 				// the wrong page. The popped page's hosts are already gone; the retry rebuilds them.
@@ -562,7 +537,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 				return;   // native depth unchanged: the rest of the batch is moot
 			}
 			NativePops++;
-			PruneParked();   // pages parked on the popped model page died with it
+			_pageCache.Prune();   // pages parked on the popped model page died with it
 			LogNavOp("POP", "MAUI", id, $"rc={rc}|{(animated ? "Animated" : "Immediate")}");
 		}
 	}
@@ -586,14 +561,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		_collection.TearDownListsForHosts(_current.Select(h => h.Id).ToHashSet());
 		if (_current.Count == 0)
 			return;
-		var hosts = _current.ToList();
-		if (pageAlive && pageId is not null)
-			DestroyHosts(hosts, pageId);
-		else
-			foreach (var host in hosts)
-				ReleaseHost(host);
-		foreach (var host in hosts)
-			ReleaseSyntheticSlot(host);
+		ReleaseHosts(_current.ToList(), pageId, sendOps: pageAlive && pageId is not null);
 		_current.Clear();
 		_byId.Clear();
 	}
@@ -610,12 +578,11 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 	{
 		// The popped page took its QML hosts with it: drop the mirror without an eval (dead handles resolve to null).
 		TearDownHosts(pageId: null, pageAlive: false);
-		PruneParked();
+		_pageCache.Prune();
 		// The returned-to page is already visible under the dying one: restore its parked hosts now.
 		if (returnedTo is not null)
 		{
-			_tlStart = 0;
-			TimelineStart("gesture-pop");
+			RestartTimeline("gesture-pop");
 			RestoreRetention(returnedTo);
 		}
 		// Dead handles counted mid-transition belonged to the dying page; don't let them wipe the revealed page.
@@ -625,9 +592,10 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 
 	void INativeStackOwner.OnResynced(bool topGone)
 	{
+		FlushDeferredNativeDestroys();   // a resync ends whatever transition they waited for
 		if (topGone)
 			TearDownHosts(pageId: null, pageAlive: false);
-		PruneParked();
+		_pageCache.Prune();
 		_layoutDirty = true;
 	}
 

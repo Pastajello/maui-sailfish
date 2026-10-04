@@ -37,24 +37,33 @@ internal sealed class SailfishShare : IShare
 	{
 		if (!QtHostServices.Ensure(Service, Qml))
 			throw new FeatureNotSupportedException("Sailfish.Share is not available.");
-		var sb = new StringBuilder("{\"title\":").Append(QtHostServices.Js(title))
-			.Append(",\"mimeType\":").Append(QtHostServices.Js(mimeType)).Append(",\"resources\":[");
-		var first = true;
-		foreach (var resource in resources)
+		var json = BridgeJson.Write(w =>
 		{
-			if (!first)
-				sb.Append(',');
-			first = false;
-			sb.Append(resource switch
+			w.WriteString("title", title);
+			w.WriteString("mimeType", mimeType);
+			w.WriteStartArray("resources");
+			foreach (var resource in resources)
 			{
-				string path => QtHostServices.Js(path),
-				(string name, string data, string type) =>
-					"{\"name\":" + QtHostServices.Js(name) + ",\"data\":" + QtHostServices.Js(data) + ",\"type\":" + QtHostServices.Js(type) + "}",
-				_ => "null",
-			});
-		}
-		sb.Append("]}");
-		return QtHostServices.Eval(Service, $"s.prepare({QtHostServices.Js(sb.ToString())})");
+				switch (resource)
+				{
+					case string path:
+						w.WriteStringValue(path);
+						break;
+					case (string name, string data, string type):
+						w.WriteStartObject();
+						w.WriteString("name", name);
+						w.WriteString("data", data);
+						w.WriteString("type", type);
+						w.WriteEndObject();
+						break;
+					default:
+						w.WriteNullValue();
+						break;
+				}
+			}
+			w.WriteEndArray();
+		});
+		return QtHostServices.Eval(Service, $"s.prepare({QtHostServices.Js(json)})");
 	}
 
 	internal static (string Title, string Mime, List<object> Resources) Describe(ShareTextRequest request)
@@ -103,8 +112,9 @@ internal sealed class SailfishShare : IShare
 internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 {
 	private const string Service = "pickers";
+	// One native picker service for both MediaPicker and FilePicker instances, so the open request is shared. Touched
+	// only on the Qt thread: Pick hops there (W1.8), and the result event arrives there.
 	private static TaskCompletionSource<List<string>>? _pending;
-	private static bool _subscribed;
 
 	private const string Qml = """
 		import QtQuick 2.6
@@ -157,25 +167,13 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 		}
 		""";
 
-	private static Task<List<string>> Pick(string kind, IEnumerable<string>? filters = null)
+	private static Task<List<string>> Pick(string kind, IEnumerable<string>? filters = null) =>
+		QtThread.Run(() => PickOnQt(kind, filters?.ToList()));
+
+	private static Task<List<string>> PickOnQt(string kind, IEnumerable<string>? filters)
 	{
-		if (!QtHostServices.Ensure(Service, Qml))
+		if (!QtHostServices.Ensure(Service, Qml, (ShellEvents.PickersResult, OnResult)))
 			throw new FeatureNotSupportedException("Sailfish.Pickers is not available.");
-		if (!_subscribed)
-		{
-			_subscribed = true;
-			QtHostServices.Subscribe(ShellEvents.PickersResult, e =>
-			{
-				var paths = new List<string>();
-				if (e.TryGetProperty("paths", out var array) && array.ValueKind == JsonValueKind.Array)
-					foreach (var p in array.EnumerateArray())
-						if (p.GetString() is { Length: > 0 } path)
-							paths.Add(path.StartsWith("file://", StringComparison.Ordinal) ? new Uri(path).LocalPath : path);
-				var pending = _pending;
-				_pending = null;
-				pending?.TrySetResult(paths);
-			});
-		}
 		_pending?.TrySetResult(new List<string>());   // a new request supersedes an open one
 		_pending = new TaskCompletionSource<List<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var filterJs = "[" + string.Join(",", (filters ?? Array.Empty<string>()).Select(QtHostServices.Js)) + "]";
@@ -186,6 +184,18 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 			QtHostDiag.Warn(QtHostDiagChannel.QtHost, $"picker '{kind}' failed to open: {result}");
 		}
 		return _pending.Task;
+	}
+
+	private static void OnResult(JsonElement e)
+	{
+		var paths = new List<string>();
+		if (e.TryGetProperty("paths", out var array) && array.ValueKind == JsonValueKind.Array)
+			foreach (var p in array.EnumerateArray())
+				if (p.GetString() is { Length: > 0 } path)
+					paths.Add(path.StartsWith("file://", StringComparison.Ordinal) ? new Uri(path).LocalPath : path);
+		var pending = _pending;
+		_pending = null;
+		pending?.TrySetResult(paths);
 	}
 
 	private static FileResult? One(List<string> paths) => paths.Count > 0 ? ToFileResult(paths[0]) : null;

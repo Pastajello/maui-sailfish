@@ -24,6 +24,10 @@ internal sealed class TestStatics : IDisposable
 	private readonly bool _rowPool = QtHostListAdapter.RowPoolEnabled;
 	private readonly bool _firstBuildWaitsFrame = QtHostListAdapter.FirstBuildWaitsFrame;
 	private readonly Action _services = QtHostServices.CaptureForTests();
+	private readonly Action _cover = SailfishCover.CaptureForTests();
+	private readonly Action _openUrl = SailfishOpenUrl.CaptureForTests();
+	private readonly Action _theme = SailfishTheme.CaptureForTests();
+	private readonly Action _remorse = SailfishRemorse.CaptureForTests();
 
 	public void Dispose()
 	{
@@ -40,5 +44,9 @@ internal sealed class TestStatics : IDisposable
 		QtHostListAdapter.RowPoolEnabled = _rowPool;
 		QtHostListAdapter.FirstBuildWaitsFrame = _firstBuildWaitsFrame;
 		_services();
+		_cover();
+		_openUrl();
+		_theme();
+		_remorse();
 	}
 }

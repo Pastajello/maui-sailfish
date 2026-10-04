@@ -23,6 +23,21 @@ public class SynchronizationContextTests
 		Assert.True(ran);
 	}
 
+	// W1.7: once the Qt loop ended nothing drains the queue; Dispatch reported the work as queued and a Send from
+	// another thread waited forever.
+	[Fact]
+	public void After_the_loop_ended_dispatch_refuses_and_send_does_not_hang()
+	{
+		var dispatcher = new SailfishDispatcher();
+		var context = new SailfishSynchronizationContext(dispatcher);
+		dispatcher.Close();
+
+		Assert.False(dispatcher.Dispatch(() => { }));
+		var send = Task.Run(() => context.Send(_ => { }, null));
+		Assert.True(((IAsyncResult)send).AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(5)), "Send hung after the loop ended");
+		Assert.IsType<InvalidOperationException>(send.Exception?.GetBaseException());
+	}
+
 	[Fact]
 	public void Send_OnTheOwnerThread_RunsInline()
 	{

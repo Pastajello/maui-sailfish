@@ -18,7 +18,7 @@ internal static partial class AdapterSnapshots
 	/// Reconcile-time snapshot of an InputView: static text-input state only. Focus, cursor and selection are
 	/// transient native state pushed only on PropertyChanged, so a poll can never clobber the live caret.
 	/// </summary>
-	internal static Dictionary<string, object?> TextInputProps(InputView input, int? echoMode, int? maxLength)
+	internal static Dictionary<string, object?> TextInputProps(InputView input)
 	{
 		var props = new Dictionary<string, object?>
 		{
@@ -31,13 +31,11 @@ internal static partial class AdapterSnapshots
 			// (the "borderless entry" idiom: BackgroundColor="Transparent" inside the app's own frame).
 			["mauiNoUnderline"] = input.IsSet(VisualElement.BackgroundColorProperty) || input.IsSet(VisualElement.BackgroundProperty),
 		};
-		if (echoMode is { } echo)
-			props["echoMode"] = echo;
-		if (maxLength is { } len)
-			props["maximumLength"] = len;
 		switch (input)
 		{
 			case Entry entry:
+				props["echoMode"] = entry.IsPassword ? SailfishKeys.EchoMode.Password : SailfishKeys.EchoMode.Normal;
+				props["maximumLength"] = ClampMaxLength(entry.MaxLength);
 				props["mauiEnterIcon"] = EnterKeyIcon(entry.ReturnType);
 				props["mauiClearButton"] = entry.ClearButtonVisibility == ClearButtonVisibility.WhileEditing;
 				break;
@@ -93,7 +91,7 @@ internal static partial class AdapterSnapshots
 		{
 			["mauiColor"] = input.TextColor ?? Colors.Transparent,
 			["mauiPlaceholderColor"] = input.PlaceholderColor ?? Colors.Transparent,
-			["mauiPixelSize"] = SailfishMeasure.AppFontSize(input, Entry.FontSizeProperty, font.Size) is { } size ? size * density : 0.0,
+			["mauiPixelSize"] = SailfishFontRules.AppFontSize(input, Entry.FontSizeProperty, font.Size) is { } size ? size * density : 0.0,
 			["mauiFamily"] = QtHostFonts.Resolve(font.Family),
 			["mauiBold"] = font.Weight >= FontWeight.Bold,
 			["mauiItalic"] = font.Slant == FontSlant.Italic,

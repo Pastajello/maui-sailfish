@@ -25,6 +25,9 @@ public abstract partial class SailfishMauiApplication
 
 		BuildApplication();
 		var window = CreateWindow();
+		// Before OnLaunched: an app that handles a URL or starts WebAuthenticator there needs it enabled (W1.9).
+		var meta = SailfishAppMeta.Current;
+		SailfishOpenUrl.Configure(meta.DbusName, meta.DbusPath, meta.DbusIface);
 		RaiseLaunched();
 
 		var dispatcherProvider = Services.GetRequiredService<Microsoft.Maui.Dispatching.IDispatcherProvider>();
@@ -262,6 +265,8 @@ public abstract partial class SailfishMauiApplication
 		}
 		// The window is gone with the loop: its scoped services go with it.
 		_windowScope?.Dispose();
+		// tools/sf run --wait reads this line: the launcher's own exit status does not reach it.
+		Console.Error.WriteLine($"[Sailfish] exit code {exitCode}");
 		return exitCode;
 	}
 }

@@ -33,10 +33,31 @@ internal sealed class QtHostCollectionBridge
 	// Delegates unresolvable when their attach/rebind drained: on a hidden page Qt 5.6 parks them unparented
 	// in its cache with no destruction event. The poll loop retries until they resolve or the list retires.
 	private const int RetryLogInterval = 180;   // ~3 s at the 16 ms poll rate
+	// Qt thread only (attach events, the pending pass, list retirement).
 	private readonly List<(QtHostListAdapter State, int Row, string Dg, int Attempts)> _attachRetries = new();
+	// Guards _pendingAtMs, which SchedulePending sets from any thread (W1.8: the retry list itself was the lock object).
+	private readonly object _pendingSync = new();
 
-	/// <summary>Parked attaches of all lists (an adapter queues and drops its own).</summary>
-	internal List<(QtHostListAdapter State, int Row, string Dg, int Attempts)> AttachRetries => _attachRetries;
+	/// <summary>Parks an unresolvable delegate attach of <paramref name="adapter"/> for poll retries (deduped by
+	/// delegate; the newest row wins). W4: the adapter used to edit the list itself.</summary>
+	internal void ParkAttach(QtHostListAdapter adapter, int rowIndex, string dgObj)
+	{
+		for (var i = 0; i < _attachRetries.Count; i++)
+		{
+			if (_attachRetries[i].State == adapter && _attachRetries[i].Dg == dgObj)
+			{
+				_attachRetries[i] = (adapter, rowIndex, dgObj, _attachRetries[i].Attempts);
+				return;
+			}
+		}
+		QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"delegate '{dgObj}' not resolvable yet (row {rowIndex}) — parked for poll retry (lastError='{QtHostRuntime.LastErrorText}')");
+		_attachRetries.Add((adapter, rowIndex, dgObj, 0));
+		SchedulePending(ResyncIntervalMs);
+	}
+
+	/// <summary>Drops <paramref name="adapter"/>'s parked attaches of delegate <paramref name="dgObj"/>.</summary>
+	internal void CancelAttach(QtHostListAdapter adapter, string dgObj) =>
+		_attachRetries.RemoveAll(r => r.State == adapter && r.Dg == dgObj);
 
 	/// <summary>Whether <paramref name="adapter"/> is the live registration of its view.</summary>
 	internal bool IsRegistered(QtHostListAdapter adapter) =>
@@ -79,17 +100,27 @@ internal sealed class QtHostCollectionBridge
 	public long ListEvents { get; private set; }
 	public long SelectionsApplied { get; internal set; }
 
-	/// <summary>Row taps delivered to a TapGestureRecognizer in the item template.</summary>
-	public long RowTapsFired { get; internal set; }
 	public long ScrollsReported { get; internal set; }
 
-	/// <summary>RemainingItemsThresholdReached deliveries.</summary>
-	public long ThresholdReachedFires { get; internal set; }
 
 	public QtHostCollectionBridge(QtHostPageRenderer renderer) => _renderer = renderer;
 
-	/// <summary>A slot is being measured/mapped: slot change events are its own.</summary>
-	internal bool SlotMapping { get; set; }
+	/// <summary>A slot is being measured/mapped: slot change events are its own. A depth, not a flag: mapping a slot
+	/// measures, and an inner measure's exit must not end the outer mapping (W1.5).</summary>
+	internal bool IsMapping => _slotMappingDepth > 0;
+	private int _slotMappingDepth;
+	/// <summary>A slot/row mapping or measure in progress, for a <c>using</c>: its own change events are not slot
+	/// changes (W4: replaces paired enter/exit calls).</summary>
+	internal MappingScopeToken MappingScope()
+	{
+		_slotMappingDepth++;
+		return new MappingScopeToken(this);
+	}
+
+	internal readonly struct MappingScopeToken(QtHostCollectionBridge bridge) : IDisposable
+	{
+		public void Dispose() => bridge._slotMappingDepth--;
+	}
 
 	/// <summary>objectName of the first attached list adapter (diagnostics eval target).</summary>
 	public string? FirstListObjectName
@@ -130,9 +161,8 @@ internal sealed class QtHostCollectionBridge
 		foreach (var state in ActiveLists)
 			foreach (var dg in state.ByHandle.Values)
 				foreach (var (root, _) in dg.Cells)
-					for (Element? x = element; x is not null; x = x.Parent)
-						if (ReferenceEquals(x, root))
-							return dg.Obj;
+					if (ElementTree.IsWithin(element, root))
+						return dg.Obj;
 		return null;
 	}
 
@@ -172,9 +202,7 @@ internal sealed class QtHostCollectionBridge
 				if (dg.Row?.Index != rowIndex)
 					continue;
 				if (dg.Handle == 0)
-					dg.Handle = QtHostRuntime.FindObject(dg.Obj);
-				if (dg.Handle == 0)
-					dg.Handle = QtHostRuntime.FindVisual(state.Host.NativeHandle, dg.Obj);
+					dg.Handle = QtHostRuntime.FindScoped(dg.Obj, state.Host.NativeHandle);
 				if (dg.Handle != 0 && QtHostRuntime.TryItemGeometry(dg.Handle, out var geo))
 				{
 					xQt = geo.X + geo.Width / 2;
@@ -311,11 +339,6 @@ internal sealed class QtHostCollectionBridge
 		return state;
 	}
 
-
-
-
-
-
 	/// <summary>A back-cached page returned: re-scan its lists' delegates, which Qt 5.6 reuses without
 	/// firing attach/rebind.</summary>
 	public void OnPageRestored(IReadOnlyCollection<NativeElementHost> hosts)
@@ -323,8 +346,8 @@ internal sealed class QtHostCollectionBridge
 		_sceneDirty = true;
 		foreach (var state in _byElement.Values)
 			if (hosts.Contains(state.Host))
-				state.ResyncPending = Math.Max(state.ResyncPending, ResyncTicksAfterRebuild);
-				SchedulePending(ResyncIntervalMs);
+				state.RequestResync(ResyncTicksAfterRebuild);
+		SchedulePending(ResyncIntervalMs);   // once for all of them
 	}
 
 	/// <summary>Reconcile hook: retires lists that left the desired tree.</summary>
@@ -351,16 +374,8 @@ internal sealed class QtHostCollectionBridge
 		foreach (var host in created)
 			if (_byHostId.TryGetValue(host.Id, out var state))
 			{
-				state.LastRowsJson = string.Empty;   // fresh QML object: force the pushes
-				state.LastSelJson = string.Empty;
-				foreach (var slot in state.Slots.Values)
-					UnwatchSlot(slot);
-				state.Slots.Clear();                 // slot placeholders were re-created
-				state.SlotsDirty = true;
-				state.RowsDirty = true;
+				state.OnNativeObjectRecreated();
 				SchedulePending();
-				state.LastWidthDp = -1;
-				state.ReadLayout();
 			}
 	}
 
@@ -392,7 +407,7 @@ internal sealed class QtHostCollectionBridge
 	internal void SchedulePending(int delayMs = 0)
 	{
 		var at = Environment.TickCount64 + delayMs;
-		lock (_attachRetries)
+		lock (_pendingSync)
 		{
 			if (_pendingAtMs != 0 && _pendingAtMs <= at)
 				return;
@@ -400,7 +415,7 @@ internal sealed class QtHostCollectionBridge
 		}
 		void Run()
 		{
-			lock (_attachRetries)
+			lock (_pendingSync)
 			{
 				if (_pendingAtMs != at)
 					return;   // superseded by an earlier run
@@ -411,7 +426,6 @@ internal sealed class QtHostCollectionBridge
 				_processAgain = true;   // asked from inside a pass: one more pass when it ends
 				return;
 			}
-			PendingRuns++;
 			ProcessPending();
 		}
 		if (delayMs <= 0)
@@ -421,13 +435,13 @@ internal sealed class QtHostCollectionBridge
 		else if (!QtHostRuntime.IsQtThread)
 			QtHostRuntime.Post(() =>
 			{
-				lock (_attachRetries)
+				lock (_pendingSync)
 					if (_pendingAtMs == at)
 						_pendingAtMs = 0;
 				SchedulePending(delayMs);   // on the loop, where the dispatcher lives
 			});
 		else
-			lock (_attachRetries)
+			lock (_pendingSync)
 				_pendingAtMs = 0;   // no dispatcher (tests): their polls drive the work
 	}
 
@@ -439,13 +453,11 @@ internal sealed class QtHostCollectionBridge
 	{
 		get
 		{
-			lock (_attachRetries)
+			lock (_pendingSync)
 				return _pendingAtMs != 0;
 		}
 	}
 
-	/// <summary>List work runs scheduled by the lists themselves (diagnostics).</summary>
-	public long PendingRuns { get; private set; }
 
 	/// <summary>Deferred row building (needs the laid-out width), slot materialization, the delegate resync and
 	/// parked attaches; scheduled by <see cref="SchedulePending"/>, and run by every renderer poll.</summary>
@@ -484,31 +496,7 @@ internal sealed class QtHostCollectionBridge
 			return;
 		var clock = System.Diagnostics.Stopwatch.StartNew();   // the turn's budget for deferred off-screen rows
 		foreach (var state in _byElement.Values.ToList())
-		{
-			if (!state.Host.IsAttached)
-				continue;
-			var widthDp = state.Host.MauiLogicalBounds.Width;
-			if (widthDp <= 0)
-				continue;   // the layout pass hasn't placed the list yet
-			// Horizontal lists and carousels also size items from the list height.
-			var crossChanged = (state.Horizontal || state.Carousel) &&
-			                   Math.Abs(state.Host.MauiLogicalBounds.Height - state.LastCrossDp) > 0.5;
-			if (state.RowsDirty || crossChanged || Math.Abs(widthDp - state.LastWidthDp) > 0.5)
-			{
-				state.RebuildRows(widthDp);
-				if (crossChanged && state.Horizontal && state.Slots.Count > 0)
-					state.SlotsDirty = true;   // horizontal header/footer widths follow the height
-			}
-			if (state.SlotsDirty)
-				state.MaterializeSlots(widthDp);
-			if (state.RowsRemeasure)
-				state.RemeasureRows();
-			if (state.ResyncPending > 0)
-			{
-				state.ResyncPending--;
-				state.ResyncDelegates();
-			}
-		}
+			state.RunPendingWork();
 		if (_attachRetries.Count > 0)
 			RetryPendingAttaches();
 		// Off-screen rows (the cache buffer) take what is left of the turn's budget; the rest waits a frame so Qt
@@ -579,30 +567,8 @@ internal sealed class QtHostCollectionBridge
 	internal void OnHostHealed(NativeElementHost host)
 	{
 		foreach (var state in _byElement.Values)
-		{
-			foreach (var dg in state.ByHandle.Values)
-			{
-				var i = dg.Children.IndexOf(host);
-				if (i < 0)
-					continue;
-				dg.Children.RemoveAt(i);
-				if (dg.Row is not null)
-					dg.Row.DgObj = null;   // resync re-materializes this row
-				state.ResyncPending = Math.Max(state.ResyncPending, ResyncTicksAfterRebuild);
-				SchedulePending(ResyncIntervalMs);
+			if (state.ForgetDeadHost(host))
 				return;
-			}
-			foreach (var slot in state.Slots.Values)
-			{
-				var i = slot.Children.IndexOf(host);
-				if (i < 0)
-					continue;
-				slot.Children.RemoveAt(i);
-				state.SlotsDirty = true;
-				SchedulePending();
-				return;
-			}
-		}
 	}
 
 	/// <summary>
@@ -829,14 +795,13 @@ internal sealed class QtHostCollectionBridge
 			$"list destroy {hosts.Count} row/slot hosts on '{pageId}' ids=[{string.Join(",", hosts.Select(h => h.Id))}]");
 		// Row roots belong to the page canvas (MauiModelPage.__createHost), not the delegate, so the objects are alive
 		// here: the destroy ops delete them and clean the registry. Descendants first (the list is pre-order).
-		_renderer.DestroyHosts(Enumerable.Reverse(hosts).ToList(), target, unroute: true);
+		_renderer.ReleaseHosts(Enumerable.Reverse(hosts).ToList(), target, sendOps: true);
 		ItemsDestroyed += hosts.Count;
 		hosts.Clear();
 	}
 
 	/// <summary>The model-page instance new row/slot hosts are created on (the reconcile eval's target).</summary>
-	internal string MirrorTop() =>
-		_renderer.NativePageIds.Count > 0 ? _renderer.NativePageIds[_renderer.NativePageIds.Count - 1] : string.Empty;
+	internal string MirrorTop() => _renderer.TopNativePageId ?? string.Empty;
 
 	/* --- Geometry: row/slot subtrees are placeholder-relative, so scrolling pushes nothing --- */
 

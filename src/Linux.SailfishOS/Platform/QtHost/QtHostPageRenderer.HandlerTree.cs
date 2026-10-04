@@ -18,8 +18,6 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>Subtree passes that applied a handler's tree change.</summary>
 	public long SubtreeReconciles { get; private set; }
 
-	/// <summary>Total and last subtree pass time (ms), layout included.</summary>
-	public double SubtreeReconcileTotalMs { get; private set; }
 	public double LastSubtreeReconcileMs { get; private set; }
 
 	/// <summary>The last subtree pass before its layout (ms): walk + diff, the ops eval (QML objects created), handle
@@ -68,7 +66,6 @@ internal sealed partial class QtHostPageRenderer
 		{
 			SubtreeReconciles++;
 			LastSubtreeReconcileMs = sw.Elapsed.TotalMilliseconds;
-			SubtreeReconcileTotalMs += LastSubtreeReconcileMs;
 			return;
 		}
 		SubtreeFallbacks++;
@@ -133,10 +130,7 @@ internal sealed partial class QtHostPageRenderer
 				// must be reclaimed from the page cache first (the page reconcile does).
 				if (!newHosts.Add(host) || (liveHosts.Contains(host) && !oldHosts.Contains(host)) || IsParked(host))
 					return $"{host} moved in from outside the subtree";
-				if (host.Element is VisualElement visualState && props.TryGetValue(host, out var hostProps))
-					QtHostVisualState.Merge(hostProps, visualState);
-				if (host.QmlUri == "image" && props.TryGetValue(host, out var clipProps))
-					QtHostClip.Merge(clipProps, host.Element as VisualElement, page);
+				MergeGenericState(host, props, page);
 			}
 		}
 
@@ -144,11 +138,8 @@ internal sealed partial class QtHostPageRenderer
 		// Destroy descendants before ancestors.
 		var destroyed = _current.Where(h => oldHosts.Contains(h) && !newHosts.Contains(h)).Reverse().ToList();
 		foreach (var host in destroyed)
-		{
 			diff.Destroy(host);
-			ReleaseHost(host);
-			_byId.Remove(host.Id);
-		}
+		ReleaseHosts(destroyed, pageId: null, sendOps: false);   // the ops are in the diff's batch
 		// In pre-order per root: a survivor is re-attached where it moved and updated in place, a new host is created.
 		var updates = 0;
 		foreach (var (_, desired) in desiredByRoot)
@@ -192,7 +183,6 @@ internal sealed partial class QtHostPageRenderer
 			_collection.OnHostsCreated(created);
 		}
 		var attachEnd = System.Diagnostics.Stopwatch.GetTimestamp();
-		static double Ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 		LastSubtreeSplit = (Ms(walkStart, opsStart), Ms(opsStart, attachStart), Ms(attachStart, attachEnd));
 		QtHostDiag.Trace(QtHostDiagChannel.QtHost,
 			$"'{TitleOf(page)}' subtree reconcile [{string.Join(",", roots.Select(r => r.Host.Id))}] create={created.Count} " +
@@ -228,13 +218,7 @@ internal sealed partial class QtHostPageRenderer
 		return false;
 	}
 
-	private static bool IsAncestor(Element ancestor, Element element)
-	{
-		for (var e = element.Parent; e is not null; e = e.Parent)
-			if (ReferenceEquals(e, ancestor))
-				return true;
-		return false;
-	}
+	private static bool IsAncestor(Element ancestor, Element element) => ElementTree.IsAncestor(ancestor, element);
 
 	/// <summary>
 	/// A Sailfish handler disconnected (DisconnectHandler, e.g. after a pop or an explicit disconnect). If its element
@@ -253,11 +237,8 @@ internal sealed partial class QtHostPageRenderer
 				if (h.Parent is { } parent && inside.Contains(parent))
 					inside.Add(h);
 			var doomed = _current.Where(inside.Contains).Reverse().ToList();
-			DestroyHosts(doomed, pageId: null, unroute: true);
-			foreach (var h in doomed)
-				h.AppliedParentId = null;
-			_current.RemoveAll(inside.Contains);
-			_collection.SyncDesired(_parkedHosts.Count == 0 ? _current : _current.Concat(_parkedHosts).ToList());
+			ReleaseHosts(doomed, pageId: null, sendOps: true);
+			_collection.SyncDesired(WithParked(_current));
 			HandlerReleases++;
 			RequestLayout();
 		}
@@ -291,7 +272,7 @@ internal sealed partial class QtHostPageRenderer
 			if (kind is not ("create" or "destroy" or "reparent" or "order"))
 				continue;
 			var id = op.GetValueOrDefault("id") as string;
-			if (id is not null && id.StartsWith("synth-", StringComparison.Ordinal))
+			if (IsSyntheticId(id))
 				continue;
 			if (kind == "create" && id is not null && _byId.TryGetValue(id, out var host) && _awaitingArrange.Contains(host.Element))
 			{

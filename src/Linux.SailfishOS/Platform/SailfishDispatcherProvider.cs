@@ -48,8 +48,18 @@ internal class SailfishDispatcher : IDispatcher
 
 	public IDispatcherTimer CreateTimer() => new SailfishDispatcherTimer(this);
 
+	private volatile bool _closed;
+
+	/// <summary>The loop that drains this queue has ended (QtHostRuntime.Run returned): nothing queued from now on
+	/// would ever run, so Dispatch refuses it and a cross-thread Send fails instead of waiting forever (W1.7).</summary>
+	internal void Close() => _closed = true;
+
+	internal bool IsClosed => _closed;
+
 	public bool Dispatch(Action action)
 	{
+		if (_closed)
+			return false;
 		_queue.Enqueue(action);
 		SailfishRuntime.RequestWake(0);   // wake the event-driven loop now
 		return true;
@@ -125,13 +135,16 @@ internal sealed class SailfishSynchronizationContext : SynchronizationContext
 		}
 		using var done = new ManualResetEventSlim();
 		System.Runtime.ExceptionServices.ExceptionDispatchInfo? error = null;
-		_dispatcher.Dispatch(() =>
+		var queued = _dispatcher.Dispatch(() =>
 		{
 			try { d(state); }
 			catch (Exception ex) { error = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex); }
 			finally { done.Set(); }
 		});
-		done.Wait();
+		// Queued just before the loop ended, it never runs: the wait checks for that instead of blocking for good.
+		while (!queued || !done.Wait(250))
+			if (!queued || _dispatcher.IsClosed)
+				throw new InvalidOperationException("The Qt loop has ended; work sent to its thread can no longer run.");
 		error?.Throw();
 	}
 

@@ -13,7 +13,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 internal static class QtHostShapes
 {
 	/// <summary>Adapter URI (qml/adapters.json) of the Canvas shape painter.</summary>
-	public const string AdapterUri = "shape";
+	public const string AdapterUri = Handlers.SailfishKeys.Adapter.Shape;
 
 	// Serializes as [], so "no paint"/"no ops" still crosses the bridge.
 	private static readonly List<object?> None = new();

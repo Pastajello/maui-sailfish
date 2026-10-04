@@ -253,6 +253,82 @@ internal sealed partial class QtHostListAdapter
 		}
 	}
 
+	/// <summary>The list's QML object was created again (W4: the bridge used to reset these fields itself): every push
+	/// goes out again, the slot placeholders are new, and the rows are rebuilt for the new object.</summary>
+	internal void OnNativeObjectRecreated()
+	{
+		LastRowsJson = string.Empty;
+		LastSelJson = string.Empty;
+		foreach (var slot in Slots.Values)
+			QtHostCollectionBridge.UnwatchSlot(slot);
+		Slots.Clear();
+		SlotsDirty = true;
+		RowsDirty = true;
+		LastWidthDp = -1;
+		ReadLayout();
+	}
+
+	/// <summary>Resyncs the delegates for at least <paramref name="ticks"/> pending passes (Qt 5.6 reuses delegates
+	/// without telling).</summary>
+	internal void RequestResync(int ticks) => ResyncPending = Math.Max(ResyncPending, ticks);
+
+	/// <summary>This list's share of the bridge's pending pass: rows built for the laid-out size, slots, re-measured
+	/// rows, the delegate resync. The bridge keeps the loop and the rescheduling (W4).</summary>
+	internal void RunPendingWork()
+	{
+		if (!Host.IsAttached)
+			return;
+		var widthDp = Host.MauiLogicalBounds.Width;
+		if (widthDp <= 0)
+			return;   // the layout pass hasn't placed the list yet
+		// Horizontal lists and carousels also size items from the list height.
+		var crossChanged = (Horizontal || Carousel) && Math.Abs(Host.MauiLogicalBounds.Height - LastCrossDp) > 0.5;
+		if (RowsDirty || crossChanged || Math.Abs(widthDp - LastWidthDp) > 0.5)
+		{
+			RebuildRows(widthDp);
+			if (crossChanged && Horizontal && Slots.Count > 0)
+				SlotsDirty = true;   // horizontal header/footer widths follow the height
+		}
+		if (SlotsDirty)
+			MaterializeSlots(widthDp);
+		if (RowsRemeasure)
+			RemeasureRows();
+		if (ResyncPending > 0)
+		{
+			ResyncPending--;
+			ResyncDelegates();
+		}
+	}
+
+	/// <summary>Self-heal: drops a dead row/slot host of this list so the next resync re-materializes it (a row) or
+	/// the slot is built again. False when the host is not this list's.</summary>
+	internal bool ForgetDeadHost(NativeElementHost host)
+	{
+		foreach (var dg in ByHandle.Values)
+		{
+			var i = dg.Children.IndexOf(host);
+			if (i < 0)
+				continue;
+			dg.Children.RemoveAt(i);
+			if (dg.Row is not null)
+				dg.Row.DgObj = null;   // resync re-materializes this row
+			RequestResync(ResyncTicksAfterRebuild);
+			_bridge.SchedulePending(ResyncIntervalMs);
+			return true;
+		}
+		foreach (var slot in Slots.Values)
+		{
+			var i = slot.Children.IndexOf(host);
+			if (i < 0)
+				continue;
+			slot.Children.RemoveAt(i);
+			SlotsDirty = true;
+			_bridge.SchedulePending();
+			return true;
+		}
+		return false;
+	}
+
 	/// <summary>Marks the rows stale; rebuilds at once when the list is live, else on its scheduled pass.</summary>
 	internal void Invalidate()
 	{
@@ -284,15 +360,14 @@ internal sealed partial class QtHostListAdapter
 			Invalidate();
 	}
 
-	private bool _inRebuild;   // RebuildRows is running: its measures and templating are not cell changes
+	private bool _inRebuild => _rebuildDepth > 0;   // RebuildRows is running: its measures and templating are not cell changes
+	private int _rebuildDepth;                       // a depth: a nested rebuild's exit must not end the outer one (W1.5)
 
 	private string? _lastSignature;
 
 	/// <summary>Rows whose cells asked for a measure (<see cref="RemeasureRows"/> runs in the next pending pass).</summary>
 	internal bool RowsRemeasure { get; private set; }
 
-	/// <summary>Rows re-measured alone after a cell asked (no rebuild).</summary>
-	internal long RowsRemeasured { get; private set; }
 
 	/// <summary>Orientation/paging props of the adapter, in Qt units.</summary>
 	internal Dictionary<string, object?> LayoutProps()

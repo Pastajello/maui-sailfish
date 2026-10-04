@@ -10,12 +10,6 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 /// </summary>
 internal sealed class SailfishSemanticScreenReader : ISemanticScreenReader
 {
-	public void Announce(string text)
-	{
-		Announced++;
+	public void Announce(string text) =>
 		QtHostDiag.Trace(QtHostDiagChannel.Lifecycle, $"screen reader announcement (no screen reader on Sailfish): '{text}'");
-	}
-
-	/// <summary>Diagnostics: announcements received.</summary>
-	internal static int Announced { get; private set; }
 }

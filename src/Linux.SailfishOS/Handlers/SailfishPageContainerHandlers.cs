@@ -77,21 +77,47 @@ internal static class SailfishPageContainers
 /// <summary>TabbedPage: the selected child's stack, the children as tabs.</summary>
 public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageContainer
 {
+	public static new readonly PropertyMapper<IView, SailfishTabbedPageHandler> Mapper = new(SailfishPageHandler.Mapper);
+
+	public static new readonly CommandMapper<IView, SailfishTabbedPageHandler> CommandMapper = new(SailfishPageHandler.CommandMapper);
+
+	public SailfishTabbedPageHandler() : this(null)
+	{
+	}
+
+	public SailfishTabbedPageHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
+	{
+	}
+
 	private void OnCurrentPageChanged(object? sender, EventArgs e) => SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 
-	private TabbedPage? Tabbed => ((IElementHandler)this).VirtualView as TabbedPage;
+	private TabbedPage? Tabbed => ConnectedView as TabbedPage;
 
-	protected override void ConnectHandler(object platformView)
+	// The page whose event is subscribed: follows SetVirtualView (W1.11: subscribed in ConnectHandler only, a handler
+	// moved to another page kept listening to the old one, and Disconnect unsubscribed the new one it never joined).
+	private TabbedPage? _watched;
+
+	private void Watch(TabbedPage? page)
 	{
-		base.ConnectHandler(platformView);
-		if (Tabbed is { } tabbed)
-			tabbed.CurrentPageChanged += OnCurrentPageChanged;
+		if (ReferenceEquals(page, _watched))
+			return;
+		if (_watched is { } old)
+			old.CurrentPageChanged -= OnCurrentPageChanged;
+		_watched = page;
+		if (page is not null)
+			page.CurrentPageChanged += OnCurrentPageChanged;
+	}
+
+	public override void SetVirtualView(IView view)
+	{
+		base.SetVirtualView(view);
+		Watch(view as TabbedPage);
 	}
 
 	protected override void DisconnectHandler(object platformView)
 	{
-		if (Tabbed is { } tabbed)
-			tabbed.CurrentPageChanged -= OnCurrentPageChanged;
+		Watch(null);
 		base.DisconnectHandler(platformView);
 	}
 
@@ -125,21 +151,45 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 /// <summary>FlyoutPage: the Detail's stack, plus the Flyout page while presented (a native push, closed by Back).</summary>
 public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageContainer
 {
+	public static new readonly PropertyMapper<IView, SailfishFlyoutPageHandler> Mapper = new(SailfishPageHandler.Mapper);
+
+	public static new readonly CommandMapper<IView, SailfishFlyoutPageHandler> CommandMapper = new(SailfishPageHandler.CommandMapper);
+
+	public SailfishFlyoutPageHandler() : this(null)
+	{
+	}
+
+	public SailfishFlyoutPageHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
+	{
+	}
+
 	private void OnPresentedChanged(object? sender, EventArgs e) => SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 
-	private FlyoutPage? Flyout => ((IElementHandler)this).VirtualView as FlyoutPage;
+	private FlyoutPage? Flyout => ConnectedView as FlyoutPage;
 
-	protected override void ConnectHandler(object platformView)
+	private FlyoutPage? _watched;   // follows SetVirtualView, as SailfishTabbedPageHandler's
+
+	private void Watch(FlyoutPage? page)
 	{
-		base.ConnectHandler(platformView);
-		if (Flyout is { } flyout)
-			flyout.IsPresentedChanged += OnPresentedChanged;
+		if (ReferenceEquals(page, _watched))
+			return;
+		if (_watched is { } old)
+			old.IsPresentedChanged -= OnPresentedChanged;
+		_watched = page;
+		if (page is not null)
+			page.IsPresentedChanged += OnPresentedChanged;
+	}
+
+	public override void SetVirtualView(IView view)
+	{
+		base.SetVirtualView(view);
+		Watch(view as FlyoutPage);
 	}
 
 	protected override void DisconnectHandler(object platformView)
 	{
-		if (Flyout is { } flyout)
-			flyout.IsPresentedChanged -= OnPresentedChanged;
+		Watch(null);
 		base.DisconnectHandler(platformView);
 	}
 
@@ -177,6 +227,19 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 /// contents as tabs, the flyout items as the pulley menu.</summary>
 public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 {
+	public static new readonly PropertyMapper<IView, SailfishShellHandler> Mapper = new(SailfishPageHandler.Mapper);
+
+	public static new readonly CommandMapper<IView, SailfishShellHandler> CommandMapper = new(SailfishPageHandler.CommandMapper);
+
+	public SailfishShellHandler() : this(null)
+	{
+	}
+
+	public SailfishShellHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
+	{
+	}
+
 	private void OnNavigated(object? sender, ShellNavigatedEventArgs e)
 	{
 		if (SailfishHandlerCore.SessionOf(this) is { } session)
@@ -191,25 +254,36 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 			session.RoutePageNavigation = e.Source is ShellNavigationSource.Push or ShellNavigationSource.Insert;
 	}
 
-	private Shell? ShellView => ((IElementHandler)this).VirtualView as Shell;
+	private Shell? ShellView => ConnectedView as Shell;
 
-	protected override void ConnectHandler(object platformView)
+	private Shell? _watched;   // follows SetVirtualView, as SailfishTabbedPageHandler's
+
+	private void Watch(Shell? shell)
 	{
-		base.ConnectHandler(platformView);
-		if (ShellView is { } shell)
+		if (ReferenceEquals(shell, _watched))
+			return;
+		if (_watched is { } old)
+		{
+			old.Navigating -= OnNavigating;
+			old.Navigated -= OnNavigated;
+		}
+		_watched = shell;
+		if (shell is not null)
 		{
 			shell.Navigating += OnNavigating;
 			shell.Navigated += OnNavigated;
 		}
 	}
 
+	public override void SetVirtualView(IView view)
+	{
+		base.SetVirtualView(view);
+		Watch(view as Shell);
+	}
+
 	protected override void DisconnectHandler(object platformView)
 	{
-		if (ShellView is { } shell)
-		{
-			shell.Navigating -= OnNavigating;
-			shell.Navigated -= OnNavigated;
-		}
+		Watch(null);
 		base.DisconnectHandler(platformView);
 	}
 

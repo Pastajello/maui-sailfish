@@ -28,7 +28,7 @@ internal static partial class AdapterSnapshots
 	                             double fontSize, string? family, FontAttributes attributes, double characterSpacing)
 	{
 		var density = QtHostUnits.ScenePerDp;
-		props["mauiPixelSize"] = SailfishMeasure.AppFontSize(element, fontSizeProperty, fontSize) is { } size ? size * density : 0.0;
+		props["mauiPixelSize"] = SailfishFontRules.AppFontSize(element, fontSizeProperty, fontSize) is { } size ? size * density : 0.0;
 		props["mauiFamily"] = QtHostFonts.Resolve(family);
 		props["mauiBold"] = (attributes & FontAttributes.Bold) != 0;
 		props["mauiItalic"] = (attributes & FontAttributes.Italic) != 0;

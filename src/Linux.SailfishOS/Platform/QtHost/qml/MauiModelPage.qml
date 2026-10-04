@@ -61,12 +61,14 @@ Page {
     property bool __ownOrientations: false   // SailfishPage.AllowedOrientations set allowedOrientations
     property real mauiTabDrag: 0
     property int __tabSwipeDir: 0
+    // Both take a number or its string (sailfish_host_invoke passes strings).
     function mauiSetTabDrag(x) {
         tabSlide.stop();
         __tabSwipeDir = 0;
-        mauiTabDrag = x;
+        mauiTabDrag = Number(x);
     }
     function mauiEndTabDrag(delta) {
+        delta = Number(delta);
         tabSlide.stop();
         __tabSwipeDir = delta;
         tabSlide.to = delta === 0 ? 0 : -delta * width;
