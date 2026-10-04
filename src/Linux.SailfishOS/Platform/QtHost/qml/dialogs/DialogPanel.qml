@@ -5,7 +5,8 @@ import QtGraphicalEffects 1.0
 // The look shared by the dialog adapters: Sailfish's system dialogs (Sailfish.Lipstick SystemDialog, the permission
 // and USB mode prompts). A panel across the top of the screen with a centred highlight-coloured title and message,
 // the dialog's own content, then text buttons (cancel left, accept right); the page stays visible, dimmed, below it,
-// and a tap there dismisses like cancel. Opened over the current model page by MauiModelPage.__pushDialog, not
+// and a tap there dismisses like cancel. Opened over the current model page by MauiModelPage.__pushDialog (kept as
+// page.__dialog) and, as the page background, over the camera cutout's strip in landscape too; not
 // pushed on the pageStack: the page does not move and back navigation is held while the panel is up.
 // Subclasses put their content in the default property and handle accepted()/rejected(); each fires once.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
@@ -31,6 +32,11 @@ Item {
     readonly property Item __cancelItem: cancelButton
     readonly property Item __panel: panel
 
+    // Landscape leaves little height, less still above the keyboard: smaller paddings and type (as
+    // SystemDialogHeader's tight modes), and with the keyboard up the panel may reach it (no dimmed strip between).
+    readonly property bool __tight: width > height
+    readonly property real __bottomMargin: Qt.inputMethod.visible ? 0 : Theme.itemSizeLarge
+
     default property alias content: body.data
     // The page content to show blurred behind the panel (set by MauiModelPage.__pushDialog); null = no blur.
     property Item __blurSource: null
@@ -53,10 +59,34 @@ Item {
         rejected()
     }
 
-    anchors.fill: parent
+    // Edge to edge across the window, as Lipstick's dialogs: in landscape Silica narrows the page on the camera
+    // cutout's side, so the width comes from the window's edges mapped into the page. The height stays the page's,
+    // which shrinks above the keyboard.
+    property real __windowX: 0
+    property real __windowWidth: parent ? parent.width : 0
+    function __fitWindow() {
+        if (!parent)
+            return;
+        var a = parent.mapFromItem(null, 0, 0);
+        var b = parent.mapFromItem(null, Screen.width, Screen.height);
+        __windowX = Math.min(a.x, b.x);
+        __windowWidth = Math.abs(b.x - a.x);
+    }
+    Connections {
+        target: root.parent
+        onWidthChanged: root.__fitWindow()
+        onHeightChanged: root.__fitWindow()
+    }
+    x: __windowX
+    y: 0
+    width: __windowWidth
+    height: parent ? parent.height : 0
     z: 10000
     opacity: 0
-    Component.onCompleted: opacity = 1
+    Component.onCompleted: {
+        __fitWindow();
+        opacity = 1;
+    }
     Behavior on opacity { FadeAnimation {} }
     onClosingChanged: if (closing) opacity = 0
     onOpacityChanged: if (closing && opacity === 0) root.destroy()
@@ -89,9 +119,12 @@ Item {
         ShaderEffectSource {
             id: blurCopy
             sourceItem: root.__blurSource
-            sourceRect: root.__blurSource
-                        ? Qt.rect(-root.__blurSource.x, -root.__blurSource.y, panel.width, panel.height)
-                        : Qt.rect(0, 0, 0, 0)
+            sourceRect: {
+                if (!root.__blurSource || panel.width <= 0)
+                    return Qt.rect(0, 0, 0, 0);
+                var origin = root.__blurSource.mapFromItem(panel, 0, 0);
+                return Qt.rect(origin.x, origin.y, panel.width, panel.height);
+            }
             live: false
             visible: false
         }
@@ -115,7 +148,7 @@ Item {
         SilicaFlickable {
             id: scroller
             width: parent.width
-            height: Math.min(inner.height, root.height - Theme.itemSizeLarge - buttons.height)
+            height: Math.min(inner.height, root.height - root.__bottomMargin - buttons.height)
             contentHeight: inner.height
             clip: contentHeight > height
 
@@ -126,15 +159,15 @@ Item {
                 // SystemDialogHeader: generous top padding, title then message, both centred.
                 Item {
                     width: parent.width
-                    height: header.height + 2 * Theme.paddingLarge + Theme.paddingLarge
+                    height: header.height + header.y + (root.__tight ? Theme.paddingSmall : Theme.paddingLarge)
                     visible: root.mauiTitle.length > 0 || root.mauiMessage.length > 0
 
                     Column {
                         id: header
                         x: Theme.horizontalPageMargin
-                        y: 2 * Theme.paddingLarge
+                        y: root.__tight ? Theme.paddingMedium : 2 * Theme.paddingLarge
                         width: parent.width - 2 * x
-                        spacing: Theme.paddingLarge
+                        spacing: root.__tight ? Theme.paddingSmall : Theme.paddingLarge
 
                         Label {
                             width: parent.width
@@ -143,7 +176,7 @@ Item {
                             wrapMode: Text.Wrap
                             horizontalAlignment: Text.AlignHCenter
                             color: Theme.highlightColor
-                            font.pixelSize: Theme.fontSizeLarge
+                            font.pixelSize: root.__tight ? Theme.fontSizeMedium : Theme.fontSizeLarge
                         }
                         Label {
                             width: parent.width
@@ -152,7 +185,7 @@ Item {
                             wrapMode: Text.Wrap
                             horizontalAlignment: Text.AlignHCenter
                             color: Theme.highlightColor
-                            font.pixelSize: Theme.fontSizeMedium
+                            font.pixelSize: root.__tight ? Theme.fontSizeSmall : Theme.fontSizeMedium
                         }
                     }
                 }
@@ -173,12 +206,14 @@ Item {
 
             DialogButton {
                 id: cancelButton
+                tight: root.__tight
                 width: buttons.buttonWidth
                 text: root.cancelText
                 onClicked: root.reject()
             }
             DialogButton {
                 id: acceptButton
+                tight: root.__tight
                 width: buttons.buttonWidth
                 text: root.acceptText
                 onClicked: root.accept()

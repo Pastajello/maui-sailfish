@@ -85,13 +85,19 @@ with a recommendation).
 Each is small. Do them one at a time with a host test that fails without the fix (as the refactor day did), then
 the legs named. All of them together: full matrix.
 
-1. **Reconcile re-entry double-counts time.** `FinishPass` calls `Reconcile()` from inside the outer `Reconcile()`
+1. ~~**Reconcile re-entry double-counts time.**~~ Done 2026-10-04: the retry runs `ReconcileCore()` inside the outer
+   pass (`UnarrangedRetries` counts it); test `A_reconcile_with_an_unarranged_shape_retry_counts_once`.
+   **Reconcile re-entry double-counts time.** `FinishPass` calls `Reconcile()` from inside the outer `Reconcile()`
    (`QtHostPageRenderer.cs:1158-1163`); the inner pass adds to `ReconcileTotalMs`/`ReconcileCount` and the outer
    stopwatch (`:709-719`) counts the same time again, and `LastReconcileMs` is overwritten. Fix: the unarranged retry
    calls `ReconcileCore()` directly under the existing `_unarrangedRetry` guard, or the outer timing is skipped when
    `_unarrangedRetry` is set. Test: a page with a shape measured after its first arrange; assert `ReconcileCount`
    grows by the number of passes and `ReconcileTotalMs` is not more than the wall time of the outer call.
-2. **The reconcile gate misses an operation in flight.** `_stack.PopUnsynced` is cleared on every poll
+2. ~~**The reconcile gate misses an operation in flight.**~~ Done 2026-10-04: `CanReconcile` also waits for
+   `MauiFollowPending` (a FollowNative operation MAUI has not finished). The harness completes MAUI's pop inside the
+   poll that starts it, so the in-flight order is not reproducible there; test
+   `A_native_pop_under_an_open_dialog_waits_for_MAUI_to_follow` covers the dialog-first order (the fake shim now
+   answers `__pushDialog`). **The reconcile gate misses an operation in flight.** `_stack.PopUnsynced` is cleared on every poll
    (`QtHostPageRenderer.cs:564`) and only set again by `NativeStackCoordinator.Step`; `SyncNativeNavigation` returns
    before `Step` when a dialog or flyout is open (`QtHostPageRenderer.Navigation.cs:328-335`), so `CanReconcile`
    (`:633`) can pass with a `FollowNative` operation still running. `ReconcileSubtrees` checks `_navOp`
@@ -123,8 +129,9 @@ the legs named. All of them together: full matrix.
    failure path. Test: pop with `FaultNextPop`, assert no handle stays queued (expose the count internally).
 7. **Open defects carried over from the plan, still open:** `PushBatch` returns `true` on a partial shim rejection
    (`Hosts.cs:81-89`), so `ApplyUpdates` counts the batch as pushed and `reconcileDiffPushes` grows; `_createDeferred`
-   is cleared before the reset-hold early return (`QtHostPageRenderer.cs:732` vs `BeginPass`); `CanReconcile` ignores
-   an open dialog/flyout (`_dialogTcs`, `_openFlyout`); ~~`QtHostImages.ReportNaturalSize` returns false for a second
+   is cleared before the reset-hold early return (`QtHostPageRenderer.cs:732` vs `BeginPass`); ~~`CanReconcile` ignores
+   an open dialog/flyout~~ (obsolete for dialogs since they are panels over the page: the page under one keeps
+   updating; still to check for the flyout); ~~`QtHostImages.ReportNaturalSize` returns false for a second
    `Image` sharing a URL~~ (done after `ab808cd`, see above); `SailfishMeasure.Indicator` width formula looks mis-simplified
    (check on the device with the `controls` leg before changing); `SailfishSynchronizationContext.Send` has no
    timeout after the loop ended and `Dispatch` enqueues after shutdown (`SailfishDispatcherProvider.cs`).

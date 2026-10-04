@@ -26,7 +26,8 @@ DialogPanel {
         id: field
         width: parent.width
         placeholderText: root.mauiPlaceholder
-        label: root.mauiPlaceholder
+        // The label repeats the placeholder; in landscape the line it takes is the title's above the keyboard.
+        label: root.__tight ? "" : root.mauiPlaceholder
         EnterKey.iconSource: "image://theme/icon-m-enter-accept"
         EnterKey.onClicked: root.accept()
         Component.onCompleted: {

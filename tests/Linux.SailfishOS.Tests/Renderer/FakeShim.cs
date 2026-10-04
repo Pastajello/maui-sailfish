@@ -36,6 +36,9 @@ internal sealed class FakeShim : IQtHostShim
 	/// <summary>pageStack.busy as the nav-state poll reads it (an animated transition in flight).</summary>
 	public bool StackBusy { get; set; }
 
+	/// <summary>Dialog panels opened through MauiModelPage.__pushDialog.</summary>
+	public int DialogsOpened { get; private set; }
+
 	public List<string> Evals { get; } = new();
 	public List<JsonElement> Ops { get; } = new();
 
@@ -148,6 +151,12 @@ internal sealed class FakeShim : IQtHostShim
 		{
 			SweepStrays(Pages[^1], ReadJsString(expression, sweep + "__destroyHostsNotIn(".Length));
 			return string.Empty;
+		}
+		// A dialog panel opened over the page (MauiModelPage.__pushDialog); it stays open until a test raises its event.
+		if (expression.Contains(".__pushDialog(", StringComparison.Ordinal))
+		{
+			DialogsOpened++;
+			return "ok";
 		}
 		var push = expression.IndexOf("pageStack.push(window.mauiPageUrl,{mauiPageId:'", StringComparison.Ordinal);
 		if (push >= 0)

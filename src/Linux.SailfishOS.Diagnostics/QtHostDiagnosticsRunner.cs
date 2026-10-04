@@ -210,6 +210,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				var button = buttons[buttons.GetArrayLength() > 1 ? 1 : 0].Clone();
 				var cx = button.GetProperty("x").GetDouble() + button.GetProperty("w").GetDouble() / 2;
 				var cy = button.GetProperty("y").GetDouble() + button.GetProperty("h").GetDouble() / 2;
+				// The report is in page coordinates; taps go to the window, which differs once Silica rotates the page.
+				var scene = QtHost.QtHostRuntime.Eval(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+					$"(function(){{var p=pageStack.currentPage.mapToItem(null,{cx},{cy});return p.x+','+p.y;}})()"));
+				if (CtlTryPoint(scene, out var sx, out var sy))
+					(cx, cy) = (sx, sy);
 				Console.Error.WriteLine($"[Sailfish] Qt diag: injecting tap id={button.GetProperty("id").GetString()} at {cx},{cy}");
 				DiagQml.Tap(cx, cy);
 			}
@@ -2298,7 +2303,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			active == "1" && (_qtInputRouter?.LongPressFired ?? 0) >= 1);
 		// Tap the first MenuItem (scene position read through the adapter).
 		var pt = QtHost.QtHostRuntime.Eval(
-			"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;if(!m.active||!m.__items.length)return '-1,-1';var it=m.__items[0];var p=it.mapToItem(pageStack.currentPage,it.width/2,it.height/2);return p.x+','+p.y;}}return '-1,-1';})()");
+			"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;if(!m.active||!m.__items.length)return '-1,-1';var it=m.__items[0];var p=it.mapToItem(null,it.width/2,it.height/2);return p.x+','+p.y;}}return '-1,-1';})()");
 		if (CtlTryPoint(pt, out var ix, out var iy))
 		{
 			Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg F — injecting a tap on the first ContextMenu MenuItem at {ix:F0},{iy:F0}");
@@ -2506,7 +2511,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private void CtlTapPulleyItemAttempt(string uri, SailfishDispatcher dispatcher, int attempt, Action onDone)
 	{
 		var pt = QtHost.QtHostRuntime.Eval(
-			$"(function(){{var h=pageStack.currentPage.__hosts;for(var k in h){{if(h[k].uri==='{uri}'){{var m=h[k].item;if(!m.active||!m.__items.length)return '-1,-1';var it=m.__items[0];var p=it.mapToItem(pageStack.currentPage,it.width/2,it.height/2);return p.x+','+p.y;}}}}return '-1,-1';}})()");
+			$"(function(){{var h=pageStack.currentPage.__hosts;for(var k in h){{if(h[k].uri==='{uri}'){{var m=h[k].item;if(!m.active||!m.__items.length)return '-1,-1';var it=m.__items[0];var p=it.mapToItem(null,it.width/2,it.height/2);return p.x+','+p.y;}}}}return '-1,-1';}})()");
 		if (CtlTryPulleyPoint(pt, out var x, out var y))
 		{
 			Console.Error.WriteLine($"[Sailfish] Qt controls diag: injecting a tap on the first {uri} MenuItem at {x:F0},{y:F0}");
@@ -3000,10 +3005,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		return parts.Length == 2 && DiagQml.Num(parts[0]) > 0 && DiagQml.Num(parts[0]) < DiagQml.Num(parts[1]) / 2;
 	}
 
-	/// <summary>Injects a tap on the centre of the open dialog panel's accept button.</summary>
+	/// <summary>Injects a tap on the centre of the open dialog panel's accept button (window coordinates).</summary>
 	private static void InjectDialogAcceptTap(string leg)
 	{
-		var pt = OpenDialogEval("(function(){var b=d.__acceptItem,p=b.mapToItem(pageStack.currentPage,b.width/2,b.height/2);return b.visible?p.x+','+p.y:'-1,-1';})()");
+		var pt = OpenDialogEval("(function(){var b=d.__acceptItem,p=b.mapToItem(null,b.width/2,b.height/2);return b.visible?p.x+','+p.y:'-1,-1';})()");
 		if (CtlTryPoint(pt, out var ax, out var ay))
 		{
 			Console.Error.WriteLine($"[Sailfish] {leg} — injecting a tap on the dialog's accept button at {ax:F0},{ay:F0}");
@@ -3062,9 +3067,12 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var sizes = QtHost.QtHostRuntime.Eval(
 			"(function(){function T(o){if(o.text!==undefined&&o.text!=='')return o.text;var k=o.children||[];for(var j=0;j<k.length;j++){var t=T(k[j]);if(t)return t;}return '';}" +
 			"var d=" + OpenDialogJs + ",it=d?d.__items||[]:[],s=[];for(var i=0;i<it.length;i++)if(it[i].visible)s.push(Math.round(it[i].width)+'x'+Math.round(it[i].height)+':'+T(it[i]));return s.join(',');})()");
-		var pageWidth = DiagQml.EvalNum("pageStack.currentPage.width");
-		_qtPopupChecks.Check($"leg C sheet rows span the page and show their text: [{sizes}] each {pageWidth:F0} wide",
-			sizes.Length > 0 && sizes.Split(',').All(r => r.StartsWith(((int)Math.Round(pageWidth)).ToString(System.Globalization.CultureInfo.InvariantCulture) + "x", StringComparison.Ordinal) &&
+		// The panel spans the window edge to edge (in landscape wider than the page, which leaves the cutout's strip).
+		var panelWidth = DiagQml.Num(OpenDialogEval("d.width"));
+		var windowWidth = DiagQml.Num(QtHost.QtHostRuntime.Eval("String(pageStack.currentPage.isLandscape ? Math.max(Screen.width, Screen.height) : Math.min(Screen.width, Screen.height))"));
+		_qtPopupChecks.Check($"leg C sheet rows span the window and show their text: [{sizes}] each {panelWidth:F0} wide (window {windowWidth:F0})",
+			Math.Abs(panelWidth - windowWidth) < 1 &&
+			sizes.Length > 0 && sizes.Split(',').All(r => r.StartsWith(((int)Math.Round(panelWidth)).ToString(System.Globalization.CultureInfo.InvariantCulture) + "x", StringComparison.Ordinal) &&
 				!r.Contains("x0:", StringComparison.Ordinal) && !r.EndsWith(':')));
 		var grabRc = QtHost.QtHostRuntime.GrabPng("/tmp/q13-sheet.png");
 		Console.Error.WriteLine($"[Sailfish] Qt popup diag: leg C screenshot rc={grabRc} -> /tmp/q13-sheet.png");
@@ -3073,9 +3081,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 
 	private void TapPopupSheetEntry(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
-		// Tap the 'Share' entry: map its center into the page.
+		// Tap the 'Share' entry: map its center into the window (taps are window coordinates).
 		var pt = OpenDialogEval(
-			"(function(){var it=d.__items||[];for(var i=0;i<it.length;i++){if(it[i].label==='Share'){var p=it[i].mapToItem(pageStack.currentPage,it[i].width/2,it[i].height/2);return p.x+','+p.y;}}return '-1,-1';})()");
+			"(function(){var it=d.__items||[];for(var i=0;i<it.length;i++){if(it[i].label==='Share'){var p=it[i].mapToItem(null,it[i].width/2,it[i].height/2);return p.x+','+p.y;}}return '-1,-1';})()");
 		if (CtlTryPoint(pt, out var x, out var y))
 		{
 			Console.Error.WriteLine($"[Sailfish] Qt popup diag: leg C — injecting a tap on the 'Share' entry at {x:F0},{y:F0}");

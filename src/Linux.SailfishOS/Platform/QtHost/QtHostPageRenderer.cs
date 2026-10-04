@@ -644,7 +644,12 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>The one condition every reconcile outside a pass of its own waits for: no animated transition (its
 	/// geometry flush would count the dying page's hosts dead), no native pop MAUI has not followed (it would flash
 	/// the old page), and a page to render.</summary>
-	private bool CanReconcile => !TransitionHolds && !_stack.PopUnsynced && ResolveReconcilePage() is not null;
+	private bool CanReconcile => !TransitionHolds && !_stack.PopUnsynced && !MauiFollowPending && ResolveReconcilePage() is not null;
+
+	/// <summary>MAUI has not finished following a native pop. The poll clears PopUnsynced and only the coordinator's
+	/// Step sets it again; with a dialog or flyout open SyncNativeNavigation returns before Step, so the operation is
+	/// asked directly (W1.2): until MAUI pops, its page is the one the user backed out of.</summary>
+	private bool MauiFollowPending => _navOp is { Kind: NavOpKind.FollowNative, MauiDone: false };
 
 	// --- Layout requests ---
 	// As a native view requests a layout pass, a handler asks for one: MAUI's InvalidateMeasure reaches it through
@@ -702,6 +707,8 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>The walk skipped a shape that is not arranged yet (retried after the layout pass).</summary>
 	private bool _skippedUnarranged;
 	private bool _unarrangedRetry;
+	/// <summary>Passes that retried their unarranged shapes after the layout pass (diagnostics, tests).</summary>
+	internal int UnarrangedRetries { get; private set; }
 	private bool _createdInPass;   // this reconcile created hosts (new content, not only a navigation)
 
 	/// <summary>Reconcile core: diffs the current page's logical tree against the persistent hosts and applies
@@ -1171,8 +1178,14 @@ internal sealed partial class QtHostPageRenderer
 		// shapes; create them now, in the same frame, instead of a poll later. One retry: a 0x0 shape stays skipped.
 		if (_skippedUnarranged && !_unarrangedRetry && (_tlStart != 0 || _createdInPass))
 		{
+			// ReconcileCore, not Reconcile: this runs inside the outer pass, whose stopwatch and count cover it.
 			_unarrangedRetry = true;
-			try { Reconcile(); }
+			UnarrangedRetries++;
+			try
+			{
+				_skippedUnarranged = false;
+				ReconcileCore();
+			}
 			finally { _unarrangedRetry = false; }
 			return;   // the inner pass delivered SendAppearing
 		}

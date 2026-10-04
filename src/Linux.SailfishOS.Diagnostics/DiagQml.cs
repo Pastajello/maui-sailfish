@@ -31,7 +31,7 @@ internal static class DiagQml
 	public static string ItemJs(NativeElementHost? host) =>
 		host is null ? "null" : $"pageStack.currentPage.__hosts['{host.Id}'].item";
 
-	/// <summary>A real press + release at scene coordinates.</summary>
+	/// <summary>A real press + release at scene (window) coordinates: an item's <c>mapToItem(null, …)</c>, not a rotated page's own coordinates.</summary>
 	public static void Tap(double x, double y)
 	{
 		QtHostRuntime.InjectPointer(0, x, y);
