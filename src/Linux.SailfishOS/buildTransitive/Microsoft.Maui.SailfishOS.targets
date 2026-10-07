@@ -104,7 +104,7 @@
       <_SailfishOpenUrlMeta Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">,"dbusName":"$(_SailfishDBusName)","dbusPath":"$(_SailfishDBusPath)","dbusIface":"$(_SailfishDBusIface)"</_SailfishOpenUrlMeta>
     </PropertyGroup>
     <WriteLinesToFile File="$(MSBuildProjectExtensionsPath)maui-appmeta.json"
-                      Lines='{"orientation":"$(SailfishOrientation)","cover":$(SailfishCover),"coverQml":"$(_SailfishCoverQmlRel)","title":"$(ApplicationTitle)","sandboxed":$(_SailfishSandboxed),"organization":"$(SailfishOrganizationName)","application":"$(SailfishPackageName)"$(_SailfishOpenUrlMeta)}'
+                      Lines='{"orientation":"$(SailfishOrientation)","cover":$(SailfishCover),"coverQml":"$(_SailfishCoverQmlRel)","title":"$(ApplicationTitle)","sandboxed":$(_SailfishSandboxed),"organization":"$(SailfishOrganizationName)","application":"$(SailfishPackageName)","appId":"$(ApplicationId)","version":"$(ApplicationDisplayVersion)","build":"$(ApplicationVersion)"$(_SailfishOpenUrlMeta)}'
                       Overwrite="true" />
     <ItemGroup>
       <Content Include="$(SailfishCoverQml)" Condition="'$(SailfishCoverQml)' != ''"

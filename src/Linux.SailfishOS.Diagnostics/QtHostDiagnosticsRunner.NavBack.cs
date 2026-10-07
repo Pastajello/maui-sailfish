@@ -241,7 +241,42 @@ internal sealed partial class QtHostDiagnosticsRunner
 				_qtNavBackChecks.Check($"MAUI pop: '{PageTitle(renderer)}'=='{rootTitle}', native depth {renderer.NativePageIds.Count}==1",
 					PageTitle(renderer) == rootTitle && renderer.NativePageIds.Count == 1);
 				CheckNoChromeFlash("MAUI pop", rootPageId, mark);
-				Shot(dispatcher, "navback-5-main-after-maui-pop", Finish);
+				Shot(dispatcher, "navback-5-main-after-maui-pop", VetoRound);
+			});
+		}
+		// Tracker S05: hardware Back goes through IWindow.BackButtonClicked, so a page whose OnBackButtonPressed returns
+		// true keeps the page (an unsaved-changes prompt) instead of the renderer popping it.
+		void VetoRound()
+		{
+			var veto = new BackVetoPage();
+			Console.Error.WriteLine("[Sailfish] Qt navback diag: push 'Back veto' (OnBackButtonPressed returns true)");
+			_ = nav?.PushAsync(veto);
+			WaitFor(dispatcher, () => PageTitle(renderer) == BackVetoPage.PageTitle && renderer.NativePageIds.Count == 2, 6000, () =>
+			{
+				var handled0 = renderer.BackHandledByMaui;
+				var fallback0 = renderer.BackFallbackPops;
+				Console.Error.WriteLine("[Sailfish] Qt navback diag: hardware Back on 'Back veto'");
+				QtHost.QtHostRuntime.InjectKey(0, QtHost.QtHostRuntime.QtKeyBack);
+				QtHost.QtHostRuntime.InjectKey(1, QtHost.QtHostRuntime.QtKeyBack);
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1500), () =>
+				{
+					var mauiDepth = nav?.Navigation.NavigationStack.Count ?? -1;
+					_qtNavBackChecks.Check($"Back veto: OnBackButtonPressed ran {veto.Vetoes}==1, handled by MAUI +{renderer.BackHandledByMaui - handled0}==1, fallback pops +{renderer.BackFallbackPops - fallback0}==0, page '{PageTitle(renderer)}' kept, MAUI depth {mauiDepth}==2, native depth {renderer.NativePageIds.Count}==2",
+						veto.Vetoes == 1 && renderer.BackHandledByMaui - handled0 == 1 && renderer.BackFallbackPops == fallback0 &&
+						PageTitle(renderer) == BackVetoPage.PageTitle && mauiDepth == 2 && renderer.NativePageIds.Count == 2);
+					Shot(dispatcher, "navback-6-back-vetoed", () =>
+					{
+						veto.Allow = true;
+						QtHost.QtHostRuntime.InjectKey(0, QtHost.QtHostRuntime.QtKeyBack);
+						QtHost.QtHostRuntime.InjectKey(1, QtHost.QtHostRuntime.QtKeyBack);
+						WaitFor(dispatcher, BackOnRoot, 6000, () =>
+						{
+							_qtNavBackChecks.Check($"Back allowed: '{PageTitle(renderer)}'=='{rootTitle}', native depth {renderer.NativePageIds.Count}==1",
+								BackOnRoot());
+							Finish();
+						});
+					});
+				});
 			});
 		}
 		Shot(dispatcher, "navback-1-stats", () =>
@@ -296,5 +331,28 @@ internal sealed partial class QtHostDiagnosticsRunner
 			}), () => Film(dispatcher, "r1-swipe-from-stats", 3000),
 			k => Shot(dispatcher, "navback-1b-mid-swipe-from-stats", k));
 		});
+	}
+
+	/// <summary>A page that refuses hardware Back until <see cref="Allow"/> (an app's unsaved-changes guard).</summary>
+	private sealed class BackVetoPage : ContentPage
+	{
+		public const string PageTitle = "Back veto";
+
+		public int Vetoes;
+		public bool Allow;
+
+		public BackVetoPage()
+		{
+			Title = PageTitle;
+			Content = new Label { Text = "Back is refused here", Margin = new Thickness(16) };
+		}
+
+		protected override bool OnBackButtonPressed()
+		{
+			if (Allow)
+				return base.OnBackButtonPressed();
+			Vetoes++;
+			return true;
+		}
 	}
 }

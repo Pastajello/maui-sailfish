@@ -35,12 +35,17 @@ Item {
     // Arranged size in Qt units, the decode size (0 = not arranged yet: natural size).
     property int mauiDecodeW: 0
     property int mauiDecodeH: 0
+    // Unsized and Center images decode at most at this (the screen's long side, Qt units; 0 = no cap): a 4000 px
+    // photo no longer decodes at full size. Qt scales rasters down only, so smaller images keep their pixels; an SVG
+    // would be scaled to the request, so it is left alone.
+    property int mauiDecodeCap: 0
     // The decode request; frozen once a load starts, since a new sourceSize refetches the image.
     // AspectFill/Fill constrain the longer box axis only: Qt fits a request into both axes, which
     // would leave a crop short on the other one (exact for square thumbnails into wide tiles).
     function __decodeFor() {
         if (mauiDecodeW <= 0 || mauiDecodeH <= 0 || mauiAspect === 3)
-            return Qt.size(0, 0);
+            return mauiDecodeCap > 0 && !/\.svgz?([?#].*)?$/i.test(String(mauiSource))
+                ? Qt.size(mauiDecodeCap, mauiDecodeCap) : Qt.size(0, 0);
         if (mauiAspect === 1)
             return Qt.size(mauiDecodeW, mauiDecodeH);
         return mauiDecodeW >= mauiDecodeH ? Qt.size(mauiDecodeW, 0) : Qt.size(0, mauiDecodeH);
@@ -78,10 +83,23 @@ Item {
     property int mauiNaturalWidth: 0
     property int mauiNaturalHeight: 0
     property string mauiLoadError: ""
+    // The natural-size decode: none, or the cap (an image above the cap reports its capped size).
+    readonly property bool __naturalDecode: __decode.width === __decode.height &&
+                                            (__decode.width <= 0 || __decode.width === mauiDecodeCap)
     function __reportNatural(w, h) {
-        if (w > 0 && h > 0 && !mauiApplying && /^https?:/i.test(String(mauiSource)) &&
-                (__gif || (__decode.width <= 0 && __decode.height <= 0)))
+        if (w > 0 && h > 0 && !mauiApplying && /^https?:/i.test(String(mauiSource)) && (__gif || __naturalDecode))
             mauiEvent("image-natural", JSON.stringify({ id: mauiId, source: String(mauiSource), width: w, height: h }));
+    }
+    // Image.IsLoading goes false (managed matches the source against the one it is waiting for). Sent on the next
+    // turn: a local GIF's AnimatedImage loads synchronously while this object is still being created, before managed
+    // knows its id, and an event then is dropped.
+    function __reportLoaded() {
+        loadedReport.restart();
+    }
+    Timer {
+        id: loadedReport
+        interval: 0
+        onTriggered: root.mauiEvent("image-loaded", JSON.stringify({ id: root.mauiId, source: String(root.mauiSource) }))
     }
 
     // A remote load that failed (a dropped connection, a request the shim's stall watchdog aborted) loads again twice,
@@ -174,6 +192,7 @@ Item {
                 root.mauiNaturalHeight = sourceSize.height;
                 root.mauiLoadError = "";
                 root.__reportNatural(sourceSize.width, sourceSize.height);
+                root.__reportLoaded();
             }
         }
     }
@@ -200,9 +219,11 @@ Item {
                         root.mauiNaturalHeight = implicitHeight;
                         root.mauiLoadError = "";
                         root.__reportNatural(implicitWidth, implicitHeight);
+                        root.__reportLoaded();
                     } else if (status === AnimatedImage.Error) {
                         root.mauiLoaded = false;
                         root.mauiLoadError = "QtQuick AnimatedImage error for " + String(root.mauiSource);
+                        root.mauiEvent("image-failed", JSON.stringify({ id: root.mauiId, source: String(root.mauiSource) }));
                     }
                 }
             }
@@ -257,6 +278,8 @@ Item {
         sourceComponent: Component {
             MouseArea {
                 onClicked: root.mauiEvent("tap", JSON.stringify({ id: root.mauiId }))
+                // ImageButton Pressed/Released.
+                onPressedChanged: root.mauiEvent("pressed-changed", JSON.stringify({ id: root.mauiId, pressed: pressed }))
             }
         }
     }

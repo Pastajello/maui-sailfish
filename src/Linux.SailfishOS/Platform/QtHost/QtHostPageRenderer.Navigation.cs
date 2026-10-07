@@ -330,6 +330,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		ReArmPageChrome();
 		foreach (var host in _current)
 			host.AppliedGeometrySet = false;
+		_openFlyout = null;   // a context menu lives on the page it opened on
 		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"model page switched ({reason}) — title/background/scroll/geometry re-armed");
 	}
 
@@ -396,7 +397,17 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		}
 	}
 
-	// Kinds: 1=Activated 2=Deactivated 3=Resumed 4=Stopped.
+	/// <summary>The app quits: the window lifecycle Android sends before the process ends (Deactivated, Stopped, then
+	/// Destroying, which sends Disappearing, unsubscribes the alerts, removes the window from the application and
+	/// disconnects the window handler). Runs on the Qt thread while the loop ends; each call is guarded.</summary>
+	internal void RaiseQuitLifecycle()
+	{
+		_activation.Quit();
+		if (DestroyingSent == 0)   // Window.Destroying throws when sent twice
+			RaiseWindowLifecycle(w => w.Destroying(), "Destroying (quit)", 5);
+	}
+
+	// Kinds: 1=Activated 2=Deactivated 3=Resumed 4=Stopped 5=Destroying.
 	private void RaiseWindowLifecycle(Action<Microsoft.Maui.IWindow> send, string what, int kind)
 	{
 		try
@@ -409,6 +420,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 				case 2: DeactivatedSent++; break;
 				case 3: ResumedSent++; break;
 				case 4: StoppedSent++; break;
+				case 5: DestroyingSent++; break;
 			}
 			QtHostDiag.Trace(QtHostDiagChannel.Lifecycle, $"window lifecycle → MAUI {what}");
 		}

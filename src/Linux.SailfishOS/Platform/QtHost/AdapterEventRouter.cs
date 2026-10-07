@@ -126,6 +126,7 @@ internal sealed class AdapterEventRouter
 				case "list-item-detached":
 				case "list-item-released":
 				case "list-item-tapped":
+				case "list-item-pressed":
 				case "list-scroll":
 				case "carousel-position":
 					_r.Collection.HandleEvent(name, payload);   // ListView delegate/selection/scroll events, carousel pages
@@ -135,6 +136,15 @@ internal sealed class AdapterEventRouter
 					break;
 				case "swipe-item-invoked":
 					ApplySwipeItemInvoked(payload); // SwipeItem → Invoked + Command
+					break;
+				case "pressed-changed":
+					ApplyPressedChanged(payload);   // Button/ImageButton Pressed/Released
+					break;
+				case "drag-changed":
+					ApplyDragChanged(payload);      // Slider DragStarted/DragCompleted
+					break;
+				case "swipe-changing":
+					ApplySwipeChanging(payload);    // SwipeView SwipeStarted (first) + SwipeChanging
 					break;
 				case "swipe-state":
 					ApplySwipeState(payload);       // SwipeStarted/Ended + IsOpen
@@ -149,6 +159,9 @@ internal sealed class AdapterEventRouter
 					break;
 				case "context-activated":
 					_r.ApplyContextActivated(payload); // ContextMenu pick → MenuFlyoutItem
+					break;
+				case "context-closed":
+					_r.ApplyContextClosed(); // ContextMenu gone: navigation may follow the native stack again
 					break;
 				case "tab-selected":
 				{
@@ -396,6 +409,45 @@ internal sealed class AdapterEventRouter
 	/// through the Silica editor's accepted signal, so there is one path (Qt 5.6 TextEdit has no accepted
 	/// signal, so Editor only completes on demand). Not suppressed: Completed handlers' changes must reach native.
 	/// </summary>
+	/// <summary>Focuses the first visible, enabled, editable text input after <paramref name="from"/> in the page's
+	/// tree order (managed focus pushes mauiFocus, which opens the keyboard on it). None after it: focus stays.</summary>
+	internal static bool FocusNextInput(InputView from)
+	{
+		Page? page = null;
+		for (var e = from.Parent; e is not null && page is null; e = e.Parent)
+			page = e as Page;
+		if (page is null)
+			return false;
+		var passed = false;
+		foreach (var element in Descendants(page))
+		{
+			if (ReferenceEquals(element, from))
+			{
+				passed = true;
+				continue;
+			}
+			if (passed && element is InputView { IsVisible: true, IsReadOnly: false } next && QtHostVisualState.EffectiveEnabled(next))
+			{
+				next.Focus();
+				QtHostDiag.Trace(QtHostDiagChannel.Focus, $"ReturnType.Next → focus {next.GetType().Name}");
+				return true;
+			}
+		}
+		return false;
+
+		static IEnumerable<Element> Descendants(Element root)
+		{
+			foreach (var child in ((IVisualTreeElement)root).GetVisualChildren())
+			{
+				if (child is not Element element || element is VisualElement { IsVisible: false })
+					continue;
+				yield return element;
+				foreach (var inner in Descendants(element))
+					yield return inner;
+			}
+		}
+	}
+
 	private void ApplyCompleted(string payload)
 	{
 		using var doc = JsonDocument.Parse(payload);
@@ -409,6 +461,9 @@ internal sealed class AdapterEventRouter
 		{
 			case Entry entry:
 				entry.SendCompleted();
+				// ReturnType.Next moves on to the next text input, as the IME's Next action does on Android and iOS.
+				if (entry.ReturnType == ReturnType.Next)
+					FocusNextInput(entry);
 				break;
 			case Editor editor:
 				editor.SendCompleted();
@@ -634,6 +689,63 @@ internal sealed class AdapterEventRouter
 
 	/// <summary>The native swipe row settled open/closed → SwipeStarted/SwipeEnded (direction reveals that side)
 	/// and IsOpen.</summary>
+	/// <summary>Adapter "pressed-changed" {id, pressed} → Button/ImageButton Pressed or Released (before Clicked, as
+	/// the Silica press ends before its click).</summary>
+	private void ApplyPressedChanged(string payload)
+	{
+		using var doc = JsonDocument.Parse(payload);
+		var pressed = doc.RootElement.TryGetProperty("pressed", out var p) && p.ValueKind == JsonValueKind.True;
+		if (!_r.TryResolveHost(doc.RootElement, out _, out var host))
+			return;
+		switch (host.Element)
+		{
+			case Button button:
+				if (pressed) button.SendPressed(); else button.SendReleased();
+				break;
+			case ImageButton imageButton:
+				if (pressed) imageButton.SendPressed(); else imageButton.SendReleased();
+				break;
+			default:
+				return;
+		}
+		NativeEventsDelivered++;
+	}
+
+	/// <summary>Adapter "drag-changed" {id, dragging} → Slider DragStarted or DragCompleted.</summary>
+	private void ApplyDragChanged(string payload)
+	{
+		using var doc = JsonDocument.Parse(payload);
+		var dragging = doc.RootElement.TryGetProperty("dragging", out var d) && d.ValueKind == JsonValueKind.True;
+		if (!_r.TryResolveHost(doc.RootElement, out _, out var host) || host.Element is not ISlider slider)
+			return;
+		if (dragging)
+			slider.DragStarted();
+		else
+			slider.DragCompleted();
+		NativeEventsDelivered++;
+	}
+
+	// SwipeViews in a drag: SwipeStarted went out with its first SwipeChanging; swipe-state ends it.
+	private readonly HashSet<SwipeView> _swiping = new();
+
+	/// <summary>Adapter "swipe-changing" {id, offset} (Qt units, > 0 revealing the left items) → SwipeStarted on the
+	/// first one of a drag, then SwipeChanging with the offset in dp, as the platform SwipeViews report a drag.</summary>
+	private void ApplySwipeChanging(string payload)
+	{
+		using var doc = JsonDocument.Parse(payload);
+		if (!_r.TryResolveHost(doc.RootElement, out _, out var host) || host.Element is not SwipeView swipe)
+			return;
+		var offset = QtHostUnits.ToLogical(BridgeJson.Num(doc.RootElement, "offset"));
+		if (offset == 0)
+			return;
+		var direction = offset > 0 ? SwipeDirection.Right : SwipeDirection.Left;
+		var controller = (ISwipeView)swipe;
+		if (_swiping.Add(swipe))
+			controller.SwipeStarted(new SwipeViewSwipeStarted(direction));
+		controller.SwipeChanging(new SwipeViewSwipeChanging(direction, offset));
+		NativeEventsDelivered++;
+	}
+
 	private void ApplySwipeState(string payload)
 	{
 		try
@@ -645,7 +757,8 @@ internal sealed class AdapterEventRouter
 				return;
 			var direction = side == "left" ? SwipeDirection.Right : SwipeDirection.Left;
 			var controller = (ISwipeView)swipe;
-			if (open)
+			// A drag already reported SwipeStarted; an open from code (or a drag too short to report) starts here.
+			if (!_swiping.Remove(swipe) && open)
 				controller.SwipeStarted(new SwipeViewSwipeStarted(direction));
 			controller.IsOpen = open;
 			controller.SwipeEnded(new SwipeViewSwipeEnded(direction, open));

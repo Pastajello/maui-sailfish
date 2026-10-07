@@ -145,8 +145,17 @@ internal static partial class AdapterSnapshots
 			hints |= ImhFormattedNumbersOnly | ImhPreferNumbers;
 		else if (ReferenceEquals(keyboard, Keyboard.Plain))
 			hints |= ImhNoPredictiveText;
-		else if (keyboard is CustomKeyboard custom && (custom.Flags & KeyboardFlags.Suggestions) == 0)
-			hints |= ImhNoPredictiveText;   // Keyboard.Create(None) and friends
+		else if (keyboard is CustomKeyboard custom)
+		{
+			if ((custom.Flags & KeyboardFlags.Suggestions) == 0)
+				hints |= ImhNoPredictiveText;   // Keyboard.Create(None) and friends
+			// Without a Capitalize flag (or with CapitalizeNone) the keyboard does not start sentences in upper case,
+			// as Android's input type without TextFlagCap*; Maliit capitalizes sentences unless told otherwise.
+			const KeyboardFlags capitalize = KeyboardFlags.CapitalizeSentence | KeyboardFlags.CapitalizeWord |
+			                                 KeyboardFlags.CapitalizeCharacter;
+			if ((custom.Flags & capitalize) == 0 || (custom.Flags & KeyboardFlags.CapitalizeNone) != 0)
+				hints |= ImhNoAutoUppercase;
+		}
 		if (!textPredictionEnabled)
 			hints |= ImhNoPredictiveText;
 		return hints;

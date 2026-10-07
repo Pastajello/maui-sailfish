@@ -223,6 +223,9 @@ internal static class QtHostVisualState
 		{
 			if (e is VisualElement ve && ve.FlowDirection != FlowDirection.MatchParent)
 				return ve.FlowDirection == FlowDirection.RightToLeft;
+			// The window is the root (it is no VisualElement): RTL set on it mirrors every page (tracker S13).
+			if (e is Window window && window.FlowDirection != FlowDirection.MatchParent)
+				return window.FlowDirection == FlowDirection.RightToLeft;
 		}
 		return false;
 	}

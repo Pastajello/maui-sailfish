@@ -116,7 +116,11 @@ internal sealed partial class QtHostDiagnosticsRunner
 		m.Found && m.Registered && m.Items.SequenceEqual(want) &&
 		(!expectClone || (m.CloneMenu is { } c && c.Registered && c.Items.SequenceEqual(want)));
 
-	private static ContentPage BuildPulleyPageA()
+	// Page A's list sits in a RefreshView: the pulley owns the overscroll, so the pulley carries a Refresh entry (tracker S02).
+	private RefreshView? _pulleyRefresh;
+	private int _pulleyRefreshes;
+
+	private ContentPage BuildPulleyPageA()
 	{
 		var list = new CollectionView
 		{
@@ -128,13 +132,15 @@ internal sealed partial class QtHostDiagnosticsRunner
 				return label;
 			}),
 		};
+		_pulleyRefresh = new RefreshView { Content = list };
+		_pulleyRefresh.Refreshing += (_, _) => _pulleyRefreshes++;
 		var page = new ContentPage
 		{
 			Title = "Pulley A",
 			Content = new Grid { RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Star) },
-				Children = { new Label { Text = "pulley page A", Margin = new Thickness(16) }, list } },
+				Children = { new Label { Text = "pulley page A", Margin = new Thickness(16) }, _pulleyRefresh } },
 		};
-		Grid.SetRow(list, 1);
+		Grid.SetRow(_pulleyRefresh, 1);
 		page.ToolbarItems.Add(new ToolbarItem { Text = "A pull 1" });
 		page.ToolbarItems.Add(new ToolbarItem { Text = "A pull 2" });
 		page.ToolbarItems.Add(new ToolbarItem { Text = "A push", Order = ToolbarItemOrder.Secondary });
@@ -159,7 +165,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 		return page;
 	}
 
-	private static readonly string[] PullA = { "A pull 1", "A pull 2" };
+	private static readonly string[] PullA = { "A pull 1", "A pull 2", QtHost.QtHostPageRenderer.PulleyRefreshText };
 	private static readonly string[] PushA = { "A push" };
 	private static readonly string[] PullB = { "B pull" };
 
@@ -221,7 +227,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(2000), () =>
 		{
 			CheckPageA("leg A first visit");
-			PullAndGrab(dispatcher, pullA, distance, "pulley-a1-first-visit", () =>
+			PullAndGrab(dispatcher, pullA, distance, "pulley-a1-first-visit", () => CheckPulleyRefresh(renderer, dispatcher, () =>
 			{
 				Console.Error.WriteLine("[Sailfish] Qt pulley diag: leg B — push page B over A");
 				_ = nav.PushAsync(BuildPulleyPageB());
@@ -253,6 +259,28 @@ internal sealed partial class QtHostDiagnosticsRunner
 						});
 					}));
 				});
+			}));
+		});
+	}
+
+	/// <summary>Leg A2: the pulley's Refresh entry starts page A's RefreshView (Refreshing fires once, the pulley bar
+	/// pulses while IsRefreshing), as the pull gesture would on a page without a pulley.</summary>
+	private void CheckPulleyRefresh(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Action next)
+	{
+		var index = Array.IndexOf(PullA, QtHost.QtHostPageRenderer.PulleyRefreshText);
+		var before = _pulleyRefreshes;
+		Console.Error.WriteLine($"[Sailfish] Qt pulley diag: leg A2 — pulley pick 'Refresh' (toolbar-activated index {index})");
+		renderer.HandleNativeEvent("toolbar-activated", "{\"menu\":\"pull\",\"index\":" + index + "}");
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+		{
+			var busy = QtHost.QtHostRuntime.Eval("(function(){var p=pageStack.currentPage;var m=p&&p.__mauiFindByName?p.__mauiFindByName('maui_synth-pulldown'):null;return m?String(m.busy):'no menu';})()");
+			_qtPulleyChecks.Check($"leg A2: pulley 'Refresh' → RefreshView.Refreshing fired {_pulleyRefreshes - before}==1, IsRefreshing={_pulleyRefresh?.IsRefreshing}, pulley busy={busy}",
+				_pulleyRefreshes - before == 1 && _pulleyRefresh?.IsRefreshing == true && busy == "true");
+			Shot(dispatcher, "pulley-a1b-refreshing", () =>
+			{
+				if (_pulleyRefresh is { } refresh)
+					refresh.IsRefreshing = false;   // the app finished refreshing
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), next);
 			});
 		});
 	}

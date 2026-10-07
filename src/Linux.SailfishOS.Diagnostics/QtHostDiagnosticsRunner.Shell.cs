@@ -154,9 +154,26 @@ internal sealed partial class QtHostDiagnosticsRunner
 		var pulley = PulleyTexts(renderer);
 		_qtShellChecks.Check($"leg E flyout pulley: entries [{string.Join(",", pulley ?? new())}] start with Alpha,Beta",
 			pulley is { Count: >= 2 } && pulley[0] == "Alpha" && pulley[1] == "Beta");
-		Console.Error.WriteLine("[Sailfish] Qt shell diag: leg E — pulley pick 'Alpha' (toolbar-activated index 0)");
-		renderer.HandleNativeEvent("toolbar-activated", "{\"menu\":\"pull\",\"index\":0}");
-		_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegE(renderer, shell));
+		// Leg E2 (tracker S15): a flyout item added at runtime reaches the pulley at once, not at the 2 s heartbeat.
+		var gamma = new FlyoutItem { Title = "Gamma", Items = { ShellSectionContent("Shell Gamma", "gamma body") } };
+		Console.Error.WriteLine("[Sailfish] Qt shell diag: leg E2 — Shell.Items.Add('Gamma') at runtime");
+		shell.Items.Add(gamma);
+		_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), () =>
+		{
+			var added = PulleyTexts(renderer);
+			_qtShellChecks.Check($"leg E2 runtime flyout item: pulley [{string.Join(",", added ?? new())}] has 'Gamma' 500 ms after Items.Add",
+				added?.Contains("Gamma") == true);
+			shell.Items.Remove(gamma);
+			_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), () =>
+			{
+				var removed = PulleyTexts(renderer);
+				_qtShellChecks.Check($"leg E2 removed again: pulley [{string.Join(",", removed ?? new())}] without 'Gamma' 500 ms after Items.Remove",
+					removed is not null && !removed.Contains("Gamma"));
+				Console.Error.WriteLine("[Sailfish] Qt shell diag: leg E — pulley pick 'Alpha' (toolbar-activated index 0)");
+				renderer.HandleNativeEvent("toolbar-activated", "{\"menu\":\"pull\",\"index\":0}");
+				_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegE(renderer, shell));
+			});
+		});
 	}
 
 	private void VerifyShellLegE(QtHost.QtHostPageRenderer renderer, Shell shell)

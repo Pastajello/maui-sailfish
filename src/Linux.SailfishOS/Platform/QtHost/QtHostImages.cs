@@ -63,6 +63,8 @@ internal static class QtHostImages
 			props["mauiDecodeW"] = (int)Math.Ceiling(QtHostUnits.ToQtUnits(visual.Width));
 			props["mauiDecodeH"] = (int)Math.Ceiling(QtHostUnits.ToQtUnits(visual.Height));
 		}
+		// Unsized (not arranged yet) and Center images: decode no larger than the screen's long side.
+		props["mauiDecodeCap"] = DecodeCap;
 		if (image is ImageButton button)
 		{
 			// ImageButton frame: stroke and corner radius; Padding insets the bitmap.
@@ -77,6 +79,9 @@ internal static class QtHostImages
 		}
 		return props;
 	}
+
+	/// <summary>The decode cap of unsized/Center images: the screen's long side in device pixels (0 before it is known).</summary>
+	internal static int DecodeCap => Math.Max(SailfishDisplay.PixelWidth, SailfishDisplay.PixelHeight);
 
 	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Width, int Height)?> FileSizes = new();
 
@@ -188,8 +193,13 @@ internal static class QtHostImages
 		return names;
 	}
 
-	/// <summary>ImageSource → a URL Qt can load; null when unsupported, missing or still pending.</summary>
-	public static string? Resolve(ImageSource? source) => source switch
+	/// <summary>ImageSource → a URL Qt can load; null when unsupported, missing or still pending. A source whose
+	/// type has an <see cref="ISailfishImageSourceService"/> in the app's <see cref="IImageSourceServiceProvider"/> goes
+	/// through it; the stock sources resolve here otherwise.</summary>
+	public static string? Resolve(ImageSource? source) =>
+		source is not null && ServiceFor(source.GetType()) is { } service ? ServiceUrl(service, source) : ResolveStock(source);
+
+	private static string? ResolveStock(ImageSource? source) => source switch
 	{
 		FileImageSource { File.Length: > 0 } file => FileUrl(file.File),
 		UriImageSource { Uri: { IsFile: true } local } => FileUrl(local.LocalPath),
@@ -213,9 +223,138 @@ internal static class QtHostImages
 		return uri.ToString() + "#maui-cache=" + seconds.ToString(CultureInfo.InvariantCulture);
 	}
 
-	/// <summary>A stream source still being read; the element should host nothing yet rather than the placeholder.</summary>
+	/// <summary>A stream source still being read, or a service still answering; the element should host nothing yet
+	/// rather than the placeholder.</summary>
 	public static bool IsPending(ImageSource? source) =>
-		source is StreamImageSource stream && Streams.TryGetValue(stream, out var entry) && entry.Path is null && !entry.Failed;
+		source is not null && Streams.TryGetValue(source, out var entry) && entry.Path is null && !entry.Failed;
+
+	// ImageSource type → its Sailfish service (null: none, use the stock handling). The provider and the registrations
+	// are fixed for the app's lifetime, so the answer is cached per type.
+	private static readonly Dictionary<Type, ISailfishImageSourceService?> Services = new();
+	private static IServiceProvider? _servicesFrom;
+
+	/// <summary>Tests: forget the cached service lookups.</summary>
+	internal static void ResetServicesForTests()
+	{
+		lock (Services)
+		{
+			Services.Clear();
+			_servicesFrom = null;
+		}
+	}
+
+	private static ISailfishImageSourceService? ServiceFor(Type type)
+	{
+		var services = IPlatformApplication.Current?.Services;
+		if (services is null)
+			return null;
+		lock (Services)
+		{
+			if (!ReferenceEquals(services, _servicesFrom))
+			{
+				Services.Clear();
+				_servicesFrom = services;
+			}
+			if (Services.TryGetValue(type, out var known))
+				return known;
+			ISailfishImageSourceService? found = null;
+			try
+			{
+				found = (services.GetService(typeof(IImageSourceServiceProvider)) as IImageSourceServiceProvider)
+					?.GetImageSourceService(type) as ISailfishImageSourceService;
+			}
+			catch (InvalidOperationException)
+			{
+				// No service registered for the type: the stock handling or a resolver takes it.
+			}
+			return Services[type] = found;
+		}
+	}
+
+	/// <summary>A source a service answers: asked once per source object, asynchronously, through the same pending
+	/// machinery as a stream (the element hosts it once the URL is there).</summary>
+	private static string? ServiceUrl(ISailfishImageSourceService service, ImageSource source)
+	{
+		if (Streams.TryGetValue(source, out var entry))
+			return entry.Path;
+		entry = new StreamEntry();
+		Streams.Add(source, entry);
+		_ = AskService(service, source, entry);
+		return null;
+	}
+
+	private static async Task AskService(ISailfishImageSourceService service, ImageSource source, StreamEntry entry)
+	{
+		try
+		{
+			// Resumes on the Qt loop, as a stream read does: the hosts are created there.
+			var result = await service.GetUrlAsync(source, entry.Cancel.Token).ConfigureAwait(true);
+			if (entry.Cancel.IsCancellationRequested)
+			{
+				result?.Dispose();
+				return;
+			}
+			if (result is null || string.IsNullOrEmpty(result.Value))
+			{
+				Fail(entry);
+				return;
+			}
+			entry.Result = result;
+			Ready(entry, result.Value);
+		}
+		catch (OperationCanceledException) when (entry.Cancel.IsCancellationRequested)
+		{
+		}
+		catch (Exception ex)
+		{
+			Fail(entry);
+			QtHostDiag.Warn(QtHostDiagChannel.QmlProperty, $"image source service {service.GetType().Name} failed for {source.GetType().Name}: {ex.Message}");
+		}
+	}
+
+	/// <summary>The entry has its URL: a layout pass, and the elements waiting for it gain their image host.</summary>
+	private static void Ready(StreamEntry entry, string url)
+	{
+		entry.Path = url;
+		SailfishRenderSession.OfApp?.Renderer?.InvalidateLayout();
+		Settle(entry);
+	}
+
+	/// <summary>The entry has no image (a null stream, a service answering nothing, an error): the elements waiting
+	/// for it stop waiting (Image.IsLoading goes false).</summary>
+	private static void Fail(StreamEntry entry)
+	{
+		entry.Failed = true;
+		Settle(entry);
+	}
+
+	private static void Settle(StreamEntry entry)
+	{
+		Dictionary<object, Action>? ready;
+		lock (entry)
+		{
+			ready = entry.Ready;
+			entry.Ready = null;
+		}
+		if (ready is not null)
+			foreach (var action in ready.Values)
+				action();
+	}
+
+	/// <summary>An element moved off <paramref name="source"/> (MAUI cancels the old source's load on a source change):
+	/// a stream still being read, or a service still answering, is cancelled and forgotten, so a later use starts
+	/// again. A finished entry stays (other elements may show it).</summary>
+	internal static void CancelPending(ImageSource? source)
+	{
+		if (source is null || !Streams.TryGetValue(source, out var entry) || entry.Path is not null || entry.Failed)
+			return;
+		Streams.Remove(source);
+		entry.Cancel.Cancel();
+		Cancelled++;
+	}
+
+	/// <summary>Pending loads cancelled by a source change (diagnostics).</summary>
+	internal static long Cancelled;
 
 	// Sailjail ORG/APP cache when sandboxed; the process name is the booster's under silica-qt5.
 	private static string CacheDir(string kind) => SailfishAppPaths.Cache(kind);
@@ -246,16 +385,38 @@ internal static class QtHostImages
 
 	private sealed class StreamEntry
 	{
-		public string? Path;
+		public string? Path;                       // the URL: a stream's cache file, or a service's answer
+		public string? File;                       // a stream's cache file on disk, deleted with the entry
+		public IImageSourceServiceResult<string>? Result;   // a service's result, disposed with the entry
+		public readonly CancellationTokenSource Cancel = new();
+
+		// The entry lives as long as its source object (ConditionalWeakTable): when the app drops the source, its
+		// cache file goes and the service's result is disposed (the "dispose" of MAUI's image source results).
+		~StreamEntry()
+		{
+			try
+			{
+				if (File is { } file)
+					System.IO.File.Delete(file);
+				Result?.Dispose();
+			}
+			catch (Exception)
+			{
+				// best effort: the startup sweep removes what is left
+			}
+		}
 		public bool Failed;
 		public Dictionary<object, Action>? Ready;   // run once the stream is on disk, one per key
 	}
 
 	/// <summary>Runs <paramref name="action"/> once a pending stream source is readable (any thread), once per
 	/// <paramref name="key"/> however often it is asked; nothing when the source is not pending.</summary>
-	internal static void WhenReady(ImageSource? source, object key, Action action)
+	internal static void WhenReady(ImageSource? source, object key, Action action) => WhenSettled(source, key, action);
+
+	/// <summary>As <see cref="WhenReady"/>, also when the load fails.</summary>
+	internal static void WhenSettled(ImageSource? source, object key, Action action)
 	{
-		if (source is not StreamImageSource stream || !Streams.TryGetValue(stream, out var entry))
+		if (source is null || !Streams.TryGetValue(source, out var entry))
 			return;
 		lock (entry)
 		{
@@ -265,14 +426,14 @@ internal static class QtHostImages
 		}
 	}
 
-	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<StreamImageSource, StreamEntry> Streams = new();
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, StreamEntry> Streams = new();
 
 	/// <summary>StreamImageSource → a cache file read asynchronously on first use (resumes on the Qt thread);
 	/// the next reconcile picks it up.</summary>
 	private static string? StreamUrl(StreamImageSource source)
 	{
 		if (Streams.TryGetValue(source, out var entry))
-			return entry.Path is null ? null : new Uri(entry.Path).AbsoluteUri;
+			return entry.Path;
 		entry = new StreamEntry();
 		Streams.Add(source, entry);
 		_ = ReadStream(source, entry);
@@ -281,35 +442,93 @@ internal static class QtHostImages
 
 	private static async Task ReadStream(StreamImageSource source, StreamEntry entry)
 	{
+		string? path = null;
 		try
 		{
-			using var stream = await source.Stream(CancellationToken.None);
+			var token = entry.Cancel.Token;
+			using var stream = await source.Stream(token);
 			if (stream is null)
 			{
-				entry.Failed = true;
+				Fail(entry);
 				return;
 			}
-			var path = Path.Combine(CacheDir("streams"), Guid.NewGuid().ToString("N") + ".img");
+			path = Path.Combine(StreamsDir(), Guid.NewGuid().ToString("N") + ".img");
 			using (var file = File.Create(path))
-				await stream.CopyToAsync(file);
-			entry.Path = path;
-			SailfishRenderSession.OfApp?.Renderer?.InvalidateLayout();
-			// The element hosted nothing while the stream was read: its container's subtree gains the image host.
-			Dictionary<object, Action>? ready;
-			lock (entry)
+				await stream.CopyToAsync(file, token);
+			// A GIF plays only from a .gif URL (Image.qml picks AnimatedImage by the extension).
+			if (IsGif(path))
 			{
-				ready = entry.Ready;
-				entry.Ready = null;
+				var gif = Path.ChangeExtension(path, ".gif");
+				File.Move(path, gif);
+				path = gif;
 			}
-			if (ready is not null)
-				foreach (var action in ready.Values)
-					action();
+			entry.File = path;
+			if (token.IsCancellationRequested)
+				return;
+			// The element hosted nothing while the stream was read: its container's subtree gains the image host.
+			Ready(entry, new Uri(path).AbsoluteUri);
+		}
+		catch (OperationCanceledException) when (entry.Cancel.IsCancellationRequested)
+		{
+			TryDelete(path);
 		}
 		catch (Exception ex)
 		{
-			entry.Failed = true;
+			TryDelete(path);
+			Fail(entry);
 			QtHostDiag.Warn(QtHostDiagChannel.QmlProperty, $"stream image source could not be read: {ex.Message}");
 		}
+	}
+
+	internal static bool IsGif(string path)
+	{
+		try
+		{
+			using var fs = File.OpenRead(path);
+			Span<byte> head = stackalloc byte[4];
+			return fs.Read(head) == 4 && head[0] == (byte)'G' && head[1] == (byte)'I' && head[2] == (byte)'F' && head[3] == (byte)'8';
+		}
+		catch (IOException)
+		{
+			return false;
+		}
+	}
+
+	private static void TryDelete(string? path)
+	{
+		if (path is null)
+			return;
+		try
+		{
+			File.Delete(path);
+		}
+		catch (IOException)
+		{
+		}
+		catch (UnauthorizedAccessException)
+		{
+		}
+	}
+
+	private static int _streamsSwept;
+
+	/// <summary>The stream cache, emptied once per process: files of an earlier run belong to sources that are gone
+	/// (a crash or a kill skips the per-entry cleanup).</summary>
+	private static string StreamsDir()
+	{
+		var dir = CacheDir("streams");
+		if (Interlocked.Exchange(ref _streamsSwept, 1) == 0)
+		{
+			try
+			{
+				foreach (var file in Directory.EnumerateFiles(dir))
+					TryDelete(file);
+			}
+			catch (IOException)
+			{
+			}
+		}
+		return dir;
 	}
 
 	private static string? FileUrl(string file)

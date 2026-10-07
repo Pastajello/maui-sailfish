@@ -35,6 +35,13 @@ internal sealed class QtHostInputRouter
 		"list-view", "carousel-view",   // the ListView owns flick/tap; row taps arrive as "list-item-tapped"
 	};
 
+	/// <summary>QML-consumed controls whose own Tap/LongPress recognizers still fire (MAUI attaches them to the control's
+	/// view on the platforms). Lists, carousels and swipe views have their own item paths; dialogs and the web view none.</summary>
+	private static readonly HashSet<string> OwnGestureUris = new(StringComparer.Ordinal)
+	{
+		"button", "entry", "editor", "switch", "slider", "check-box", "stepper", "scroll-view",
+	};
+
 	/// <summary>Press→release stays a tap while the travel is under this (dp).</summary>
 	private const double TapSlopDp = 10.0;
 
@@ -87,6 +94,13 @@ internal sealed class QtHostInputRouter
 	private double _pinchDistance;             // finger distance at the last pinch update (dp)
 	private bool _longPressFired;              // release after a fired long press = no tap
 	private int _longPressSeq;                 // invalidates a pending long-press timer
+	private bool _longPressPending;            // armed, neither fired nor canceled yet
+	private double _longPressSlopDp;           // the recognizers' AllowableMovement: travel beyond it cancels
+	private double _lastPressDpX, _lastPressDpY;   // every press, captured or not (a list row's capture starts there)
+	private Action<bool>? _rowHold;            // a list row captured for a pan: keeps the ListView from stealing it
+	private bool _rowGestureTook;              // a row long press fired or a row pan started: the row's tap is no tap
+	private bool _fingerDown;                  // between a press and its release (a late row capture is dropped)
+	private bool _rowCapture;                  // the captured sequence started on a list row (CaptureRow)
 	private double _pressDpX, _pressDpY;
 	private double _totalDpX, _totalDpY;
 	private bool _dragging;
@@ -230,8 +244,13 @@ internal sealed class QtHostInputRouter
 		var dpX = QtHostUnits.ToLogical(x);
 		var dpY = QtHostUnits.ToLogical(y);
 
+		_lastPressDpX = dpX;
+		_lastPressDpY = dpY;
+		_rowGestureTook = false;
+		_fingerDown = true;
 		var hit = _renderer.TryHitTest(dpX, dpY, out var host) && host is not null;
 		ArmTabSwipe(dpX, dpY, hit ? host : null);
+		HideSoftInputOnTap(hit ? host : null);
 
 		if (!hit || host is null)
 		{
@@ -267,6 +286,28 @@ internal sealed class QtHostInputRouter
 		{
 			// QML consumes: the semantic event arrives over the bridge, so never synthesize a second activation.
 			NativeConsumed++;
+			// The control's own Tap/LongPress recognizers still fire beside its native action, as MAUI's Android and
+			// iOS managers attach them to the control's own view. An ancestor's do not: the control took the touch
+			// (Android never passes it up; iOS lets the UIControl win), so a tappable row around a CheckBox does not
+			// toggle twice.
+			if (OwnGestureUris.Contains(host.QmlUri) && host.Element is View control &&
+			    QtHostVisualState.EffectiveEnabled(control) &&
+			    TryFindRecognizers(control, out var ownOwner, out var ownTaps, out _, out _, out var ownLongPresses, out _, out _,
+				    stopAt: control) &&
+			    (ownTaps is not null || ownLongPresses is not null))
+			{
+				_taps = ownTaps;
+				_pans = null;
+				_swipes = null;
+				_longPresses = ownLongPresses;
+				_pointers = null;
+				_pinches = null;
+				OwnGestureCaptures++;
+				BeginCapture(ownOwner, dpX, dpY, host.MauiLogicalBounds);
+				if (_trace)
+					Trace(kind, x, y, $"{host} — QML consumes; its own tap={ownTaps is not null} longPress={ownLongPresses is not null} recognizers follow the sequence");
+				return;
+			}
 			if (_trace)
 				Trace(kind, x, y, $"{host} — QML consumes (semantic event via the bridge)");
 			return;
@@ -291,6 +332,16 @@ internal sealed class QtHostInputRouter
 		}
 
 		// MAUI consumes: capture survives the finger leaving the bounds.
+		if (_trace)
+			Trace(kind, x, y, $"{host} → gesture target {owner.GetType().Name} CAPTURED " +
+				$"(tap={_taps is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
+				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0} pinch={_pinches?.Count ?? 0})");
+		BeginCapture(owner, dpX, dpY, OwnerRect(ve, owner, host.MauiLogicalBounds));
+	}
+
+	/// <summary>Starts a captured sequence on <paramref name="owner"/> with the recognizer lists already set.</summary>
+	private void BeginCapture(View owner, double dpX, double dpY, Rect ownerDp)
+	{
 		_captured = owner;
 		_pressDpX = dpX;
 		_pressDpY = dpY;
@@ -299,17 +350,54 @@ internal sealed class QtHostInputRouter
 		_dragging = false;
 		_pinching = false;
 		_pinched = false;
-		_ownerDp = OwnerRect(ve, owner, host.MauiLogicalBounds);
+		_ownerDp = ownerDp;
 		_gestureId++;
 		MauiCaptured++;
 		_longPressFired = false;
-		if (_trace)
-			Trace(kind, x, y, $"{host} → gesture target {owner.GetType().Name} CAPTURED " +
-				$"(tap={_taps is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
-				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0} pinch={_pinches?.Count ?? 0})");
 		DispatchPointer(PointerPhase.Entered);
 		DispatchPointer(PointerPhase.Pressed);
 		ArmLongPress();
+	}
+
+	/// <summary>
+	/// A press on a CollectionView row whose template carries Pan/Swipe/Pointer/LongPress/Pinch recognizers (the
+	/// ListView consumed the press, the delegate reported it as "list-item-pressed"): the nearest owner between
+	/// <paramref name="hit"/> and <paramref name="cellRoot"/> takes the sequence as anywhere else. Taps stay with the
+	/// row's own path (list-item-tapped). <paramref name="hold"/> keeps the ListView from stealing a captured pan.
+	/// </summary>
+	internal bool CaptureRow(View hit, View cellRoot, Action<bool> hold)
+	{
+		// The delegate's press report can arrive after the release (events queued behind a fast tap): nothing to capture.
+		if (!_fingerDown || _captured is not null || !TryFindRecognizers(hit, out var owner, out _, out var pans, out var swipes,
+			    out var longPresses, out var pointers, out var pinches, stopAt: cellRoot, skipTaps: true))
+			return false;
+		_taps = null;
+		_pans = pans;
+		_swipes = swipes;
+		_longPresses = longPresses;
+		_pointers = pointers;
+		_pinches = pinches;
+		RowCaptures++;
+		_rowCapture = true;
+		BeginCapture(owner, _lastPressDpX, _lastPressDpY, new Rect(_lastPressDpX, _lastPressDpY, owner.Width, owner.Height));
+		if (pans is not null || swipes is not null || pinches is not null)
+		{
+			_rowHold = hold;
+			hold(true);
+		}
+		if (_trace)
+			QtHostDiag.Trace(QtHostDiagChannel.Input, $"list row → gesture target {owner.GetType().Name} CAPTURED " +
+				$"(pan={pans?.Count ?? 0} swipe={swipes?.Count ?? 0} longPress={longPresses?.Count ?? 0} pointer={pointers?.Count ?? 0})");
+		return true;
+	}
+
+	/// <summary>Whether a row long press fired or a row pan started since the last press (once): the row's tap that the
+	/// ListView reports on release is then no tap and no selection, as after a long press or a drag anywhere else.</summary>
+	internal bool TakeRowGesture()
+	{
+		var took = _rowGestureTook;
+		_rowGestureTook = false;
+		return took;
 	}
 
 	/// <summary>Arms a tab swipe on a tabbed page unless the press starts in the edge band, on a control
@@ -322,6 +410,9 @@ internal sealed class QtHostInputRouter
 			return;
 		var width = _renderer.WindowWidthDp;
 		if (dpX < TabSwipeEdgeDp || dpX > width - TabSwipeEdgeDp)
+			return;
+		// A tab row with more tabs than fit scrolls sideways under the finger.
+		if (_renderer.TabRowScrolls && dpY < _renderer.ChromeBottomDp)
 			return;
 		if (host is not null)
 		{
@@ -409,6 +500,41 @@ internal sealed class QtHostInputRouter
 	/// <summary>Page swipes that switched a tab.</summary>
 	public long TabSwipes { get; private set; }
 
+	/// <summary>Presses on a QML-consumed control whose own Tap/LongPress recognizers took the sequence too.</summary>
+	public long OwnGestureCaptures { get; private set; }
+
+	/// <summary>List-row presses whose template recognizers took the sequence (<see cref="CaptureRow"/>).</summary>
+	public long RowCaptures { get; private set; }
+
+	/// <summary>Pending long presses canceled (early release, movement, a pan or a second finger).</summary>
+	public long LongPressCancels { get; private set; }
+
+	/// <summary>Text inputs unfocused by a press elsewhere on a <c>HideSoftInputOnTapped</c> page.</summary>
+	public long SoftInputHides { get; private set; }
+
+	/// <summary>Adapters that take text: a press on one keeps the keyboard.</summary>
+	private static readonly HashSet<string> TextInputUris = new(StringComparer.Ordinal) { "entry", "editor", "search-bar" };
+
+	/// <summary><c>ContentPage.HideSoftInputOnTapped</c>: a press outside a text input unfocuses the focused one, which
+	/// closes Maliit, as the keyboard hides on Android/iOS (MAUI's plain-net manager for it does nothing).</summary>
+	private void HideSoftInputOnTap(NativeElementHost? host)
+	{
+		if (_renderer.CurrentPage is not ContentPage { HideSoftInputOnTapped: true })
+			return;
+		if (host is not null && TextInputUris.Contains(host.QmlUri))
+			return;
+		foreach (var candidate in _renderer.CurrentHosts)
+		{
+			if (candidate.Element is InputView { IsFocused: true } input)
+			{
+				input.Unfocus();
+				SoftInputHides++;
+				if (_trace)
+					QtHostDiag.Trace(QtHostDiagChannel.Focus, $"HideSoftInputOnTapped: press outside text input → {input.GetType().Name} unfocused");
+			}
+		}
+	}
+
 	private void OnMove(int kind, double x, double y)
 	{
 		if (_tabSwipeArmed)
@@ -433,10 +559,16 @@ internal sealed class QtHostInputRouter
 		if (_pinched)
 			return;   // two fingers: the pinch owns the sequence (updated from the second point)
 
+		// LongPressGestureRecognizer.AllowableMovement: travel beyond it cancels the pending long press.
+		if (_longPressPending && Math.Sqrt(_totalDpX * _totalDpX + _totalDpY * _totalDpY) > _longPressSlopDp)
+			CancelLongPress();
 		if (!_dragging && Math.Max(Math.Abs(_totalDpX), Math.Abs(_totalDpY)) > TapSlopDp)
 		{
 			_dragging = true;
-			_longPressSeq++;   // travel beyond the slop is not a long press
+			if (_pans is not null)
+				CancelLongPress();   // the pan owns a moving finger
+			if (_rowCapture && (_pans is not null || _swipes is not null))
+				_rowGestureTook = true;
 			DispatchPan(GestureStatus.Started);
 		}
 		if (_dragging)
@@ -446,6 +578,7 @@ internal sealed class QtHostInputRouter
 
 	private void OnRelease(int kind, double x, double y)
 	{
+		_fingerDown = false;
 		// A release after a fired long-press is not a tap (as with Silica's ListItem).
 		var holdFired = _holdFired;
 		_holdFlyout = null;
@@ -456,7 +589,7 @@ internal sealed class QtHostInputRouter
 		if (_captured is null)
 			return;   // the press was QML-consumed or ignored
 
-		_longPressSeq++;   // a pending long-press timer no longer fires
+		CancelLongPress();   // released before the duration: a pending long press is Canceled
 		DispatchPointer(PointerPhase.Released);
 		DispatchPointer(PointerPhase.Exited);
 		if (_pinched)
@@ -523,15 +656,15 @@ internal sealed class QtHostInputRouter
 			most = Math.Max(most, t.NumberOfTapsRequired);
 		if (count >= most)
 			_tapCountOwner = null;   // the longest sequence is complete: the next tap starts a new one
-		// Root-space dp of the press; other platforms pass view-relative positions.
-		var position = new Point(_pressDpX, _pressDpY);
+		var getPosition = PositionOf(new Point(_pressDpX, _pressDpY));
 		void Fire()
 		{
 			foreach (var t in taps)
-				if (t.NumberOfTapsRequired == count)
+				// A touch is the primary button: a recognizer for the secondary button alone never fires on it.
+				if (t.NumberOfTapsRequired == count && (t.Buttons & ButtonsMask.Primary) != 0)
 				{
 					TapsFired++;
-					SendTapped(t, owner, position);
+					SendTapped(t, owner, getPosition);
 				}
 		}
 		// A shorter count waits for the multi-tap window when a longer one is possible (a double-tap must not also
@@ -548,11 +681,13 @@ internal sealed class QtHostInputRouter
 
 	/// <summary>Calls TapGestureRecognizer.SendTapped (public infrastructure in .NET 11 MAUI); handler
 	/// failures are logged, never rethrown into the Qt loop.</summary>
-	internal static void SendTapped(TapGestureRecognizer tap, View view, Point position)
+	internal static void SendTapped(TapGestureRecognizer tap, View view, Point position) =>
+		SendTapped(tap, view, _ => position);
+
+	internal static void SendTapped(TapGestureRecognizer tap, View view, Func<IElement?, Point?> getPosition)
 	{
 		try
 		{
-			Func<IElement?, Point?> getPosition = _ => position;
 			tap.SendTapped(view, getPosition);
 		}
 		catch (Exception ex)
@@ -595,12 +730,16 @@ internal sealed class QtHostInputRouter
 			return;
 		if (Math.Max(Math.Abs(_totalDpX), Math.Abs(_totalDpY)) < SwipeMinDp)
 			return;
-		var direction = Math.Abs(_totalDpX) >= Math.Abs(_totalDpY)
+		var horizontal = Math.Abs(_totalDpX) >= Math.Abs(_totalDpY);
+		var direction = horizontal
 			? (_totalDpX > 0 ? SwipeDirection.Right : SwipeDirection.Left)
 			: (_totalDpY > 0 ? SwipeDirection.Down : SwipeDirection.Up);
+		var distance = horizontal ? Math.Abs(_totalDpX) : Math.Abs(_totalDpY);
 		foreach (var swipe in swipes)
 		{
-			if (swipe.Direction != direction)
+			// Direction is a flags enum (Left | Right takes either) and Threshold the distance MAUI's own detection
+			// requires (default 100); an exact match and a fixed 30 dp missed both (tracker S16).
+			if ((swipe.Direction & direction) == 0 || distance < Math.Max(swipe.Threshold, SwipeMinDp))
 				continue;
 			SwipesFired++;
 			_dispatcher.Dispatch(() => swipe.SendSwiped(view, direction));
@@ -631,7 +770,7 @@ internal sealed class QtHostInputRouter
 			if (_dragging)
 				DispatchPan(GestureStatus.Canceled);
 			_dragging = false;
-			_longPressSeq++;
+			CancelLongPress();
 			_holdFlyout = null;
 			_pinching = true;
 			_pinched = true;
@@ -708,9 +847,16 @@ internal sealed class QtHostInputRouter
 		_pinching = false;
 		_pinched = false;
 		_longPressFired = false;
+		_longPressPending = false;
+		_rowCapture = false;
 		_dragging = false;
 		_totalDpX = 0;
 		_totalDpY = 0;
+		if (_rowHold is { } hold)
+		{
+			_rowHold = null;
+			hold(false);
+		}
 	}
 
 	/// <summary>Finds the nearest View (element or ancestor) carrying Tap/Pan/Swipe/LongPress/Pointer/Pinch recognizers.</summary>
@@ -720,9 +866,10 @@ internal sealed class QtHostInputRouter
 	                                       out List<SwipeGestureRecognizer>? swipes,
 	                                       out List<LongPressGestureRecognizer>? longPresses,
 	                                       out List<PointerGestureRecognizer>? pointers,
-	                                       out List<PinchGestureRecognizer>? pinches)
+	                                       out List<PinchGestureRecognizer>? pinches,
+	                                       View? stopAt = null, bool skipTaps = false)
 	{
-		for (var v = element as View; v is not null; v = v.Parent as View)
+		for (var v = element as View; v is not null; v = ReferenceEquals(v, stopAt) ? null : v.Parent as View)
 		{
 			taps = null;
 			pans = null;
@@ -734,7 +881,7 @@ internal sealed class QtHostInputRouter
 			{
 				switch (recognizer)
 				{
-					case TapGestureRecognizer t: (taps ??= new List<TapGestureRecognizer>()).Add(t); break;
+					case TapGestureRecognizer t when !skipTaps: (taps ??= new List<TapGestureRecognizer>()).Add(t); break;
 					case PanGestureRecognizer p: (pans ??= new List<PanGestureRecognizer>()).Add(p); break;
 					case SwipeGestureRecognizer s: (swipes ??= new List<SwipeGestureRecognizer>()).Add(s); break;
 					case LongPressGestureRecognizer l: (longPresses ??= new List<LongPressGestureRecognizer>()).Add(l); break;
@@ -761,6 +908,10 @@ internal sealed class QtHostInputRouter
 
 	private enum PointerPhase { Entered, Pressed, Moved, Released, Exited }
 
+	/// <summary>The getPosition a gesture's event args answer <c>GetPosition(relativeTo)</c> with (tracker S16: it used to
+	/// return the root point whatever was asked).</summary>
+	private Func<IElement?, Point?> PositionOf(Point root) => relativeTo => _renderer.RelativePosition(root, relativeTo);
+
 	/// <summary>PointerGestureRecognizer: a touch is entered+pressed, moved and released+exited (no hover on a
 	/// touch screen).</summary>
 	private void DispatchPointer(PointerPhase phase)
@@ -769,13 +920,14 @@ internal sealed class QtHostInputRouter
 		var owner = _captured;
 		if (pointers is null || owner is null)
 			return;
-		var position = new Point(_pressDpX + _totalDpX, _pressDpY + _totalDpY);
+		var getPosition = PositionOf(new Point(_pressDpX + _totalDpX, _pressDpY + _totalDpY));
 		PointerEventsFired += pointers.Count;
 		_dispatcher.Dispatch(() =>
 		{
-			Func<IElement?, Point?> getPosition = _ => position;
 			foreach (var pointer in pointers)
 			{
+				if ((pointer.Buttons & ButtonsMask.Primary) == 0)
+					continue;   // a touch is the primary button
 				try
 				{
 					switch (phase)
@@ -795,8 +947,38 @@ internal sealed class QtHostInputRouter
 		});
 	}
 
+	/// <summary>A pending long press that will not fire (early release, travel beyond AllowableMovement, a pan taking
+	/// the finger, a second finger): its recognizers get LongPressing Canceled, as MAUI's Android manager reports.</summary>
+	private void CancelLongPress()
+	{
+		_longPressSeq++;
+		if (!_longPressPending)
+			return;
+		_longPressPending = false;
+		LongPressCancels++;
+		var longPresses = _longPresses;
+		var owner = _captured;
+		if (longPresses is null || owner is null)
+			return;
+		var getPosition = PositionOf(new Point(_pressDpX + _totalDpX, _pressDpY + _totalDpY));
+		_dispatcher.Dispatch(() =>
+		{
+			foreach (var longPress in longPresses)
+			{
+				try
+				{
+					longPress.SendLongPressing(owner, GestureStatus.Canceled, getPosition);
+				}
+				catch (Exception ex)
+				{
+					QtHostDiag.Error(QtHostDiagChannel.Input, $"LongPressing handler failed: {ex.Message}");
+				}
+			}
+		});
+	}
+
 	/// <summary>Arms LongPressGestureRecognizer at its MinimumPressDuration: Started, then LongPressed and Completed
-	/// (MAUI's Android order); travel beyond the slop or a release first cancels it.</summary>
+	/// (MAUI's Android order); a release or travel beyond AllowableMovement first cancels it (Canceled).</summary>
 	private void ArmLongPress()
 	{
 		var longPresses = _longPresses;
@@ -805,14 +987,18 @@ internal sealed class QtHostInputRouter
 			return;
 		var seq = ++_longPressSeq;
 		var duration = Math.Max(1, longPresses.Min(l => l.MinimumPressDuration));
+		_longPressPending = true;
+		_longPressSlopDp = Math.Max(0, longPresses.Min(l => l.AllowableMovement));
 		_dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(duration), () =>
 		{
-			if (seq != _longPressSeq || !ReferenceEquals(_captured, owner) || _dragging)
+			if (seq != _longPressSeq || !ReferenceEquals(_captured, owner) || !_longPressPending)
 				return;
+			_longPressPending = false;
 			_longPressFired = true;
+			if (_rowCapture)
+				_rowGestureTook = true;
 			LongPressGesturesFired++;
-			var position = new Point(_pressDpX, _pressDpY);
-			Func<IElement?, Point?> getPosition = _ => position;
+			var getPosition = PositionOf(new Point(_pressDpX, _pressDpY));
 			foreach (var longPress in longPresses)
 			{
 				try

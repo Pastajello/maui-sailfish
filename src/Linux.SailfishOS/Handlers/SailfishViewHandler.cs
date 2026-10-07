@@ -68,6 +68,10 @@ public abstract class SailfishViewHandler<TVirtualView> : ViewHandler<TVirtualVi
 	/// <summary>The render session of this handler's MAUI context: every request for work goes through it.</summary>
 	private SailfishRenderSession? Session => SailfishHandlerCore.SessionOf(this);
 
+	/// <summary>No platform container: clip and shadow ride the host's own layer effect, so HasContainer stays false
+	/// instead of reporting a container that never exists (ContainerView stays null, tracker S13).</summary>
+	public override bool NeedsContainer => false;
+
 	protected override NativeElementHost CreatePlatformView() => SailfishHandlerCore.HostFor(this, VirtualView, AdapterUri);
 
 	/// <summary>As a native view goes with its handler: a host whose element left the page is destroyed now.</summary>

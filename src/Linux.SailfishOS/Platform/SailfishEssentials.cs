@@ -29,23 +29,7 @@ internal static class SailfishEssentials
 	{
 		foreach (var entry in SailfishEssentialsRegistry.Entries)
 			services.TryAddSingleton(entry.Service, _ => SailfishEssentialsRegistry.DefaultFor(entry));
-		// MAUI registers its reference-assembly reader (it throws on Announce) before this runs; an app's own wins.
-		var reader = services.FirstOrDefault(d => d.ServiceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader));
-		if (reader is null || IsMauiDefault(reader))
-		{
-			if (reader is not null)
-				services.Remove(reader);
-			services.AddSingleton<Microsoft.Maui.Accessibility.ISemanticScreenReader, SailfishSemanticScreenReader>();
-		}
 		return services;
-	}
-
-	/// <summary>A registration of MAUI's own Essentials default (its reference assembly), not the app's.</summary>
-	private static bool IsMauiDefault(ServiceDescriptor descriptor)
-	{
-		var type = descriptor.IsKeyedService ? null
-			: descriptor.ImplementationInstance?.GetType() ?? descriptor.ImplementationType;
-		return type is not null && type.Assembly == descriptor.ServiceType.Assembly;
 	}
 
 	/// <summary>The statics a MauiProgram reads while it builds the app (FileSystem paths for a log or database file,
@@ -66,8 +50,6 @@ internal static class SailfishEssentials
 		_installed = true;
 		foreach (var entry in SailfishEssentialsRegistry.Entries)
 			Hook(entry.Facade, entry.Hook, services.GetService(entry.Service));
-		Hook(typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault",
-			services.GetService(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader)));
 	}
 
 	/// <summary>Installs one more static.</summary>
@@ -108,6 +90,7 @@ internal static class SailfishEssentials
 	[DynamicDependency("SetCurrent", typeof(AppActions))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.Authentication.WebAuthenticator))]
 	[DynamicDependency("SetDefault", typeof(Microsoft.Maui.ApplicationModel.Communication.Contacts))]
+	[DynamicDependency("SetDefault", typeof(VersionTracking))]
 	[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The hooks are rooted by the DynamicDependency attributes above.")]
 	internal static void Hook(
 		[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicMethods)] Type facade, string method, object? implementation)
@@ -352,7 +335,39 @@ internal sealed class SailfishDeviceDisplay : IDeviceDisplay
 			var w = landscape ? SailfishDisplay.PixelHeight : SailfishDisplay.PixelWidth;
 			var h = landscape ? SailfishDisplay.PixelWidth : SailfishDisplay.PixelHeight;
 			var orientation = w > h ? DisplayOrientation.Landscape : DisplayOrientation.Portrait;
-			return new DisplayInfo(w, h, SailfishDisplay.Density, orientation, rotation, 60);
+			return new DisplayInfo(w, h, SailfishDisplay.Density, orientation, rotation, RefreshRate());
+		}
+	}
+
+	private static float s_refreshRate;
+
+	/// <summary>The screen's refresh rate (QScreen::refreshRate through the shim's screen info), read once; 60 until
+	/// the shim answers.</summary>
+	internal static float RefreshRate()
+	{
+		if (s_refreshRate > 0)
+			return s_refreshRate;
+		var rate = ParseRefreshRate(QtHostRuntime.IsRunning ? QtThread.Run(QtHostRuntime.ScreenInfo) : string.Empty);
+		if (rate > 0)
+			s_refreshRate = rate;
+		return rate > 0 ? rate : 60f;
+	}
+
+	internal static float ParseRefreshRate(string screenInfo)
+	{
+		if (string.IsNullOrEmpty(screenInfo))
+			return 0;
+		try
+		{
+			using var doc = System.Text.Json.JsonDocument.Parse(screenInfo);
+			return doc.RootElement.TryGetProperty("screen", out var screen) &&
+			       screen.TryGetProperty("refreshRate", out var rate) && rate.TryGetDouble(out var hz) && hz > 0
+				? (float)hz
+				: 0;
+		}
+		catch (System.Text.Json.JsonException)
+		{
+			return 0;
 		}
 	}
 

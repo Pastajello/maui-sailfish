@@ -49,6 +49,21 @@ public class ToolsPackagingTests
 		Assert.All(paths, p => Assert.EndsWith("/", p));
 	}
 
+	/// <summary>The same NuGet rule for the native assets: the extension-less launcher packed as
+	/// "native/sailfish-launcher" landed at native/sailfish-launcher/sailfish-launcher (tracker S06). A file without an
+	/// extension needs a folder PackagePath.</summary>
+	[Fact]
+	public void Extension_less_native_assets_are_packed_into_a_folder()
+	{
+		var csproj = Path.Combine(Repo.Root, "src/Linux.SailfishOS/Linux.SailfishOS.csproj");
+		var items = XDocument.Load(csproj).Descendants("None")
+			.Select(i => (Include: (string?)i.Attribute("Include") ?? "", Path: (string?)i.Attribute("PackagePath") ?? ""))
+			.Where(i => i.Path.StartsWith("runtimes/", StringComparison.Ordinal) && System.IO.Path.GetExtension(i.Include).Length == 0)
+			.ToList();
+		Assert.NotEmpty(items);   // the launchers
+		Assert.All(items, i => Assert.EndsWith("/", i.Path));
+	}
+
 	[Fact]
 	public void Every_packed_tool_exists_in_the_checkout()
 	{

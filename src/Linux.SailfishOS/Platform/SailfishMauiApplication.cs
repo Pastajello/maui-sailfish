@@ -110,8 +110,25 @@ public abstract partial class SailfishMauiApplication : IPlatformApplication
 		Invoke<SailfishLifecycle.OnLaunched>(d => d(this, _arguments));
 	}
 
+	/// <summary>The window's renderer while the loop runs (null for a window that is not a Controls Window).</summary>
+	private QtHostPageRenderer? _renderer;
+	private bool _windowDestroyed;
+
 	internal void RaiseQuitting()
 	{
+		// The window lifecycle first, as Android ends with onPause/onStop/onDestroy: OnSleep and Window.Destroying run
+		// before the app's own last hook (M1, tracker S04).
+		try
+		{
+			if (_renderer is { } renderer)
+				renderer.RaiseQuitLifecycle();
+			else if (_mauiWindow is { } window && !_windowDestroyed)
+			{
+				_windowDestroyed = true;   // Window.Destroying throws when sent twice
+				window.Destroying();
+			}
+		}
+		catch (Exception ex) { Console.Error.WriteLine($"[Sailfish] quit lifecycle failed: {ex}"); }
 		// Runs from the QML event callback while the loop ends: the app's override failing must not skip the lifecycle
 		// delegates (W1.9).
 		try { OnQuitting(); }

@@ -15,6 +15,11 @@
     <IsShipping>true</IsShipping>
     <!-- The lowest SkiaSharp 3.x the supported apps use; NuGet lets apps resolve any later 3.x. -->
     <SailfishSkiaSharpVersion Condition="'$(SailfishSkiaSharpVersion)' == ''">3.116.1</SailfishSkiaSharpVersion>
+    <!-- Symbols beside the package (snupkg) and SourceLink to the repository (tracker S06). -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>

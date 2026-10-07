@@ -503,6 +503,7 @@ int sailfish_host_screen_info(char *buf, int cap)
         scr.insert(QStringLiteral("width"), geom.width());
         scr.insert(QStringLiteral("height"), geom.height());
         scr.insert(QStringLiteral("dpr"), screen->devicePixelRatio());
+        scr.insert(QStringLiteral("refreshRate"), screen->refreshRate());
         scr.insert(QStringLiteral("orientation"), orientation_name(screen->orientation()));
         scr.insert(QStringLiteral("nativeOrientation"), orientation_name(screen->nativeOrientation()));
         root.insert(QStringLiteral("screen"), scr);
@@ -574,6 +575,62 @@ int sailfish_host_clipboard_get(char *buf, int cap)
         s = QString::fromUtf8(g.clipboardMirror.c_str());
     const QByteArray utf = s.toUtf8();
     return copy_out(utf, buf, cap);
+}
+
+namespace {
+const char *image_format(const QString &path)
+{
+    const QString lower = path.toLower();
+    return lower.endsWith(QLatin1String(".jpg")) || lower.endsWith(QLatin1String(".jpeg")) ? "JPEG" : "PNG";
+}
+}
+
+int sailfish_host_grab_image(const char *path, double x, double y, double w, double h, int quality)
+{
+    QQuickWindow *qw = qobject_cast<QQuickWindow *>(g.window);
+    if (!qw || !path || !path[0]) {
+        set_error("grab_image: no QQuickWindow to grab or empty path");
+        return SFHOST_E_ARGS;
+    }
+    QImage img = qw->grabWindow();
+    if (img.isNull()) {
+        set_error("grab_image: grabWindow() returned a null image");
+        return SFHOST_E_ARGS;
+    }
+    if (w > 0 && h > 0) {
+        // Scene units are logical pixels; the grab is in device pixels.
+        const qreal dpr = img.devicePixelRatio() > 0 ? img.devicePixelRatio() : 1.0;
+        const QRect wanted(qRound(x * dpr), qRound(y * dpr), qRound(w * dpr), qRound(h * dpr));
+        const QRect part = wanted.intersected(img.rect());
+        if (part.isEmpty()) {
+            set_error("grab_image: the rect lies outside the window");
+            return SFHOST_E_ARGS;
+        }
+        img = img.copy(part);
+    }
+    const QString file = QString::fromUtf8(path);
+    if (!img.save(file, image_format(file), quality)) {
+        set_error(std::string("grab_image: could not save to ") + path);
+        return SFHOST_E_ARGS;
+    }
+    return SFHOST_OK;
+}
+
+int sailfish_host_convert_image(const char *src, const char *dst, int quality)
+{
+    if (!src || !src[0] || !dst || !dst[0])
+        return fail_args("sailfish_host_convert_image");
+    QImage img(QString::fromUtf8(src));
+    if (img.isNull()) {
+        set_error(std::string("convert_image: could not read ") + src);
+        return SFHOST_E_ARGS;
+    }
+    const QString file = QString::fromUtf8(dst);
+    if (!img.save(file, image_format(file), quality)) {
+        set_error(std::string("convert_image: could not save to ") + dst);
+        return SFHOST_E_ARGS;
+    }
+    return SFHOST_OK;
 }
 
 int sailfish_host_open_url(const char *url)

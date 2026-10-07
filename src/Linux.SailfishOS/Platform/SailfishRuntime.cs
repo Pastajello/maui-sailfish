@@ -34,7 +34,16 @@ internal static class SailfishRuntime
 		foreach (var timer in _timers.Keys)
 		{
 			var start = SlowWorkMs > 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-			timer.OnTick(now);
+			try
+			{
+				timer.OnTick(now);
+			}
+			catch (Exception ex)
+			{
+				// One failing Tick must not skip the other due timers of this pump (as the dispatcher queue logs and
+				// carries on); its next tick was already scheduled, so it does not re-fire every pump either.
+				QtHost.QtHostDiag.Error(QtHost.QtHostDiagChannel.QtHost, $"unhandled exception in a dispatcher timer: {ex}");
+			}
 			if (start != 0)
 				ReportSlow(start, timer.TickSource);
 		}

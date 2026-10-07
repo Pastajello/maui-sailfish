@@ -279,6 +279,10 @@ internal static partial class AdapterSnapshots
 						["text"] = item.Text ?? string.Empty,
 						["icon"] = QtHostImages.Resolve(item.IconImageSource) ?? string.Empty,
 						["bg"] = item.BackgroundColor is { } bg ? BridgeValue.ColorString(bg) : string.Empty,
+						// MAUI 11: TextColor and IconColor; unset keeps Silica's text colour and the icon's own colours
+						// (MAUI 11 no longer tints non-font icons by default, tracker S13).
+						["fg"] = item.TextColor is { } fg ? BridgeValue.ColorString(fg) : string.Empty,
+						["iconColor"] = item.IconColor is { } tint ? BridgeValue.ColorString(tint) : string.Empty,
 					});
 					break;
 				case SwipeItemView view:

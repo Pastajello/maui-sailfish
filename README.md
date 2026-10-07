@@ -20,10 +20,9 @@ Both clips are recorded on a Jolla phone (Sailfish OS 5.2) with real touch input
 
 - All stock MAUI controls, Shell, TabbedPage and FlyoutPage, CollectionView, WebView (Gecko) and most of MAUI
   Essentials work on the phone.
-- Handler parity with the official MAUI mappers: 100% (1073/1073 keys, [docs/handler-parity.md](docs/handler-parity.md)).
+- Handler parity with the official MAUI mappers: 100% (1344/1344 keys, [docs/handler-parity.md](docs/handler-parity.md)).
 - On-device acceptance matrix: 31 legs (`tools/sf matrix`, list in [docs/tools.md](docs/tools.md)); the full run on
-  2026-10-04 passed all 31 (the `silica` leg after its theme check was updated). SecureStorage (`f4`) needs an
-  unlocked phone.
+  2026-10-07 passed all 31. SecureStorage (`f4`) needs an unlocked phone.
 - 15 open-source MAUI apps run on the phone, some with gaps such as empty charts ([docs/porting-existing-apps.md](docs/porting-existing-apps.md)).
 - What is left: [docs/parity-plan.md](docs/parity-plan.md) (roadmap), [BUG_LIST.md](BUG_LIST.md) (open defects).
 
@@ -163,6 +162,7 @@ MAUI does all layout. Native elements are created once and updated in place. Lis
 | [profiling.md](docs/profiling.md) | EventPipe, QML profiler and memory on the phone |
 | [parity-plan.md](docs/parity-plan.md) | roadmap |
 | [maui11-alignment-plan.md](docs/maui11-alignment-plan.md) | gap analysis against MAUI 11 (lifecycle, navigation, collections, graphics, input, Essentials, build) and the work packages that close it; evidence in [docs/audits/maui11/](docs/audits/maui11/) |
+| [maui11-tracker.md](docs/maui11-tracker.md) | that plan split into one-session tasks with checkboxes and notes: take the next unticked one |
 | [BUG_LIST.md](BUG_LIST.md) | open defects |
 | [app-test-campaign.md](docs/app-test-campaign.md) | log of the real-app test campaign |
 | [skiasharp-plan.md](docs/skiasharp-plan.md) | SkiaSharp support plan |

@@ -203,6 +203,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 	private Location? _last;
 	private readonly List<TaskCompletionSource<Location?>> _pending = new();
 	private GeolocationListeningRequest? _listening;
+	private Location? _lastRaised;   // the last fix LocationChanged reported (MinimumDistance is measured from it)
 
 	private const string Qml = """
 		import QtQuick 2.6
@@ -255,7 +256,7 @@ internal sealed class SailfishGeolocation : IGeolocation
 		var tcs = new TaskCompletionSource<Location?>(TaskCreationOptions.RunContinuationsAsynchronously);
 		lock (_pending)
 			_pending.Add(tcs);
-		SailfishSensor.SetActive(Service, true, "s.update();");
+		SailfishSensor.SetActive(Service, true, MethodsJs(request.DesiredAccuracy) + "s.update();");
 		var timeout = request.Timeout > TimeSpan.Zero ? request.Timeout : TimeSpan.FromSeconds(30);
 		using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancelToken);
 		cts.CancelAfter(timeout);
@@ -289,8 +290,9 @@ internal sealed class SailfishGeolocation : IGeolocation
 		if (!EnsureService())
 			return Task.FromResult(false);
 		_listening = request;
+		_lastRaised = null;
 		var ms = (int)Math.Clamp(request.MinimumTime.TotalMilliseconds, 100, 60_000);
-		SailfishSensor.SetActive(Service, true, $"s.updateInterval={ms};");
+		SailfishSensor.SetActive(Service, true, MethodsJs(request.DesiredAccuracy) + $"s.updateInterval={ms};");
 		return Task.FromResult(true);
 	}
 
@@ -313,9 +315,25 @@ internal sealed class SailfishGeolocation : IGeolocation
 			pending = _pending.ToArray();
 		foreach (var tcs in pending)
 			tcs.TrySetResult(location);
-		if (_listening is not null)
+		if (_listening is { } listening && PassesMinimumDistance(_lastRaised, location, listening.MinimumDistance))
+		{
+			_lastRaised = location;
 			LocationChanged?.Invoke(this, new GeolocationLocationChangedEventArgs(location));
+		}
 	}
+
+	/// <summary>GeolocationListeningRequest.MinimumDistance (metres, new in MAUI 11): a fix closer than that to the last
+	/// reported one is not reported; 0 reports every fix.</summary>
+	internal static bool PassesMinimumDistance(Location? last, Location next, double minimumMetres) =>
+		last is null || minimumMetres <= 0 ||
+		Location.CalculateDistance(last, next, DistanceUnits.Kilometers) * 1000 >= minimumMetres;
+
+	/// <summary>DesiredAccuracy → PositionSource.preferredPositioningMethods: Lowest/Low take network positioning (no
+	/// GPS, as Android's coarse providers), the rest every method.</summary>
+	internal static string MethodsJs(GeolocationAccuracy accuracy) =>
+		accuracy is GeolocationAccuracy.Lowest or GeolocationAccuracy.Low
+			? "s.preferredPositioningMethods=PositionSource.NonSatellitePositioningMethods;"
+			: "s.preferredPositioningMethods=PositionSource.AllPositioningMethods;";
 
 	private void OnError(JsonElement e)
 	{

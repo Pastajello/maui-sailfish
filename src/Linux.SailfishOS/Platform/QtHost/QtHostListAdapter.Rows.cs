@@ -87,8 +87,8 @@ internal sealed partial class QtHostListAdapter
 		// Slot views are measured later by MaterializeSlots; placeholders may not exist yet.
 		if (view is StructuredItemsView siv && !_slotsBuiltWhileHeld)
 		{
-			HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate);
-			FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate);
+			HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate, siv);
+			FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate, siv);
 			InheritOwnerContext(siv, HeaderView);
 			InheritOwnerContext(siv, FooterView);
 		}
@@ -96,7 +96,7 @@ internal sealed partial class QtHostListAdapter
 		// A plain-text EmptyView on a vertical list is Silica's ViewPlaceholder (the native empty-state text);
 		// views, templates and other layouts keep the MAUI content in the empty slot.
 		var placeholder = view.EmptyView is string text && view.EmptyViewTemplate is null && !Horizontal && !Carousel ? text : null;
-		EmptySlotView = placeholder is null ? CreateSlotView(view.EmptyView, view.EmptyViewTemplate) : null;
+		EmptySlotView = placeholder is null ? CreateSlotView(view.EmptyView, view.EmptyViewTemplate, view) : null;
 		InheritOwnerContext(view, EmptySlotView);
 		Push("mauiPlaceholderText", placeholder ?? string.Empty);
 
@@ -241,7 +241,7 @@ internal sealed partial class QtHostListAdapter
 		if (template is null)
 			return;
 		var row = NewRow(kind, groupIndex, -1);
-		var view = AdoptRowView(CreateFromTemplate(template, context));
+		var view = AdoptRowView(CreateFromTemplate(template, context, View));
 		var height = view is null ? 0 : _bridge.MeasureItemView(view, widthDp);
 		WatchRow(row, view);
 		row.CellViews.Add(view);
@@ -329,7 +329,7 @@ internal sealed partial class QtHostListAdapter
 	{
 		var template = View.ItemTemplate;
 		if (template is not null)
-			return AdoptRowView(CreateFromTemplate(template, item));
+			return AdoptRowView(CreateFromTemplate(template, item, View));
 		// No template: MAUI shows ToString() — mirror that with a plain label.
 		return item is null ? null : AdoptRowView(new Label { Text = item.ToString() ?? string.Empty });
 	}

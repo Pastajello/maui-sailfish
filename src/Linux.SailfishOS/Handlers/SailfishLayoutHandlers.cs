@@ -68,6 +68,48 @@ public abstract class SailfishLayoutHandlerBase<TLayout> : SailfishSnapshotHandl
 			SailfishHandlerCore.SessionOf(this)?.RequestSubtree(layout);
 	}
 
+	// The obsolete Compatibility layouts (Compatibility.StackLayout/Grid/AbsoluteLayout…) never invoke the layout
+	// commands: a child added at runtime showed only at the next poll. Their element events stand in for them.
+#pragma warning disable CS0618
+	private Microsoft.Maui.Controls.Compatibility.Layout? _compatWatched;
+
+	private void WatchCompatibility(IView? view)
+	{
+		var layout = view as Microsoft.Maui.Controls.Compatibility.Layout;
+		if (ReferenceEquals(layout, _compatWatched))
+			return;
+		if (_compatWatched is { } old)
+		{
+			old.ChildAdded -= OnCompatibilityChildChanged;
+			old.ChildRemoved -= OnCompatibilityChildChanged;
+			old.ChildrenReordered -= OnCompatibilityReordered;
+		}
+		_compatWatched = layout;
+		if (layout is not null)
+		{
+			layout.ChildAdded += OnCompatibilityChildChanged;
+			layout.ChildRemoved += OnCompatibilityChildChanged;
+			layout.ChildrenReordered += OnCompatibilityReordered;
+		}
+	}
+#pragma warning restore CS0618
+
+	private void OnCompatibilityChildChanged(object? sender, ElementEventArgs e) => ChildrenChanged();
+
+	private void OnCompatibilityReordered(object? sender, EventArgs e) => ChildrenChanged();
+
+	public override void SetVirtualView(IView view)
+	{
+		base.SetVirtualView(view);
+		WatchCompatibility(view);
+	}
+
+	protected override void DisconnectHandler(NativeElementHost platformView)
+	{
+		WatchCompatibility(null);
+		base.DisconnectHandler(platformView);
+	}
+
 	ILayout IElementHandler<ILayout, NativeElementHost>.VirtualView => VirtualView;
 
 	ILayout IViewHandler<ILayout, NativeElementHost>.VirtualView => VirtualView;

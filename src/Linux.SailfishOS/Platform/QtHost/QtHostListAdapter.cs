@@ -468,6 +468,7 @@ internal sealed partial class QtHostListAdapter
 		public const string Row = "r";        // the row's index
 		public const string Height = "h";     // Qt units
 		public const string Tap = "t";        // 0 none, 1 selectable, 2 a tap gesture in the row
+		public const string Gestures = "g";   // 1: other recognizers in the row; presses go to the input router
 		public const string Cells = "n";      // cells in a grid row
 		public const string Selected = "s";   // the role mauiSelectedRows flips
 	}
@@ -496,6 +497,7 @@ internal sealed partial class QtHostListAdapter
 			  .Append(",\"" + RowJson.Row + "\":").Append(i.ToString(CultureInfo.InvariantCulture))
 			  .Append(",\"" + RowJson.Height + "\":").Append(QtHostUnits.ToQtUnits(row.HeightDp).ToString("R", CultureInfo.InvariantCulture))
 			  .Append(",\"" + RowJson.Tap + "\":").Append(row.Kind != KindItem ? '0' : selectable ? '1' : RowHasTap(row) ? '2' : '0')
+			  .Append(",\"" + RowJson.Gestures + "\":").Append(row.Kind == KindItem && RowHasGestures(row) ? '1' : '0')
 			  .Append(",\"" + RowJson.Cells + "\":").Append((row.Kind == KindItem ? row.CellItems.Count : 0).ToString(CultureInfo.InvariantCulture))
 			  .Append('}');
 		}

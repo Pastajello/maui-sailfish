@@ -16,7 +16,52 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 		nameof(IButtonStroke.StrokeThickness), nameof(ImageButton.BorderWidth), nameof(IPadding.Padding),
 	};
 
-	public static readonly PropertyMapper<IImage, SailfishImageHandler> Mapper = SnapshotMapper<SailfishImageHandler>(Keys);
+	public static readonly PropertyMapper<IImage, SailfishImageHandler> Mapper = WithLoading(SnapshotMapper<SailfishImageHandler>(Keys));
+
+	private static PropertyMapper<IImage, SailfishImageHandler> WithLoading(PropertyMapper<IImage, SailfishImageHandler> mapper)
+	{
+		mapper.AppendToMapping(nameof(Image.Source), static (handler, view) => handler.TrackLoading(view));
+		return mapper;
+	}
+
+	private ImageSource? _source;      // the source the handler last saw (its pending load is cancelled on a change)
+	private string? _loadingUrl;        // the URL whose load the adapter has not reported yet
+	private string? _loadedUrl;         // the URL the adapter last reported loaded (or failed)
+
+	/// <summary>
+	/// Image.IsLoading, as MAUI's platform handlers report it: true from a source change until the image is shown or
+	/// has failed. The previous source's pending read (a stream, a service) is cancelled, as MAUI's
+	/// ImageSourceServiceResultManager cancels the previous load.
+	/// </summary>
+	private void TrackLoading(IImage view)
+	{
+		var source = view.Source as ImageSource;
+		if (!ReferenceEquals(source, _source))
+		{
+			QtHostImages.CancelPending(_source);
+			_source = source;
+		}
+		var pending = QtHostImages.IsPending(source);
+		view.UpdateIsLoading(Wait(QtHostImages.Resolve(source)) || pending);
+		if (pending)
+			QtHostImages.WhenSettled(source, this, () =>
+			{
+				if (!ReferenceEquals(source, _source) || ConnectedView is not { } shown)
+					return;
+				// The read failed (nothing will load), or the image already loaded: a local GIF's AnimatedImage loads
+				// synchronously while its host is created, before this callback runs.
+				if (!Wait(QtHostImages.Resolve(source)))
+					shown.UpdateIsLoading(false);
+			});
+	}
+
+	/// <summary>Whether the adapter still has to load <paramref name="url"/>: not when there is none, nor when it already
+	/// reported this URL (a re-mapped Source, or a load faster than the mapping).</summary>
+	private bool Wait(string? url)
+	{
+		_loadingUrl = url is not null && url != _loadedUrl ? url : null;
+		return _loadingUrl is not null;
+	}
 
 	public static readonly CommandMapper<IImage, SailfishImageHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
 
@@ -44,6 +89,15 @@ public class SailfishImageHandler : SailfishSnapshotHandler<IImage>
 	protected override void OnAdapterEvent(string name, JsonElement payload)
 	{
 		var url = payload.TryGetProperty(SailfishKeys.Event.Source, out var source) ? source.GetString() : null;
+		if ((name == SailfishKeys.Event.ImageLoaded || name == SailfishKeys.Event.ImageFailed) && url is not null)
+		{
+			_loadedUrl = url;
+			if (url == _loadingUrl && ConnectedView is { } loaded)
+			{
+				_loadingUrl = null;
+				loaded.UpdateIsLoading(false);
+			}
+		}
 		if (name == SailfishKeys.Event.ImageNatural && url is not null)
 		{
 			// A new size re-measures the view; so does a view that measured 0 × 0 while the URL was loading, when another

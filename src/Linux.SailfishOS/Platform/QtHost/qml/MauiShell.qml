@@ -236,6 +236,11 @@ ApplicationWindow {
         onStateChanged: window.mauiReportAppState()
         onActiveChanged: window.mauiReportAppState()
     }
+    // Clipboard.ClipboardContentChanged: Silica's Clipboard follows the system clipboard, other apps' copies too.
+    Connections {
+        target: Clipboard
+        onTextChanged: window.mauiAppNotify("svc-clipboard-changed", "{}")
+    }
     function mauiReportAppState() {
         mauiAppNotify("svc-app-state", JSON.stringify({ state: Qt.application.state, active: Qt.application.active }));
     }

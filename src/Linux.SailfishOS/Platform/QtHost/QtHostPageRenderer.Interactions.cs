@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Maui;
@@ -31,7 +32,16 @@ internal sealed partial class QtHostPageRenderer
 		foreach (var flyout in FlyoutEntries(page))
 			_pullEntries.Add(flyout);
 		foreach (var item in pull)
-			_pullEntries.Add((item.Text ?? string.Empty, item.IsEnabled, () => FireMenuItem(item)));
+			_pullEntries.Add((ToolbarText(item), item.IsEnabled, () => FireMenuItem(item)));
+		// A RefreshView on a page with a pulley: Silica's pull-down menu owns the overscroll, so the pull gesture can
+		// never reach the RefreshView (RefreshAncestorOf leaves it unarmed). Silica apps refresh from a pulley item, so
+		// the pulley gets one, nearest the content (the quickest to reach), that starts the refresh as the gesture would.
+		var pulleyRefresh = _refreshWalk is { } refresh && (pull.Count > 0 || push.Count > 0 || _pullEntries.Count > 0)
+			? refresh
+			: null;
+		WatchPulleyRefresh(pulleyRefresh);
+		if (pulleyRefresh is not null)
+			_pullEntries.Add((PulleyRefreshText, pulleyRefresh.IsRefreshEnabled, () => StartPulleyRefresh(pulleyRefresh)));
 
 		// Page-scoped hosts: returning to a page creates fresh menu objects so adapters rebuild MenuItems from init props.
 		if (!ReferenceEquals(_pullPage, page) || !ReferenceEquals(_pushPage, page) || !ReferenceEquals(_ctxPage, page))
@@ -110,6 +120,38 @@ internal sealed partial class QtHostPageRenderer
 			RequestPoll();
 	}
 
+	/// <summary>Text of the pull-down entry that refreshes a RefreshView the pulley shadows.</summary>
+	internal const string PulleyRefreshText = "Refresh";
+
+	/// <summary>The RefreshView refreshed from the pulley entry (null when the page arms the pull gesture itself).</summary>
+	private RefreshView? _pulleyRefresh;
+
+	private void WatchPulleyRefresh(RefreshView? refresh)
+	{
+		if (ReferenceEquals(refresh, _pulleyRefresh))
+			return;
+		if (_pulleyRefresh is not null)
+			_pulleyRefresh.PropertyChanged -= OnPulleyRefreshChanged;
+		_pulleyRefresh = refresh;
+		if (refresh is not null)
+			refresh.PropertyChanged += OnPulleyRefreshChanged;
+	}
+
+	// IsRefreshing pulses the pulley bar; IsRefreshEnabled enables the entry.
+	private void OnPulleyRefreshChanged(object? sender, PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName is nameof(RefreshView.IsRefreshing) or nameof(RefreshView.IsRefreshEnabled))
+			RequestPoll();
+	}
+
+	/// <summary>What the pull gesture does on an armed RefreshView: IsRefreshing on, which raises Refreshing and runs
+	/// the Command.</summary>
+	private static void StartPulleyRefresh(RefreshView refresh)
+	{
+		if (refresh.IsRefreshEnabled && !refresh.IsRefreshing)
+			refresh.IsRefreshing = true;
+	}
+
 	/// <summary>Pull-down menu entries (flyout + primary ToolbarItems), index-aligned with the adapter's MenuItems.</summary>
 	private readonly List<(string Text, bool Enabled, Action Activate)> _pullEntries = new();
 
@@ -145,6 +187,17 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>The page shows a tab bar (the input router arms tab swipes only then).</summary>
 	internal bool HasTabBar => _tabSelect is not null && _tabCount > 1;
+
+	/// <summary>Tabs a row shows side by side; with more, MauiModelPage.qml's row flicks sideways.</summary>
+	internal const int TabRowFits = 4;
+
+	private int _subTabCount;
+
+	/// <summary>A tab row is wider than the page: a horizontal drag on it scrolls the row, not the tab.</summary>
+	internal bool TabRowScrolls => _tabCount > TabRowFits || _subTabCount > TabRowFits;
+
+	/// <summary>Bottom of the page chrome (status area, header, tab rows) in root dp, as the page last reported it.</summary>
+	internal double ChromeBottomDp => _lastHeader < 0 ? 0 : QtHostUnits.ToLogical(Math.Max(0, _lastStatus) + _lastHeader);
 
 	internal double WindowWidthDp => _windowDp.Width;
 
@@ -186,7 +239,7 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>Tabs of the rendered page, as the root container handler offers them (a Shell item's sections or a
 	/// section's contents, a TabbedPage's children). Shown on the stack's root page only (Sailfish idiom).</summary>
-	private (List<string> Titles, int Index, Action<int> Select)? ResolveTabs()
+	private Handlers.SailfishTabRow? ResolveTabs()
 	{
 		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
 			return null;
@@ -194,11 +247,25 @@ internal sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>The second tab row (a Shell section's contents), on the same pages as <see cref="ResolveTabs"/>.</summary>
-	private (List<string> Titles, int Index, Action<int> Select)? ResolveSubTabs()
+	private Handlers.SailfishTabRow? ResolveSubTabs()
 	{
 		if (ResolveModalStack() is { Count: > 0 } || ResolveRootStack().Pages.Count != 1)
 			return null;
 		return Handlers.SailfishPageContainers.Of(RootPage())?.SubTabs;
+	}
+
+	/// <summary><c>,"badges":[{text,bg,fg}|null,…]</c> for a row where some tab has a badge; empty otherwise, so a row
+	/// without badges sends the JSON it sent before badges existed.</summary>
+	internal static string TabBadgesJson(Handlers.SailfishTabRow row)
+	{
+		if (row.Badges is not { } badges)
+			return string.Empty;
+		var list = new List<object?>(badges.Count);
+		foreach (var badge in badges)
+			list.Add(badge is { } b
+				? new Dictionary<string, object?> { ["text"] = b.Text, ["bg"] = b.Color, ["fg"] = b.TextColor }
+				: null);
+		return ",\"badges\":" + BridgeValue.Serialize(list);
 	}
 
 	/// <summary>The page shows the Shell flyout as its pulley.</summary>
@@ -224,22 +291,73 @@ internal sealed partial class QtHostPageRenderer
 		{
 			if (i > 0)
 				sb.Append(',');
-			sb.Append("{\"text\":").Append(BridgeValue.Quote(items[i].Text ?? string.Empty))
+			sb.Append("{\"text\":").Append(BridgeValue.Quote(ToolbarText(items[i])))
 			  .Append(",\"enabled\":").Append(items[i].IsEnabled ? "true" : "false").Append('}');
 		}
 		return sb.Append(']').ToString();
 	}
 
-	private static string MenuItemsJson(MenuFlyout flyout)
+	private static readonly ConditionalWeakTable<ToolbarItem, object> IconOnlyWarned = new();
+
+	/// <summary>A pulley entry's text. Silica pulley menus are text only, so an icon-only ToolbarItem (Text empty) uses
+	/// its AutomationId, its SemanticProperties.Description, or its icon file's name; with none of them it stays blank
+	/// and one warning names it.</summary>
+	internal static string ToolbarText(ToolbarItem item)
+	{
+		if (!string.IsNullOrEmpty(item.Text))
+			return item.Text;
+		var fallback = !string.IsNullOrEmpty(item.AutomationId) ? item.AutomationId
+			: SemanticProperties.GetDescription(item) is { Length: > 0 } description ? description
+			: item.IconImageSource is FileImageSource { File: { Length: > 0 } file } ? System.IO.Path.GetFileNameWithoutExtension(file)
+			: null;
+		if (fallback is null && !IconOnlyWarned.TryGetValue(item, out _))
+		{
+			IconOnlyWarned.Add(item, IconOnlyWarned);
+			QtHostDiag.Warn(QtHostDiagChannel.Navigation,
+				"a ToolbarItem has no Text, AutomationId or Description: its pulley entry is blank (Silica pulleys show text only)");
+		}
+		return fallback ?? string.Empty;
+	}
+
+	/// <summary>The rows a ContextFlyout opens with: a MenuFlyoutSubItem becomes a label row followed by its own items
+	/// (Silica's ContextMenu has no submenus), separators are dropped. Item is null on a label row.</summary>
+	internal static List<(string Text, bool Enabled, MenuItem? Item)> ContextEntries(MenuFlyout flyout)
+	{
+		var rows = new List<(string, bool, MenuItem?)>();
+		void Add(IEnumerable<IMenuElement> elements)
+		{
+			foreach (var element in elements)
+			{
+				switch (element)
+				{
+					case MenuFlyoutSeparator:
+						break;
+					case MenuFlyoutSubItem sub:
+						rows.Add((sub.Text ?? string.Empty, false, null));
+						Add(sub);
+						break;
+					case MenuItem item:
+						rows.Add((item.Text ?? string.Empty, item.IsEnabled, item));
+						break;
+				}
+			}
+		}
+		Add(flyout);
+		return rows;
+	}
+
+	private static string ContextItemsJson(IReadOnlyList<(string Text, bool Enabled, MenuItem? Item)> rows)
 	{
 		var sb = new StringBuilder("[");
-		for (var i = 0; i < flyout.Count; i++)
+		for (var i = 0; i < rows.Count; i++)
 		{
 			if (i > 0)
 				sb.Append(',');
-			var item = flyout[i] as MenuItem;
-			sb.Append("{\"text\":").Append(BridgeValue.Quote(item?.Text ?? string.Empty))
-			  .Append(",\"enabled\":").Append(item?.IsEnabled ?? true ? "true" : "false").Append('}');
+			sb.Append("{\"text\":").Append(BridgeValue.Quote(rows[i].Text))
+			  .Append(",\"enabled\":").Append(rows[i].Enabled ? "true" : "false");
+			if (rows[i].Item is null)
+				sb.Append(",\"label\":true");
+			sb.Append('}');
 		}
 		return sb.Append(']').ToString();
 	}
@@ -266,10 +384,25 @@ internal sealed partial class QtHostPageRenderer
 	internal void FireContextMenu(string hostId, MenuFlyout flyout)
 	{
 		_openFlyout = flyout;
+		_openFlyoutRows = ContextEntries(flyout);
 		var rc = QtHostRuntime.Eval(
-			$"{TopModelPageJs}.__openContextMenu('{hostId}',{BridgeValue.Quote(MenuItemsJson(flyout))})");
+			$"{TopModelPageJs}.__openContextMenu('{hostId}',{BridgeValue.Quote(ContextItemsJson(_openFlyoutRows))})");
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"long-press → Silica ContextMenu open rc={rc} " +
 			$"items={flyout.Count} target={hostId}");
+	}
+
+	/// <summary>A ContextMenu is open: native stack steps wait until it closes.</summary>
+	internal bool ContextMenuOpen => _openFlyout is not null;
+
+	/// <summary>The ContextMenu closed (picked or dismissed): navigation, held while it was open, may follow the native
+	/// stack again. The rows stay for the pick, which Silica may deliver after the menu closed.</summary>
+	internal void ApplyContextClosed()
+	{
+		if (_openFlyout is null)
+			return;
+		_openFlyout = null;
+		QtHostDiag.Trace(QtHostDiagChannel.Input, "ContextMenu closed");
+		RequestPoll();
 	}
 
 	/// <summary>ContextMenu item pick → the MAUI MenuFlyoutItem.</summary>
@@ -277,14 +410,14 @@ internal sealed partial class QtHostPageRenderer
 	{
 		using var doc = JsonDocument.Parse(payload);
 		var index = BridgeJson.Int(doc.RootElement, "index");
-		var flyout = _openFlyout;
-		if (flyout is null || index < 0 || index >= flyout.Count)
+		var rows = _openFlyoutRows;
+		if (rows is null || index < 0 || index >= rows.Count)
 		{
 			QtHostDiag.Warn(QtHostDiagChannel.Input, $"context-activated index={index} with no open flyout");
 			return;
 		}
 		ContextMenuActivations++;
-		var picked = flyout[index] as MenuItem;
+		var picked = rows[index].Item;
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"ContextMenu item {index} ('{picked?.Text}') → MAUI MenuFlyoutItem");
 		if (picked is not null)
 			FireMenuItem(picked);

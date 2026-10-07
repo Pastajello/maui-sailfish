@@ -151,6 +151,7 @@ internal sealed partial class QtHostPageRenderer
 	// panels) reconcile like tree hosts but skip the geometry pass: Silica positions them (mauiDetached).
 	private readonly Dictionary<Element, MenuFlyout> _contextFlyouts = new();
 	private MenuFlyout? _openFlyout;
+	private List<(string Text, bool Enabled, MenuItem? Item)>? _openFlyoutRows;   // the open menu's rows, by QML index
 	private NativeElementHost? _ctxMenuHost;
 	private NativeElementHost? _pullHost;
 	private NativeElementHost? _pushHost;
@@ -434,6 +435,9 @@ internal sealed partial class QtHostPageRenderer
 	public long ActivatedSent { get; private set; }
 	public long DeactivatedSent { get; private set; }
 	public long ResumedSent { get; private set; }
+
+	/// <summary>Window.Destroying calls delivered (one on quit).</summary>
+	public long DestroyingSent { get; private set; }
 	public long StoppedSent { get; private set; }
 
 	/// <summary>Last polled Qt::ApplicationState and window.active mirrors (diagnostics).</summary>
@@ -596,6 +600,47 @@ internal sealed partial class QtHostPageRenderer
 					$"(deferred={CreationDeferred} navBusy={_navStackBusy} page='{(_rendered is null ? "-" : TitleOf(_rendered))}') " +
 					$"ops=[{(_opsEvals != ops0 ? _lastOps : string.Empty)}]");
 		}
+	}
+
+	/// <summary>Hardware Back presses that reached the renderer.</summary>
+	public long BackPresses { get; private set; }
+
+	/// <summary>Back presses MAUI handled itself (IWindow.BackButtonClicked returned true: a pop, or an app's veto).</summary>
+	public long BackHandledByMaui { get; private set; }
+
+	/// <summary>Back presses MAUI left unhandled that the renderer still popped (<see cref="TryPop"/>).</summary>
+	public long BackFallbackPops { get; private set; }
+
+	/// <summary>
+	/// Hardware Back as Android delivers it (OnBackPressed → IWindow.BackButtonClicked): the top modal's or the page's
+	/// OnBackButtonPressed chain decides first, so an app's override (an unsaved-changes prompt), Shell's
+	/// BackButtonBehavior.Command, NavigationPage/Shell/TabbedPage/FlyoutPage pops and the default modal pop all run as
+	/// on the other platforms. Only what MAUI left unhandled falls to <see cref="TryPop"/>. The native stack follows the
+	/// MAUI pop through the usual request path.
+	/// </summary>
+	public bool HandleBack()
+	{
+		BackPresses++;
+		bool handled;
+		try
+		{
+			handled = ((Microsoft.Maui.IWindow)_window).BackButtonClicked();
+		}
+		catch (Exception ex)
+		{
+			QtHostDiag.Error(QtHostDiagChannel.Navigation, $"hardware Back: BackButtonClicked failed: {ex}");
+			handled = false;
+		}
+		if (handled)
+		{
+			BackHandledByMaui++;
+			QtHostDiag.Trace(QtHostDiagChannel.Navigation, "hardware Back → handled by MAUI (OnBackButtonPressed chain)");
+			return true;
+		}
+		var popped = TryPop();
+		if (popped)
+			BackFallbackPops++;
+		return popped;
 	}
 
 	/// <summary>
@@ -937,11 +982,13 @@ internal sealed partial class QtHostPageRenderer
 			ops.Add(BridgeOps.Title(title));
 		}
 		// Silica shows a busy page as a pulsing pulley bar when it has a pull-down menu, else a PageBusyIndicator.
-		var busy = (page.IsBusy ? "1" : "0") + (_pullHost is not null ? "p" : "");
+		// A RefreshView whose gesture the pulley owns refreshes from its pulley entry and pulses the same bar.
+		var isBusy = page.IsBusy || _pulleyRefresh is { IsRefreshing: true };
+		var busy = (isBusy ? "1" : "0") + (_pullHost is not null ? "p" : "");
 		if (busy != _renderedBusy)
 		{
 			_renderedBusy = busy;
-			ops.Add(BridgeOps.Busy(page.IsBusy, _pullHost is not null));
+			ops.Add(BridgeOps.Busy(isBusy, _pullHost is not null));
 		}
 		// UserAppTheme = Light under a dark ambience (Profitocracy's theme setting) put the app's light pages under a
 		// header and tab row still drawn light-on-dark: unreadable. The page's palette follows the app's theme.
@@ -969,15 +1016,18 @@ internal sealed partial class QtHostPageRenderer
 		var tabs = ResolveTabs();
 		var subTabs = ResolveSubTabs();
 		var subJson = subTabs is { } st
-			? ",\"sub\":{\"titles\":" + BridgeValue.Serialize(st.Titles) + ",\"index\":" + st.Index.ToString(CultureInfo.InvariantCulture) + "}"
+			? ",\"sub\":{\"titles\":" + BridgeValue.Serialize(st.Titles) + ",\"index\":" + st.Index.ToString(CultureInfo.InvariantCulture) +
+			  TabBadgesJson(st) + "}"
 			: string.Empty;
 		var tabsJson = tabs is { } t
-			? "{\"titles\":" + BridgeValue.Serialize(t.Titles) + ",\"index\":" + t.Index.ToString(CultureInfo.InvariantCulture) + subJson + "}"
+			? "{\"titles\":" + BridgeValue.Serialize(t.Titles) + ",\"index\":" + t.Index.ToString(CultureInfo.InvariantCulture) +
+			  TabBadgesJson(t) + subJson + "}"
 			: "{\"titles\":[],\"index\":0" + subJson + "}";
 		_tabSelect = tabs?.Select;
 		_subTabSelect = subTabs?.Select;
 		_tabIndex = tabs?.Index ?? 0;
 		_tabCount = tabs?.Titles.Count ?? 0;
+		_subTabCount = subTabs?.Titles.Count ?? 0;
 		if (tabsJson != _renderedTabs)
 		{
 			_renderedTabs = tabsJson;
@@ -1227,8 +1277,31 @@ internal sealed partial class QtHostPageRenderer
 	/// false and NavigationPage.HasBackButton false remove the toolbar back button elsewhere, and Silica's back
 	/// affordance is the gesture (a first-run modal must not be swiped away).</summary>
 	internal static bool BackNavigationOf(Page page) =>
-		Shell.GetBackButtonBehavior(page) is not { IsVisible: false } and not { IsEnabled: false } &&
-		NavigationPage.GetHasBackButton(page);
+		Shell.GetBackButtonBehavior(page) is not { IsVisible: false } and not { IsEnabled: false } and not { Command: not null } &&
+		NavigationPage.GetHasBackButton(page) &&
+		!DecidesBack(page);
+
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, bool> DecidesBackByType = new();
+
+	/// <summary>
+	/// The page decides Back itself: its type overrides OnBackButtonPressed (an unsaved-changes prompt). Silica pops on
+	/// the Back key and the back swipe before MAUI is asked, and the renderer then follows the native pop, so a veto
+	/// would be lost; such a page gets no Silica back navigation and Back reaches it only through MAUI
+	/// (<see cref="HandleBack"/>), as on Android. A Shell BackButtonBehavior.Command is treated the same way above.
+	/// </summary>
+	internal static bool DecidesBack(Page page) =>
+		DecidesBackByType.GetOrAdd(page.GetType(), static type =>
+		{
+			if (typeof(NavigationPage).IsAssignableFrom(type) || typeof(Shell).IsAssignableFrom(type) ||
+			    typeof(MultiPage<Page>).IsAssignableFrom(type) || typeof(FlyoutPage).IsAssignableFrom(type))
+				return false;   // containers override it to pop their stacks
+			var method = type.GetMethod("OnBackButtonPressed",
+				System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+				binder: null, types: Type.EmptyTypes, modifiers: null);
+			var declaring = method?.DeclaringType;
+			return declaring is not null && declaring != typeof(Page) && declaring != typeof(ContentPage) &&
+			       declaring.Assembly != typeof(Page).Assembly;
+		});
 
 	private static readonly Lazy<string> AppTitle = new(() => new SailfishAppInfo().Name);
 

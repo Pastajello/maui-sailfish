@@ -3,7 +3,7 @@ import Sailfish.Silica 1.0
 import "../lib/silica.js" as SilicaWalk
 import "../lib/adapter.js" as Adapter
 
-// Adapter: MAUI Button -> Silica Button. Events: tap (payload = mauiId).
+// Adapter: MAUI Button -> Silica Button. Events: tap, pressed-changed {id,pressed}.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
 // Styling applies only what the app set (px; <0 or transparent = Silica default).
 // The label and plate are Silica internals ("label", contentRow's parent), found once. The style Bindings and
@@ -175,4 +175,6 @@ Button {
 
     // x/y/width/height come from the managed geometry pass.
     onClicked: Adapter.emit(root, "tap")
+    // MAUI Pressed/Released: the press as Silica tracks it (a release ends it before the click).
+    onPressedChanged: Adapter.emit(root, "pressed-changed", { pressed: pressed })
 }

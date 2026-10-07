@@ -51,6 +51,13 @@ public class HandlerParityTests
 		(typeof(SwipeView), "Microsoft.Maui.Handlers.SwipeViewHandler"),
 		(typeof(IndicatorView), "Microsoft.Maui.Handlers.IndicatorViewHandler"),
 		(typeof(WebView), "Microsoft.Maui.Handlers.WebViewHandler"),
+		// The Controls shape handlers add their geometry keys on top of ShapeViewHandler (tracker S13).
+		(typeof(Microsoft.Maui.Controls.Shapes.Line), "Microsoft.Maui.Controls.Handlers.LineHandler"),
+		(typeof(Microsoft.Maui.Controls.Shapes.Path), "Microsoft.Maui.Controls.Handlers.PathHandler"),
+		(typeof(Microsoft.Maui.Controls.Shapes.Polygon), "Microsoft.Maui.Controls.Handlers.PolygonHandler"),
+		(typeof(Microsoft.Maui.Controls.Shapes.Polyline), "Microsoft.Maui.Controls.Handlers.PolylineHandler"),
+		(typeof(Microsoft.Maui.Controls.Shapes.Rectangle), "Microsoft.Maui.Controls.Handlers.RectangleHandler"),
+		(typeof(Microsoft.Maui.Controls.Shapes.RoundRectangle), "Microsoft.Maui.Controls.Handlers.RoundRectangleHandler"),
 	};
 
 	/// <summary>Pinned gaps; delete an entry in the same change that closes it.</summary>
@@ -63,7 +70,8 @@ public class HandlerParityTests
 	private static IReadOnlyList<string> OfficialKeys(string handlerTypeName)
 	{
 		GC.KeepAlive(RemapTrigger);
-		var handler = typeof(Microsoft.Maui.Handlers.ViewHandler).Assembly.GetType(handlerTypeName, throwOnError: true)!;
+		var handler = typeof(Microsoft.Maui.Handlers.ViewHandler).Assembly.GetType(handlerTypeName)
+			?? typeof(Label).Assembly.GetType(handlerTypeName, throwOnError: true)!;
 		var field = handler.GetField("Mapper", BindingFlags.Public | BindingFlags.Static)
 			?? throw new InvalidOperationException($"{handlerTypeName} has no public static Mapper");
 		var mapper = (IPropertyMapper)field.GetValue(null)!;

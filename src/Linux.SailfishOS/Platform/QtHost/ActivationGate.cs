@@ -15,7 +15,8 @@ internal sealed class ActivationGate
 	private readonly Action<Action<Microsoft.Maui.IWindow>, string, int> _raise;
 	private bool? _lastWindowActive;
 	private int _lastAppState = -1;
-	private bool _lifecycleStarted;   // Resumed delivered once at startup (MAUI sent Created itself)
+	private bool _everActive;         // the application was Active once (Stopped needs a started app, as onStop does)
+	private bool _stopped;            // Stopped was raised and no Resumed followed yet
 	private long _activeSinceMs;      // since when appState == Active (0 = not active)
 	private long _deferredSinceMs;    // when the creation wait began (0 = not waiting)
 	private int _deferredTicks;       // reconciles spent waiting
@@ -40,18 +41,25 @@ internal sealed class ActivationGate
 	/// <summary>Creation may go ahead as far as activation is concerned.</summary>
 	public bool AllowsCreation => Settled || DeferralExpired;
 
-	/// <summary>One snapshot of window focus and application state (the navigation state read).</summary>
+	/// <summary>
+	/// One snapshot of window focus and application state (the navigation state read). Raised as Android raises them:
+	/// leaving Active (to the cover, Inactive; Hidden; Suspended) is Deactivated then Stopped (onPause, onStop), coming
+	/// back is Resumed then Activated (onRestart, onResume). Resumed only follows a Stopped, and startup raises no
+	/// Resumed (Android: Created → Activated). MAUI sent Created itself. An unknown state (-1: Qt.application not
+	/// readable in the snapshot) changes nothing.
+	/// </summary>
 	public void Observe(bool active, int appState)
 	{
+		// Qt.ApplicationState: Suspended=0, Hidden=1, Inactive=2, Active=4.
+		var known = appState != -1;
+		if (known && appState == 4 && _stopped)
+		{
+			_stopped = false;
+			_raise(w => w.Resumed(), $"Resumed (appState {_lastAppState}→{appState})", 3);
+		}
+
 		if (_lastWindowActive is null)
 		{
-			if (!_lifecycleStarted)
-			{
-				// No Created: MAUI startup already sent it (re-sending throws).
-				_lifecycleStarted = true;
-				if (appState == 4)
-					_raise(w => w.Resumed(), "Resumed (Qt.application.state=ApplicationActive)", 3);
-			}
 			if (active)
 				_raise(w => w.Activated(), "Activated (window active at startup)", 1);
 		}
@@ -62,20 +70,36 @@ internal sealed class ActivationGate
 		}
 		_lastWindowActive = active;
 
-		if (_lastAppState != -1 && appState != _lastAppState)
+		if (known && appState != 4 && _everActive && !_stopped)
 		{
-			// Qt.ApplicationState: Suspended=0, Hidden=1, Inactive=2, Active=4.
-			if (appState == 4)
-				_raise(w => w.Resumed(), $"Resumed (appState {_lastAppState}→{appState})", 3);
-			else if (appState == 0)
-				_raise(w => w.Stopped(), $"Stopped (appState {_lastAppState}→{appState})", 4);
+			_stopped = true;
+			_raise(w => w.Stopped(), $"Stopped (appState {_lastAppState}→{appState})", 4);
 		}
-		_lastAppState = appState;
+		if (known && appState == 4)
+			_everActive = true;
+		if (known)
+			_lastAppState = appState;
 		// Host creation waits for a stable Active state: objects created in the activation rebuild die.
 		if (appState != 4)
 			_activeSinceMs = 0;
 		else if (_activeSinceMs == 0)
 			_activeSinceMs = Environment.TickCount64;
+	}
+
+	/// <summary>The app quits (home-screen close, Application.Quit): what Android sends before onDestroy, once each and
+	/// only what is still owed: Deactivated while the window is active, Stopped unless already stopped.</summary>
+	public void Quit()
+	{
+		if (_lastWindowActive == true)
+		{
+			_lastWindowActive = false;
+			_raise(w => w.Deactivated(), "Deactivated (quit)", 2);
+		}
+		if (_everActive && !_stopped)
+		{
+			_stopped = true;
+			_raise(w => w.Stopped(), "Stopped (quit)", 4);
+		}
 	}
 
 	/// <summary>A reconcile that has to wait: counts it, starts the clock on the first one (true then, to log the

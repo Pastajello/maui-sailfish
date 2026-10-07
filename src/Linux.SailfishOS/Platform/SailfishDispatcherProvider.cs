@@ -209,14 +209,19 @@ internal class SailfishDispatcherTimer : IDispatcherTimer
 
 		if (now >= _nextTick)
 		{
-			Tick?.Invoke(this, EventArgs.Empty);
-			if (IsRepeating && _isRunning)
-			{
+			// The next tick is scheduled before Tick runs: a handler that throws neither re-fires every pump nor
+			// leaves a one-shot timer running.
+			var repeating = IsRepeating;
+			if (repeating)
 				_nextTick = now + Interval;
+			else
+				Stop();
+			Tick?.Invoke(this, EventArgs.Empty);
+			if (repeating && _isRunning && IsRepeating)
 				return true;
-			}
-			Stop();
-			return false;
+			if (_isRunning && !IsRepeating)
+				Stop();
+			return _isRunning;
 		}
 		return true;
 	}

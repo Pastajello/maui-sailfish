@@ -10,11 +10,13 @@ import "../lib/pullrefresh.js" as PullRefresh
 // and materialized as children of the delegate (the delegate never lays it out).
 //
 // Events: list-item-attached/rebind/detached {id,row,dg}, list-item-released {id,dg,to},
-// list-item-tapped
-// {id,row,cell,x,y} (x/y delegate-relative, Qt units), list-scroll {id,y,first,last,count} (throttled, along the scroll
+// list-item-tapped and list-item-pressed
+// {id,row,cell,x,y} (x/y delegate-relative, Qt units; pressed only for rows with g=1), list-scroll {id,y,first,last,count} (throttled, along the scroll
 // axis), carousel-position {id,index}, refresh-requested {id}.
 // mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units) and t is 0 (inert), 1 (selectable,
-// highlights on press) or 2 (tap recognizers in the template only, no highlight).
+// highlights on press) or 2 (tap recognizers in the template only, no highlight); g is 1 when the template has
+// other recognizers (pan, swipe, long press, pointer, pinch): its presses go to managed's input router, and
+// mauiHoldRow (that row's index, -1 none) keeps the list from stealing a drag the router captured.
 // mauiSelectedRows is highlight only ("0,3,5", or "row:cell" in grids); MAUI stays the selection authority.
 // Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, across the scroll axis: x in a vertical list, y in a
 // horizontal one); taps report the touched cell.
@@ -32,6 +34,7 @@ SilicaListView {
     property bool mauiApplying: false
 
     property string mauiRowsJson: "[]"
+    property int mauiHoldRow: -1
     property string mauiSelectedRows: ""
     property real mauiSpacing: 0
     property int mauiSpan: 1
@@ -214,7 +217,7 @@ SilicaListView {
         }
         for (i = 0; i < rows.length; ++i) {
             var n = rows[i];
-            var h = n.h || 0, t = n.t || 0, c = n.n === undefined ? 1 : n.n;
+            var h = n.h || 0, t = n.t || 0, g = n.g || 0, c = n.n === undefined ? 1 : n.n;
             if (keyed && i < rowModel.count && rowModel.get(i).k !== n.k) {
                 for (j = i + 1; j < rowModel.count; ++j)
                     if (rowModel.get(j).k === n.k) {
@@ -226,11 +229,12 @@ SilicaListView {
                 var cur = rowModel.get(i);
                 if (cur.h !== h) rowModel.setProperty(i, "h", h);
                 if (cur.t !== t) rowModel.setProperty(i, "t", t);
+                if (cur.g !== g) rowModel.setProperty(i, "g", g);
                 if (cur.n !== c) rowModel.setProperty(i, "n", c);
             } else {
                 rowModel.insert(i, { k: keyed ? n.k : i, r: i, h: h, n: c,
                                      s: "",   // selected cells ",0,2,"; set by __applySelection
-                                     t: t });
+                                     t: t, g: g });
             }
         }
         // indices last: every delegate is at its final position, so its
@@ -370,10 +374,16 @@ SilicaListView {
         MouseArea {
             id: tapArea
             anchors.fill: parent
-            enabled: t !== 0
-            onPressed: dg.__pressCell = dg.__cellAt(mouse.x, mouse.y)
+            enabled: t !== 0 || g !== 0
+            preventStealing: root.mauiHoldRow === r
+            onPressed: {
+                dg.__pressCell = dg.__cellAt(mouse.x, mouse.y);
+                if (g !== 0 && dg.__pressCell >= 0)
+                    root.mauiEvent("list-item-pressed",
+                        JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell, x: mouse.x, y: mouse.y }))
+            }
             onClicked: {
-                if (dg.__pressCell >= 0)
+                if (t !== 0 && dg.__pressCell >= 0)
                     root.mauiEvent("list-item-tapped",
                         JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell, x: mouse.x, y: mouse.y }))
             }

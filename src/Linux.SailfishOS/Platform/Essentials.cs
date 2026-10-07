@@ -16,7 +16,38 @@ internal sealed class SailfishClipboard : IClipboard
 {
 	public bool HasText => !string.IsNullOrEmpty(QtThread.Run(ReadNative));
 
-	public event EventHandler<EventArgs>? ClipboardContentChanged;
+	private EventHandler<EventArgs>? _changed;
+	private bool _watching;
+	private string? _lastText;   // the text last reported: Silica signals one change twice, and echoes our own sets
+
+	/// <summary>Raised for this app's own SetTextAsync at once, and for other apps' copies when the shell's Silica
+	/// Clipboard reports them (svc-clipboard-changed; watched from the first subscriber on). One change is one event:
+	/// a report whose text is the one already reported is dropped.</summary>
+	public event EventHandler<EventArgs>? ClipboardContentChanged
+	{
+		add
+		{
+			_changed += value;
+			if (_watching)
+				return;
+			_watching = true;
+			_lastText = ReadNativeOnQt();
+			QtHostServices.Subscribe(ShellEvents.ClipboardChanged, _ => OnSystemChanged());
+		}
+		remove => _changed -= value;
+	}
+
+	private void OnSystemChanged()
+	{
+		var text = ReadNative();
+		if (text == _lastText)
+			return;
+		_lastText = text;
+		_changed?.Invoke(this, EventArgs.Empty);
+	}
+
+	private static string ReadNativeOnQt() =>
+		QtHostRuntime.IsRunning && QtHostRuntime.TestShim is null ? QtThread.Run(ReadNative) : string.Empty;
 
 	public Task<string?> GetTextAsync() => QtThread.RunAsync<string?>(ReadNative);
 
@@ -36,7 +67,8 @@ internal sealed class SailfishClipboard : IClipboard
 			}
 			return true;
 		}).ConfigureAwait(false);
-		ClipboardContentChanged?.Invoke(this, EventArgs.Empty);
+		_lastText = text ?? string.Empty;
+		_changed?.Invoke(this, EventArgs.Empty);
 	}
 
 	internal static string ReadNative()
@@ -404,9 +436,10 @@ internal sealed class SailfishLauncher : ILauncher
 
 	public Task<bool> OpenAsync(Uri uri) => SailfishBrowser.OpenUrl(uri.ToString());
 
-	public Task<bool> TryOpenAsync(string uri) => CanOpenAsync(uri);
+	/// <summary>Opens the URI when it can and says whether it did (TryOpenAsync opened nothing before, tracker S10).</summary>
+	public Task<bool> TryOpenAsync(string uri) => string.IsNullOrEmpty(uri) ? Task.FromResult(false) : OpenAsync(uri);
 
-	public Task<bool> TryOpenAsync(Uri uri) => CanOpenAsync(uri);
+	public Task<bool> TryOpenAsync(Uri uri) => uri is null ? Task.FromResult(false) : OpenAsync(uri);
 
 	/// <summary>Opens the file in the app registered for its type (QDesktopServices → the system's default
 	/// handler, as xdg-open picks it). False when there is no such file. Under Sailjail the other app sees only the
@@ -421,36 +454,54 @@ internal sealed class SailfishLauncher : ILauncher
 	}
 }
 
-/// <summary>App identity from the baked app meta + entry assembly.</summary>
+/// <summary>
+/// App identity as the other heads report it, from what MSBuild baked into the app meta: PackageName is the
+/// ApplicationId (Android's package name, iOS's bundle id), VersionString the ApplicationDisplayVersion, BuildString
+/// the ApplicationVersion (versionCode / CFBundleVersion). A build without the meta (a plain net11.0 head) falls back
+/// to the entry assembly. VersionTracking reads these, so an RPM version bump is a new version there.
+/// </summary>
 internal sealed class SailfishAppInfo : IAppInfo
 {
-	private static readonly Lazy<(string Title, string Version)> Meta = new(() =>
+	private readonly SailfishAppMeta _meta;
+
+	public SailfishAppInfo() : this(SailfishAppMeta.Current)
 	{
-		var title = SailfishAppMeta.Current.Title;
-		var asm = System.Reflection.Assembly.GetEntryAssembly()?.GetName();
-		return (string.IsNullOrEmpty(title) ? asm?.Name ?? string.Empty : title,
-			asm?.Version?.ToString() ?? "0.0.0");
-	});
+	}
 
-	public string PackageName => System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
+	/// <summary>Tests: identity from <paramref name="meta"/>.</summary>
+	internal SailfishAppInfo(SailfishAppMeta meta) => _meta = meta;
 
-	public string Name => Meta.Value.Title;
+	private static System.Reflection.AssemblyName? EntryAssembly => System.Reflection.Assembly.GetEntryAssembly()?.GetName();
 
-	public string VersionString => Meta.Value.Version;
+	public string PackageName => _meta.AppId ?? _meta.Application ?? EntryAssembly?.Name ?? string.Empty;
 
-	public Version Version => Version.Parse(Meta.Value.Version);
+	public string Name => string.IsNullOrEmpty(_meta.Title) ? EntryAssembly?.Name ?? string.Empty : _meta.Title;
 
-	public string BuildString => string.Empty;
+	public string VersionString => _meta.Version ?? EntryAssembly?.Version?.ToString() ?? "0.0.0";
+
+	/// <summary>The display version as a Version; a non-numeric one ("1.2-beta") reads up to its first non-numeric part.</summary>
+	public Version Version => ParseVersion(VersionString);
+
+	public string BuildString => _meta.Build ?? string.Empty;
+
+	internal static Version ParseVersion(string text)
+	{
+		var numeric = new string(text.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray()).Trim('.');
+		if (!numeric.Contains('.'))
+			numeric = numeric.Length == 0 ? "0.0" : numeric + ".0";
+		return Version.TryParse(numeric, out var version) ? version : new Version(0, 0);
+	}
 
 	/// <summary>The Silica ambience: LightOnDark is Dark, DarkOnLight is Light.</summary>
 	public AppTheme RequestedTheme => SailfishTheme.Current;
 
-	public AppPackagingModel PackagingModel => AppPackagingModel.Unpackaged;
+	/// <summary>Packaged when it was built as an RPM (the meta carries its package name).</summary>
+	public AppPackagingModel PackagingModel => _meta.Application is null ? AppPackagingModel.Unpackaged : AppPackagingModel.Packaged;
 
 	public LayoutDirection RequestedLayoutDirection => LayoutDirection.LeftToRight;
 
 	public void ShowSettingsUI() =>
-		throw new NotSupportedException("Sailfish has no in-app settings surface.");
+		throw new FeatureNotSupportedException("Sailfish OS has no per-app settings page to open.");
 }
 
 internal static class SailfishAppPaths

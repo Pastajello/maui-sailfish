@@ -11,6 +11,11 @@
     <IsPackable>true</IsPackable>
     <IsShipping>true</IsShipping>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Symbols beside the package (snupkg) and SourceLink to the repository (tracker S06). -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -67,10 +72,11 @@
   <ItemGroup Condition="Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
     <None Include="../../artifacts/native/aarch64/libsailfishhost.so"
           Pack="true" PackagePath="runtimes/linux-arm64/native/libsailfishhost.so" />
-    <!-- Harbour launcher (SailfishHarbour=true) -->
+    <!-- Harbour launcher (SailfishHarbour=true). A folder PackagePath: an extension-less file name is read as a folder
+         (the launcher landed at native/sailfish-launcher/sailfish-launcher). -->
     <None Include="../../artifacts/native/aarch64/sailfish-launcher"
           Condition="Exists('../../artifacts/native/aarch64/sailfish-launcher')"
-          Pack="true" PackagePath="runtimes/linux-arm64/native/sailfish-launcher" />
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" />
     <!-- Sailfish Secrets bridge (dlopen'ed, optional) -->
     <None Include="../../artifacts/native/aarch64/libsailfishsecretsbridge.so"
           Condition="Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')"
@@ -82,7 +88,7 @@
           Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishhost.so" />
     <None Include="../../artifacts/native/armv7hl/sailfish-launcher"
           Condition="Exists('../../artifacts/native/armv7hl/sailfish-launcher')"
-          Pack="true" PackagePath="runtimes/linux-arm/native/sailfish-launcher" />
+          Pack="true" PackagePath="runtimes/linux-arm/native/" />
     <None Include="../../artifacts/native/armv7hl/libsailfishsecretsbridge.so"
           Condition="Exists('../../artifacts/native/armv7hl/libsailfishsecretsbridge.so')"
           Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishsecretsbridge.so" />

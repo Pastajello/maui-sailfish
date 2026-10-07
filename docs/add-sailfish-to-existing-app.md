@@ -107,8 +107,21 @@ Platforms/SailfishOS/
   SailfishApplication.cs  : SailfishMauiApplication — CreateMauiApp() and the native event overrides
 ```
 
-MAUI's `Window.Activated/Deactivated/Resumed/Stopped` fire as on the other platforms. The overrides are the
-native Sailfish/Qt events, with the platform's own values:
+MAUI's window lifecycle (and with it `Application.OnStart/OnSleep/OnResume`) follows Android's order, driven by
+`Qt.application.state` and the window's focus:
+
+| What happens on the phone | `Qt.application.state` | MAUI events | `Application` |
+|---|---|---|---|
+| App starts | Active | `Created` (MAUI), `Activated` | `OnStart` |
+| Minimized to its cover, or a system dialog in front | Active → Inactive | `Deactivated`, `Stopped` | `OnSleep` |
+| Further to Hidden/Suspended while stopped | Inactive → Hidden/Suspended | none (already stopped) | — |
+| Back from the cover | → Active | `Resumed`, `Activated` | `OnResume` |
+
+Sailfish reports the cover and a system dialog both as Inactive, so a system dialog (e.g. "USB cable connected")
+also raises `OnSleep`/`OnResume`, where Android raises only `onPause`. An app that must tell them apart reads
+`OnCoverStatusChanged` (only when it has a cover) or `OnApplicationStateChanged`.
+
+The overrides are the native Sailfish/Qt events, with the platform's own values:
 
 | Override | Native source | iOS / Android counterpart |
 |---|---|---|

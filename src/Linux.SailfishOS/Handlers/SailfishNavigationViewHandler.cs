@@ -19,6 +19,11 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 
 	public static new readonly PropertyMapper<IView, SailfishNavigationViewHandler> Mapper = new(SailfishPageHandler.Mapper);
 
+	/// <summary>The command mapper this handler uses (the inherited SailfishPageHandler.CommandMapper is not), so an
+	/// app's <c>SailfishNavigationViewHandler.CommandMapper.AppendToMapping(...)</c> runs (tracker S13).
+	/// <see cref="NavigationCommandMapper"/> is the same object.</summary>
+	public static new readonly CommandMapper<IStackNavigationView, SailfishNavigationViewHandler> CommandMapper = NavigationCommandMapper;
+
 	public SailfishNavigationViewHandler() : this(null)
 	{
 	}
@@ -36,7 +41,7 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 			: (Array.Empty<Page>(), null);
 
 	/// <summary>A stack at its root shows the root's tabs when the root is itself a container.</summary>
-	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs =>
+	SailfishTabRow? ISailfishPageContainer.Tabs =>
 		Nav?.Navigation.NavigationStack is { Count: 1 } stack ? SailfishPageContainers.Of(stack[0])?.Tabs : null;
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown) =>

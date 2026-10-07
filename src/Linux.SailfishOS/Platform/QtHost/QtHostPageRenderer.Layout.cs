@@ -32,7 +32,11 @@ internal sealed partial class QtHostPageRenderer
 			var bounds = candidate.MauiLogicalBounds;
 			if (bounds.Width <= 0 || bounds.Height <= 0)
 				continue;
-			if (!bounds.Contains(dpX, dpY))
+			if (!HitsFootprint(candidate, bounds, dpX, dpY))
+				continue;
+			// InputTransparent (and a CascadeInputTransparent layout above it) lets the touch through to the view below,
+			// as on the platforms: it is skipped here instead of ending the sequence (tracker S16).
+			if (IsInputTransparent(ve))
 				continue;
 			// Content scrolled out of a nested scroll viewport is not hit.
 			if (candidate.HitClipDp is { } clip && !clip.Contains(dpX, dpY))
@@ -49,6 +53,50 @@ internal sealed partial class QtHostPageRenderer
 		}
 		host = top;
 		return top is not null;
+	}
+
+	/// <summary>Whether the point lies on the host's transformed footprint: the root rect when the transform is a
+	/// translation, else the point mapped back into the element's own 0..w × 0..h (Scale, Rotation, anchors).</summary>
+	/// <summary><c>GetPosition(relativeTo)</c> of a gesture at <paramref name="root"/> (root-space dp): null asks for the
+	/// window, a view gets the point in its own coordinates (through its Scale/Rotation when it has one), a page or the
+	/// window gets the root point; an element with no attached host has no position (null), as on the platforms.</summary>
+	internal Point? RelativePosition(Point root, IElement? relativeTo)
+	{
+		if (relativeTo is null or Page or IWindow)
+			return root;
+		if (relativeTo is not Element element || !Cache.TryGet(element, out var host) || host is not { IsAttached: true })
+			return null;
+		if (host.HitTransform is { } toRoot)
+		{
+			if (!toRoot.TryInvert(out var toLocal))
+				return null;
+			var (lx, ly) = toLocal.Transform(root.X, root.Y);
+			return new Point(lx, ly);
+		}
+		var bounds = host.MauiLogicalBounds;
+		return new Point(root.X - bounds.X, root.Y - bounds.Y);
+	}
+
+	private static bool HitsFootprint(NativeElementHost host, Rect bounds, double dpX, double dpY)
+	{
+		if (host.HitTransform is not { } toRoot)
+			return bounds.Contains(dpX, dpY);
+		if (!toRoot.TryInvert(out var toLocal))
+			return false;
+		var (lx, ly) = toLocal.Transform(dpX, dpY);
+		return lx >= 0 && ly >= 0 && lx < bounds.Width && ly < bounds.Height;
+	}
+
+	/// <summary>The element lets touches through: its own InputTransparent, or a layout above it that is
+	/// InputTransparent with CascadeInputTransparent (the default), which makes its whole subtree transparent.</summary>
+	internal static bool IsInputTransparent(VisualElement element)
+	{
+		if (element.InputTransparent)
+			return true;
+		for (var e = element.Parent; e is not null; e = e.Parent)
+			if (e is Microsoft.Maui.Controls.Layout { InputTransparent: true, CascadeInputTransparent: true })
+				return true;
+		return false;
 	}
 
 	/// <summary>
@@ -349,6 +397,7 @@ internal sealed partial class QtHostPageRenderer
 				new Rect(toHost.Tx, toHost.Ty, bounds.Width, bounds.Height), visibility == Visibility.Visible);
 			PushTransform(host, element, toHost);
 			host.HitClipDp = hitClip;
+			host.HitTransform = toRoot.IsTranslationOnly ? null : toRoot;
 		}
 
 		// A nested scroll host scrolls its content natively: local rects stay unshifted, root rects shift by the

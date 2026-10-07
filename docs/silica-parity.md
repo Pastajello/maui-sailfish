@@ -16,6 +16,7 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Header and tabs move with a pulley drag (`PageHeader` inside `SilicaFlickable`, `TabView` header) | automatic | native | tabpulley |
 | `PageStack` push/pop, back swipe from the left edge | `PushAsync`/`PopAsync`, `PopToRootAsync`, modals | native | nav, navback (real swipe), features |
 | Tab bar (`TabBar`/`TabView`), swipe between tabs | `Shell` tabs, `TabbedPage` | native | shell, containers, tabpulley |
+| Tab badges; a tab row wider than the page scrolls | `TabbedPage.BadgeText`, `BaseShellItem.BadgeText` (MAUI 11); more than four tabs | native look (Silica has no tab badge; a pill in the highlight colour, a `Flickable` row) | containers J |
 | Tab swipe animation with the neighbouring page visible (`SlideshowView`) | — | open ([`parity-plan.md`](parity-plan.md)) | — |
 | `PageBusyIndicator` | `Page.IsBusy` on a page without a pulley | native | silica C |
 | `PullDownMenu.busy` (pulsing pulley bar) | `Page.IsBusy` on a page with a pulley | native | silica C |
@@ -31,12 +32,13 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | `PullDownMenu` / `PushUpMenu` | `ToolbarItem` Primary / Secondary; Shell/FlyoutPage flyout as pull-down | native | controls, pulley, tabpulley, shell E/H |
 | Menu per tab (only the tabs that declare one) | `ToolbarItems` of each tab page | native | tabpulley |
 | `MenuItem` enabled/text updates in place | `ToolbarItem.IsEnabled`, `Text` | native | silica D |
-| `ContextMenu` (press and hold) | `FlyoutBase.ContextFlyout` + `MenuFlyoutItem` | native | controls |
+| `ContextMenu` (press and hold) | `FlyoutBase.ContextFlyout` + `MenuFlyoutItem`; `MenuFlyoutSubItem` as a `MenuLabel` row with its items inline | native | controls |
 | `RemorsePopup` (page-wide undo countdown) | — | Sailfish API `SailfishRemorse.ExecuteAsync(text, …)` | silica H1/H2 |
 | `RemorseItem` (undo countdown over a list row) | — | Sailfish API `SailfishRemorse.ExecuteAsync(view, text, …)` | silica H3/H4 |
 | `DockedPanel` | — | Sailfish API `SailfishBottomSheet` | controls H, popup D |
 | `Drawer` | — | internal interaction host only (no public API) | controls H |
 | Pull to refresh | `RefreshView` (page without a pulley, or a list/ScrollView) | native gesture | collection, f3 L |
+| Refresh from the pulley | `RefreshView` on a page with `ToolbarItems` or a Shell/FlyoutPage flyout (the pulley owns the overscroll) | a **Refresh** `MenuItem` nearest the content sets `IsRefreshing`; the pulley bar pulses while it is true | pulley A2 |
 | `TapInteractionHint`, `InteractionHintLabel`, `FirstTimeUseCounter` | — | n/a (app-specific tutorials) | — |
 
 ## Lists and scrolling

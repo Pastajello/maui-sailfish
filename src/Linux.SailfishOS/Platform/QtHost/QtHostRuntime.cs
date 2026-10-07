@@ -485,6 +485,25 @@ public static class QtHostRuntime
 		return QtHostNative.sailfish_host_grab_png(path);
 	}
 
+	/// <summary>Writes the window, or the part at <paramref name="sceneRect"/> (scene units), to <paramref name="path"/>:
+	/// JPEG for a .jpg path (<paramref name="quality"/> 0..100), else PNG. 0 on success (Qt thread only).</summary>
+	public static int GrabImage(string path, NativeGeometry? sceneRect = null, int quality = -1)
+	{
+		if (TestShim is not null)
+			return -1;
+		CheckThread("grab_image");
+		var r = sceneRect ?? default;
+		return QtHostNative.sailfish_host_grab_image(path, r.X, r.Y, r.Width, r.Height, quality);
+	}
+
+	/// <summary>Re-encodes an image file (format by <paramref name="dst"/>'s extension). 0 on success.</summary>
+	public static int ConvertImage(string src, string dst, int quality = -1)
+	{
+		if (TestShim is not null)
+			return -1;
+		return QtHostNative.sailfish_host_convert_image(src, dst, quality);
+	}
+
 	/// <summary>Starts recording the window's frames as <c>&lt;ms&gt;.jpg</c> files in <paramref name="dir"/>.</summary>
 	public static int RecordStart(string dir, int fps = 15, int scalePct = 70)
 	{

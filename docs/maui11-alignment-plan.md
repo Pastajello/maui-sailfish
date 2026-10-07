@@ -16,6 +16,9 @@ exactly that, and the first step of several packages is a device check.
 
 Line numbers are from `af3d782`. They drift; grep the symbol when one no longer matches.
 
+**Progress is tracked in [`maui11-tracker.md`](maui11-tracker.md)**: the packages below split into 58 sessions
+(S01–S58) with checkboxes, notes and owner answers to D1–D17. This file stays the reference; do not tick here.
+
 ## 1. State at `af3d782`
 
 | Measure | Value |

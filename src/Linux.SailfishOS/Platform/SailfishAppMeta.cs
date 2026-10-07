@@ -4,7 +4,8 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 
 /// <summary>
 /// What MSBuild bakes into qml/maui-appmeta.json (Microsoft.Maui.SailfishOS.targets, _SailfishWriteAppMeta): window
-/// orientation, cover, title, the Harbour identity and the D-Bus openUrl names. Read once; a build without the file
+/// orientation, cover, title, the Harbour identity, the app's id and versions (ApplicationId,
+/// ApplicationDisplayVersion, ApplicationVersion) and the D-Bus openUrl names. Read once; a build without the file
 /// (a plain net11.0 head) gets <see cref="Empty"/>.
 /// </summary>
 internal sealed record SailfishAppMeta(
@@ -17,7 +18,10 @@ internal sealed record SailfishAppMeta(
 	bool Sandboxed,
 	string? DbusName,
 	string? DbusPath,
-	string? DbusIface)
+	string? DbusIface,
+	string? AppId = null,
+	string? Version = null,
+	string? Build = null)
 {
 	public static readonly SailfishAppMeta Empty = new(null, false, string.Empty, string.Empty, null, null, false, null, null, null);
 
@@ -37,7 +41,8 @@ internal sealed record SailfishAppMeta(
 		bool Flag(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
 		return new SailfishAppMeta(Text("orientation"), Flag("cover"), Text("title") ?? string.Empty, Text("coverQml") ?? string.Empty,
 			NullIfEmpty(Text("application")), NullIfEmpty(Text("organization")), Flag("sandboxed"),
-			NullIfEmpty(Text("dbusName")), Text("dbusPath"), Text("dbusIface"));
+			NullIfEmpty(Text("dbusName")), Text("dbusPath"), Text("dbusIface"),
+			NullIfEmpty(Text("appId")), NullIfEmpty(Text("version")), NullIfEmpty(Text("build")));
 	}
 
 	/// <summary>Silica's allowed-orientation mask: Portrait 1, Landscape 2, anything else (Any) 15.</summary>

@@ -562,31 +562,54 @@ internal sealed class QtHostCollectionBridge
 
 
 
-	internal static View? CreateFromTemplate(DataTemplate template, object? context)
+	/// <summary>Lists whose template failed already logged it (one error per list, not one per item).</summary>
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BindableObject, object> TemplateFailureLogged = new();
+
+	/// <summary>
+	/// The view of <paramref name="template"/> for <paramref name="context"/>. A <see cref="DataTemplateSelector"/>
+	/// picks its template for the item and <paramref name="container"/> first, as the in-box handlers do
+	/// (DataTemplateExtensions.SelectDataTemplate): CreateContent on a selector itself throws.
+	/// </summary>
+	internal static View? CreateFromTemplate(DataTemplate template, object? context, BindableObject container)
 	{
 		try
 		{
-			if (template.CreateContent() is View view)
+			var selected = template is DataTemplateSelector
+				? Microsoft.Maui.Controls.Internals.DataTemplateExtensions.SelectDataTemplate(template, context!, container)
+				: template;
+			if (selected?.CreateContent() is View view)
 			{
 				view.BindingContext = context;
 				return view;
 			}
+			LogTemplateFailure(container, selected is null
+				? $"{template.GetType().Name} returned no template for {context?.GetType().Name ?? "null"}"
+				: $"the template's content is not a View ({selected.GetType().Name})");
 		}
 		catch (Exception ex)
 		{
-			QtHostDiag.Error(QtHostDiagChannel.QmlObject, $"collection template instantiation failed: {ex.Message}");
+			LogTemplateFailure(container, ex.Message);
 		}
 		return null;
 	}
 
-	internal static View? CreateSlotView(object? content, DataTemplate? template)
+	private static void LogTemplateFailure(BindableObject container, string reason)
+	{
+		if (TemplateFailureLogged.TryGetValue(container, out _))
+			return;
+		TemplateFailureLogged.AddOrUpdate(container, new object());
+		QtHostDiag.Error(QtHostDiagChannel.QmlObject,
+			$"collection template instantiation failed on {container.GetType().Name}: {reason} (logged once per list)");
+	}
+
+	internal static View? CreateSlotView(object? content, DataTemplate? template, BindableObject container)
 	{
 		if (content is View direct)
 			return direct;
 		if (content is null)
 			return null;
 		if (template is not null)
-			return CreateFromTemplate(template, content);
+			return CreateFromTemplate(template, content, container);
 		return new Label { Text = content.ToString() ?? string.Empty };
 	}
 

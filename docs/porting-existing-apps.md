@@ -206,20 +206,61 @@ failure once per handler type, logs `[QT_HOST][WARN] <handler> failed for <view>
 
 These follow Silica conventions. Port authors should expect them; none needs app changes.
 
-- `ToolbarItems` become the page's pull-down menu. The line at the top of the page is its indicator.
+- `ToolbarItems` become the page's pull-down menu. The line at the top of the page is its indicator. Pulley entries
+  are text only: an icon-only item shows its `AutomationId`, its `SemanticProperties.Description` or its icon file's
+  name (`ic_add.png` → "ic_add"); with none of them the entry is blank and the log warns once. Give such items a
+  `Text` or an `AutomationId` for Sailfish.
+- A `ContextFlyout` opens Silica's press-and-hold `ContextMenu`. It has no submenus: a `MenuFlyoutSubItem` shows as a
+  label row followed by its own items, and `MenuFlyoutSeparator` is left out.
+- A `TapGestureRecognizer` or `LongPressGestureRecognizer` on a native control (`Button`, `Entry`, `Switch`, `Slider`,
+  `CheckBox`, …) fires beside the control's own action, as on Android. One on an ancestor of the control does not:
+  the control took the touch. `LongPressing` reports `Completed` or `Canceled` (early release, moving beyond
+  `AllowableMovement`, a pan or a second finger), as MAUI's Android backend does.
+- Control events follow Android: `Button`/`ImageButton` `Pressed` and `Released` (before `Clicked`), `Slider`
+  `DragStarted`/`DragCompleted`, `SwipeView` `SwipeStarted` at the start of a finger drag and `SwipeChanging` while
+  it moves, and `Editor.Completed` when the editor loses focus (Return is a newline). Return on an `Entry` with
+  `ReturnType.Next` focuses the next visible, editable text input on the page. A `Keyboard.Create(...)` without a
+  Capitalize flag does not capitalize the first letter.
+- `view.CaptureAsync()` and `window.CaptureAsync()` (MAUI 11) work: a view is cut out of a grab of the app window at
+  its place on screen, so anything drawn over it is in the picture too. Screenshots are PNG or JPEG
+  (`OpenReadAsync(ScreenshotFormat.Jpeg, quality)`) and are kept in memory, not left in the cache folder.
+  `Clipboard.ClipboardContentChanged` also fires when another app copies text; `DeviceDisplay` reports the screen's
+  real refresh rate.
+- Images: `Image.IsLoading` is true from a source change until the image shows (or fails). Changing `Source` cancels
+  the old source's pending stream read. A GIF from `ImageSource.FromStream` animates. Stream images are cached as files
+  that are deleted when the source is collected and at the next start. An image with no size yet, or with
+  `Aspect.Center`, decodes no larger than the screen's long side, so a 4000 px photo no longer decodes at full size; an
+  unsized image larger than that measures at the capped size.
+- `ContentPage.HideSoftInputOnTapped` works: a press outside a text field unfocuses the focused one, which closes the
+  keyboard. (`HideSoftInputAsync`/`ShowSoftInputAsync` still throw on the plain `net` build MAUI ships for this
+  head.)
 - Shell and TabbedPage tabs are a row under the page header. Long titles shrink before they fade. A horizontal
   swipe across the page drags it with the finger, the next tab's title beside it; released past the threshold it
   slides on to that tab, otherwise back.
+- Tabs are text only: a tab's `IconImageSource` is not drawn. A tab without a `Title` shows its NavigationPage root's
+  title, its explicit route, or its page type name. With more than four tabs the row scrolls sideways (about three
+  and a half in view) and keeps the selected tab in view; a drag on the row scrolls it instead of switching the tab.
+- MAUI 11 badges (`TabbedPage.BadgeText`/`BadgeColor`/`BadgeTextColor`, `BaseShellItem.BadgeText` on Shell tabs)
+  draw as a pill on the tab title's top-right corner; an empty `BadgeText` is a dot, as on Android. Without
+  `BadgeColor` the pill takes the ambience highlight colour. `ToolbarItem.BadgeText` is not drawn (pull-down menu
+  entries have no badge).
 - A page without a `Title` shows the app's name (`ApplicationTitle`) in its header.
 - `Shell.BackButtonBehavior` `IsVisible`/`IsEnabled` false and `NavigationPage.HasBackButton` false turn off the
   back gesture and indicator. A first-run modal page cannot be swiped away.
+- Hardware Back (and Escape on a keyboard) goes through `IWindow.BackButtonClicked`, as on Android: a page's
+  `OnBackButtonPressed`, Shell's `BackButtonBehavior.Command`, the NavigationPage/Shell/TabbedPage/FlyoutPage pops and
+  the default modal pop decide. Silica pops on the back swipe and the Back key before MAUI is asked, so a page whose
+  type overrides `OnBackButtonPressed`, or that has a `BackButtonBehavior.Command`, gets no Silica back gesture or
+  indicator: Back reaches it only through MAUI and its veto holds. Such a page needs its own way back (a button, or
+  `OnBackButtonPressed` returning false once it allows leaving).
 - A `Picker` opens Silica's inline menu. With more than five items, or inside a container that would clip the
   menu (an outlined field's rounded `Border`), it opens Silica's selection page instead.
 - An `Entry`/`Editor` with a set `BackgroundColor` or `Background` has no Silica underline, as a set background
   replaces the native one on Android. The "borderless entry" idiom (`BackgroundColor="Transparent"` inside the
   app's own frame) needs no platform mapper.
 - A `TapGestureRecognizer` in a `CollectionView` item template fires on tap, and the tap then does not select the
-  row. A `SwipeItemView` shows as a Silica swipe action: the first background colour, image and label in its
+  row. Pan, swipe, pointer and long-press recognizers in an item template work too; a long press does not select the
+  row either, and a pan the template captured keeps the list from scrolling until the finger lifts. A `SwipeItemView` shows as a Silica swipe action: the first background colour, image and label in its
   content, with `Invoked`/`Command` as usual.
 - A page's size (`Width`/`Height`, `OnSizeAllocated`) is the area below the page header and tab row, as on Android
   and iOS, so apps that size views from it fit the screen.
@@ -313,6 +354,14 @@ These follow Silica conventions. Port authors should expect them; none needs app
   These stay out on purpose, as do `BlazorWebView` and `MauiSplashScreen` (Sailfish apps have no splash screen).
 - **`FileResult.OpenReadAsync()`** throws: MAUI's plain-`net` `FileBase` has no platform reader and the method is
   internal to MAUI. Read `File.OpenRead(result.FullPath)` instead. `ContentType` and `FileName` work.
+- **The instance form of a permission** (`new Permissions.Camera().CheckStatusAsync()`, `RequestAsync()`,
+  `ShouldShowRationale()`) throws `NotImplementedInReferenceAssemblyException`: MAUI's plain-`net` `BasePlatformPermission`
+  has no hook. Use the generic static form, `Permissions.CheckStatusAsync<Permissions.Camera>()`, which reaches the
+  Sailfish implementation (Sailjail permissions; a sandboxed app is Granted only for what `<SailfishPermissions>`
+  declares, and `Permissions.Flashlight` is Denied in a sandbox, where no Sailjail permission reaches the torch).
+- **Pickers in a sandbox** show only the folders the app declares: `MediaPicker` needs `Pictures`/`Videos` and
+  `MediaIndexing`, `FilePicker` `UserDirs`/`Documents`/`Downloads` in `<SailfishPermissions>`; without them the picker
+  opens empty (a warning names the missing ones).
 
 ## MAUI 10/11 changes that break older libraries everywhere
 

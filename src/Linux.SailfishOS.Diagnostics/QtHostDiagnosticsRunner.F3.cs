@@ -124,11 +124,20 @@ internal sealed partial class QtHostDiagnosticsRunner
 			item.Invoked += (_, _) => _f3Invoked[text] = _f3Invoked.GetValueOrDefault(text) + 1;
 			return item;
 		}
+		// MAUI 11 SwipeItem.TextColor/IconColor (tracker S13): black text and a yellow-tinted icon on "Flag".
+		SwipeItem FlagItem()
+		{
+			var flag = Item("Flag", Colors.DarkOrange);
+			flag.TextColor = Colors.Black;
+			flag.IconColor = Colors.Yellow;
+			flag.IconImageSource = ImageSource.FromFile(System.IO.Path.Combine(AppContext.BaseDirectory, "images", "sailfish_logo.png"));
+			return flag;
+		}
 		_f3Swipe = new SwipeView
 		{
 			HeightRequest = 90,
 			LeftItems = new SwipeItems { Item("Archive", Colors.SeaGreen) },
-			RightItems = new SwipeItems { Item("Delete", Colors.Firebrick), Item("Flag", Colors.DarkOrange) },
+			RightItems = new SwipeItems { Item("Delete", Colors.Firebrick), FlagItem() },
 			Content = new Grid
 			{
 				BackgroundColor = Color.FromArgb("#303048"),
@@ -1129,6 +1138,20 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Source = ImageSource.FromStream(() => new System.IO.MemoryStream(bytes)),
 			HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
 		};
+		// Tracker S24: a source type only its own ISailfishImageSourceService understands.
+		var serviceImage = new Image
+		{
+			Source = new Diagnostics.DiagImageSource(),
+			WidthRequest = 96, HeightRequest = 96, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
+		};
+		// Tracker S25: a GIF from a stream plays (its cache file is named .gif from the header).
+		var gifPath = System.IO.Path.Combine(AppContext.BaseDirectory, "images", "pulse.gif");
+		var streamGif = new Image
+		{
+			Source = ImageSource.FromStream(() => System.IO.File.OpenRead(gifPath)),
+			IsAnimationPlaying = true,
+			WidthRequest = 64, HeightRequest = 64, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
+		};
 		var glyphButton = new Button
 		{
 			Text = "Done",
@@ -1144,7 +1167,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Source = new UriImageSource { Uri = new Uri(stallUrl) },
 			WidthRequest = 64, HeightRequest = 64, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(16, 0),
 		};
-		var imagesPage = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, naturalImage, naturalStream, glyphButton } };
+		var imagesPage = new VerticalStackLayout { Spacing = 16, Padding = new Thickness(0, 12), Children = { aliasLabel, glyphImage, streamImage, naturalImage, naturalStream, serviceImage, streamGif, glyphButton } };
 		if (stallImage is not null)
 			imagesPage.Children.Add(stallImage);
 		var stallStart = System.Diagnostics.Stopwatch.StartNew();
@@ -1172,21 +1195,40 @@ internal sealed partial class QtHostDiagnosticsRunner
 				var streamDp = 128 / density;
 				_qtF3Checks.Check($"F unsized stream Image → {naturalStream.Width:F1}×{naturalStream.Height:F1} dp == {streamDp:F1} (128 px ÷ {density:F2})",
 					Math.Abs(naturalStream.Width - streamDp) < 0.5 && Math.Abs(naturalStream.Height - streamDp) < 0.5);
-				NativeElementHostOf(renderer, glyphButton, out var bh);
-				var icon = bh is null ? "" : QtHost.QtHostRuntime.GetProperty(bh.NativeHandle, "mauiIconSource");
-				_qtF3Checks.Check($"F Button ImageSource glyph → icon '{(icon.Length > 30 ? "…" + icon[^30..] : icon)}' is a rendered PNG", icon.EndsWith(".png", StringComparison.Ordinal));
-				if (stallImage is null)
+				var serviceState = NativeElementHostOf(renderer, serviceImage, out _) ? ImageState(serviceImage) : "no host";
+				_qtF3Checks.Check($"F custom ImageSource through its ISailfishImageSourceService (asked {Diagnostics.DiagImageSourceService.Asked}) → loaded image ({serviceState})",
+					Diagnostics.DiagImageSourceService.Asked >= 1 && serviceState.Contains("\"loaded\":true") && serviceState.Contains("sailfish_logo.png"));
+				var gifJs = ItemJs(renderer, streamGif);
+				var gifFrames = QtHost.QtHostRuntime.Eval($"(function(i){{return i?(i.mauiFrameCount+'/'+i.mauiFrame+'/'+String(i.mauiSource).slice(-4)):'no host';}})({gifJs})");
+				var loading = string.Join(",", new[] { streamImage, naturalStream, serviceImage, streamGif }.Select(i => i.IsLoading ? "1" : "0"));
+				var streamFiles = System.IO.Directory.Exists(QtHost.QtHostImageSources.CacheDirectory("streams"))
+					? System.IO.Directory.GetFiles(QtHost.QtHostImageSources.CacheDirectory("streams")).Length : -1;
+				_qtF3Checks.Check($"F S25 IsLoading false once shown for the stream/service/GIF images [{loading}]; stream cache holds this run's {streamFiles} file(s) (<= 3: swept at start)",
+					loading == "0,0,0,0" && streamFiles is >= 1 and <= 3);
+				// The GIF's frame is read again 400 ms later, before the step moves on to the next page.
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
 				{
-					Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
-					return;
-				}
-				WaitFor(dispatcher, () => ImageState(stallImage).Contains("\"err\":\"Qt", StringComparison.Ordinal), 60000, () =>
-				{
-					var retries = QtHost.QtHostRuntime.Eval($"String({ItemJs(renderer, stallImage)}.__retries)");
-					var state = ImageState(stallImage);
-					_qtF3Checks.Check($"F hung remote image: aborted by the stall watchdog and loaded {retries}==2 more times, then failed after {stallStart.Elapsed.TotalSeconds:F0} s ({state})",
-						retries == "2" && state.Contains("\"loaded\":false", StringComparison.Ordinal));
-					Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+					var gifFramesLater = QtHost.QtHostRuntime.Eval($"(function(i){{return i?(i.mauiFrameCount+'/'+i.mauiFrame+'/'+String(i.mauiSource).slice(-4)):'no host';}})({gifJs})");
+					var a = gifFrames.Split('/');
+					var b = gifFramesLater.Split('/');
+					_qtF3Checks.Check($"F S25 stream GIF plays: frames/current/ext {gifFrames} then {gifFramesLater} (more than one frame, the frame moved, cached as .gif)",
+						a.Length == 3 && b.Length == 3 && int.TryParse(a[0], out var frameCount) && frameCount > 1 && a[1] != b[1] && a[2] == ".gif");
+					NativeElementHostOf(renderer, glyphButton, out var bh);
+					var icon = bh is null ? "" : QtHost.QtHostRuntime.GetProperty(bh.NativeHandle, "mauiIconSource");
+					_qtF3Checks.Check($"F Button ImageSource glyph → icon '{(icon.Length > 30 ? "…" + icon[^30..] : icon)}' is a rendered PNG", icon.EndsWith(".png", StringComparison.Ordinal));
+					if (stallImage is null)
+					{
+						Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+						return;
+					}
+					WaitFor(dispatcher, () => ImageState(stallImage).Contains("\"err\":\"Qt", StringComparison.Ordinal), 60000, () =>
+					{
+						var retries = QtHost.QtHostRuntime.Eval($"String({ItemJs(renderer, stallImage)}.__retries)");
+						var state = ImageState(stallImage);
+						_qtF3Checks.Check($"F hung remote image: aborted by the stall watchdog and loaded {retries}==2 more times, then failed after {stallStart.Elapsed.TotalSeconds:F0} s ({state})",
+							retries == "2" && state.Contains("\"loaded\":false", StringComparison.Ordinal));
+						Shot(dispatcher, "f3-f1-images", () => F3ParityN(renderer, dispatcher));
+					});
 				});
 			});
 		});

@@ -14,8 +14,22 @@ public sealed class ItemGroup : ObservableCollection<string>
 	public string Header { get; }
 }
 
+/// <summary>Picks the highlighted card for items 0 and 5 of a group, the plain card otherwise.</summary>
+public sealed class ItemCardSelector : DataTemplateSelector
+{
+	public DataTemplate? Plain { get; set; }
+
+	public DataTemplate? Highlight { get; set; }
+
+	protected override DataTemplate OnSelectTemplate(object item, BindableObject container) =>
+		item is string text && (text.EndsWith(" 0", StringComparison.Ordinal) || text.EndsWith(" 5", StringComparison.Ordinal))
+			? Highlight!
+			: Plain!;
+}
+
 /// <summary>
-/// Gallery of advanced CollectionView features (grid, grouping, header/footer, empty view, scroll-to, multi-select).
+/// Gallery of advanced CollectionView features (grid, grouping, header/footer, empty view, scroll-to, multi-select,
+/// a DataTemplateSelector).
 /// </summary>
 public partial class CollectionAdvancedPage : ContentPage
 {

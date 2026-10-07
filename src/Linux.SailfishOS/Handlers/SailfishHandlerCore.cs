@@ -79,8 +79,13 @@ internal static class SailfishHandlerCore
 	{
 		var native = (handler as ISailfishNativeFocus)?.FocusNatively(focus);
 		var granted = native ?? true;
+		var wasFocused = view is VisualElement { IsFocused: true };
 		if (view is VisualElement visual)
 			visual.SetValue(VisualElement.IsFocusedPropertyKey, focus && granted);
+		// Editor completes when it loses focus (Return is a newline), also when the app unfocuses it; the native echo
+		// of this push is suppressed, so the focus-changed path does not see it.
+		if (!focus && wasFocused && view is Editor editor)
+			editor.SendCompleted();
 		if (focus || native is not null)
 			(args as FocusRequest)?.TrySetResult(granted);
 	}

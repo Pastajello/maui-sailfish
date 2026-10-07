@@ -93,6 +93,11 @@ public sealed class NativeElementHost
 	/// hit-test. Null outside a scroll host.</summary>
 	internal Microsoft.Maui.Graphics.Rect? HitClipDp { get; set; }
 
+	/// <summary>Local → root transform of the last geometry pass when it is more than a translation (a Scale or
+	/// Rotation on the element or an ancestor); hit-testing maps the point back into the element's own rect with it
+	/// (tracker S16). Null: <see cref="MauiLogicalBounds"/> is exact.</summary>
+	internal Affine2? HitTransform { get; set; }
+
 	/// <summary>Parent id last applied natively, the diff basis for reparent ops; "" is the page canvas.</summary>
 	internal string? AppliedParentId { get; set; }
 

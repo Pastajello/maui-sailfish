@@ -53,9 +53,12 @@ Page {
     // as header, so the MAUI content area shrinks with it.
     property var mauiTabs: []
     property int mauiTabIndex: 0
+    // Per tab {text, bg, fg} or null (MAUI 11 badges); empty when no tab has one.
+    property var mauiTabBadges: []
     // A Shell section's contents (Android's top tabs), under the section tabs.
     property var mauiSubTabs: []
     property int mauiSubTabIndex: 0
+    property var mauiSubTabBadges: []
     // Tab swipe: the canvas follows the finger (mauiTabDrag, px) with the neighbour tab's title beside it; a committed
     // swipe slides the page out, asks managed for the tab ("tab-swipe-commit"), and slides the new tab in from the side.
     property bool __ownOrientations: false   // SailfishPage.AllowedOrientations set allowedOrientations
@@ -111,7 +114,9 @@ Page {
         mauiTabIndex = index;
         if (changed)
             __slideInTab();
+        mauiTabBadges = o.badges || [];
         mauiSubTabs = (o.sub && o.sub.titles) || [];
+        mauiSubTabBadges = (o.sub && o.sub.badges) || [];
         mauiSubTabIndex = o.sub && o.sub.index !== undefined ? o.sub.index : 0;
     }
 
@@ -772,9 +777,31 @@ Page {
         }
         if (!menu || menu.openFor === undefined)
             return false;
-        menu.openFor(target.item, itemsJson);
+        // Silica's ContextMenu anchors its bottom to its parent's bottom and expects the parent to grow by the menu's
+        // height (a ListItem does), and it renders that parent through a layer sized for the grown height. A MAUI
+        // host never grows (MAUI lays it out), so the menu hung above the target, outside the layer, and only the
+        // slice over the target showed. The menu opens on a stand-in at the target's place instead, which grows as a
+        // ListItem would; it shares the target's parent, so it scrolls with it, and sits above its siblings.
+        var t = target.item;
+        if (!__ctxAnchor)
+            __ctxAnchor = Qt.createQmlObject(
+                "import QtQuick 2.6; import Sailfish.Silica 1.0; Item { id: a; objectName: 'mauiContextAnchor'; property real baseHeight; property Item menu;" +
+                " height: baseHeight + (menu && menu.parent === a ? menu.height : 0);" +
+                // A ListItem's menu pushes the rows below it away; MAUI's do not move, so an opaque backing keeps
+                // their text from showing through the translucent menu.
+                " Rectangle { z: -1; y: a.baseHeight; x: a.menu ? a.menu.x : 0; width: a.menu ? a.menu.width : a.width;" +
+                " height: a.height - a.baseHeight; color: Theme.highlightDimmerColor } }", page, "ctx-anchor");
+        __ctxAnchor.parent = t.parent;
+        __ctxAnchor.x = t.x;
+        __ctxAnchor.y = t.y;
+        __ctxAnchor.width = t.width;
+        __ctxAnchor.baseHeight = t.height;
+        __ctxAnchor.z = 10000;
+        __ctxAnchor.menu = menu;
+        menu.openFor(__ctxAnchor, itemsJson);
         return true;
     }
+    property Item __ctxAnchor: null
 
     // The open dialog panel (dialogs/DialogPanel.qml), or null.
     property Item __dialog: null
@@ -971,37 +998,13 @@ Page {
                 height: visible ? Theme.itemSizeSmall : 0
                 onHeightChanged: page.reportWindowGeometry()
 
-                Row {
+                MauiTabRow {
                     id: tabRow
                     anchors.fill: parent
-                    Repeater {
-                        model: page.mauiTabs
-                        BackgroundItem {
-                            width: tabRow.width / Math.max(1, page.mauiTabs.length)
-                            height: tabRow.height
-                            objectName: "mauiTab_" + index
-                            Label {
-                                anchors.centerIn: parent
-                                width: parent.width - 2 * Theme.paddingSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                truncationMode: TruncationMode.Fade
-                                text: modelData
-                                color: index === page.mauiTabIndex ? palette.highlightColor : palette.secondaryColor
-                                font.pixelSize: Theme.fontSizeMedium
-                                // Four tabs share the width: a long title ("Transactions") shrinks before it fades.
-                                fontSizeMode: Text.HorizontalFit
-                                minimumPixelSize: Theme.fontSizeSmall
-                            }
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width
-                                height: Theme.paddingSmall / 2
-                                color: palette.highlightColor
-                                visible: index === page.mauiTabIndex
-                            }
-                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index })
-                        }
-                    }
+                    modelPage: page
+                    titles: page.mauiTabs
+                    badges: page.mauiTabBadges
+                    index: page.mauiTabIndex
                 }
             }
 
@@ -1014,37 +1017,18 @@ Page {
                 height: visible ? Theme.itemSizeExtraSmall : 0
                 onHeightChanged: page.reportWindowGeometry()
 
-                Row {
+                MauiTabRow {
                     id: subTabRow
                     anchors.fill: parent
-                    Repeater {
-                        model: page.mauiSubTabs
-                        BackgroundItem {
-                            width: subTabRow.width / Math.max(1, page.mauiSubTabs.length)
-                            height: subTabRow.height
-                            objectName: "mauiSubTab_" + index
-                            Label {
-                                anchors.centerIn: parent
-                                width: parent.width - 2 * Theme.paddingSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                truncationMode: TruncationMode.Fade
-                                text: modelData
-                                color: index === page.mauiSubTabIndex ? palette.highlightColor : palette.secondaryColor
-                                font.pixelSize: Theme.fontSizeSmall
-                                fontSizeMode: Text.HorizontalFit
-                                minimumPixelSize: Theme.fontSizeExtraSmall
-                            }
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width
-                                height: Theme.paddingSmall / 2
-                                color: palette.highlightColor
-                                opacity: 0.6
-                                visible: index === page.mauiSubTabIndex
-                            }
-                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index, level: 1 })
-                        }
-                    }
+                    modelPage: page
+                    titles: page.mauiSubTabs
+                    badges: page.mauiSubTabBadges
+                    index: page.mauiSubTabIndex
+                    level: 1
+                    namePrefix: "mauiSubTab_"
+                    fontSize: Theme.fontSizeSmall
+                    minimumFontSize: Theme.fontSizeExtraSmall
+                    markerOpacity: 0.6
                 }
             }
         }

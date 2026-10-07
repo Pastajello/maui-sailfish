@@ -29,6 +29,8 @@ public class SailfishPageHandler : NullViewHandler
 		[nameof(Shell.CurrentState)] = MapModelPage,
 		[nameof(TabbedPage.CurrentPage)] = MapModelPage,
 		[nameof(FlyoutPage.IsPresented)] = MapModelPage,
+		// The Shell flyout is the pulley: turning it off or on changes the menu.
+		[nameof(Shell.FlyoutBehavior)] = MapModelPage,
 	};
 
 	public static readonly CommandMapper<IView, SailfishPageHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);

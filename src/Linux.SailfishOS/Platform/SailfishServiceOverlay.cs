@@ -15,7 +15,6 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private SailfishDispatcherProvider? _dispatcherProvider;
 	private SailfishHandlersFactory? _handlersFactory;
 	private SailfishFontManager? _fontManager;
-	private SailfishSemanticScreenReader? _screenReader;
 	private QtHostAlertSubscription? _alertSubscription;
 	private SailfishModalNavigationPlatformFactory? _modalFactory;
 	private Microsoft.Maui.Animations.AnimationManager? _animationManager;
@@ -74,11 +73,6 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 		// Essentials: an app's registration wins, else the registry's default (the instance the facades hold too).
 		if (SailfishEssentialsRegistry.Find(serviceType) is { } essential)
 			return existing ?? SailfishEssentialsRegistry.DefaultFor(essential);
-		// MAUI registers its own reference-assembly reader (it throws); only an app's registration wins.
-		if (serviceType == typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader))
-			return existing is not null && existing.GetType().Assembly != serviceType.Assembly
-				? existing
-				: _screenReader ??= new SailfishSemanticScreenReader();
 		// Animations tick on Qt's frame clock. MAUI's own manager (its plain-net timer ticker) gives way; an app's wins.
 		if (serviceType == typeof(Microsoft.Maui.Animations.IAnimationManager) &&
 		    (existing is null || existing.GetType() == typeof(Microsoft.Maui.Animations.AnimationManager) &&

@@ -140,6 +140,60 @@ public class SailfishSwipeViewHandler : SailfishSnapshotHandler<ISwipeView>
 	};
 
 	private void Open(string side) => SendCommand(SailfishKeys.Command.Open, new() { [SailfishKeys.Command.OpenSide] = side });
+
+	// A SwipeItem's own properties (Text, colours, icon, visibility) change without the SwipeView raising anything: the
+	// handler watches the items and re-pushes their side, as the platform handlers map each item (tracker S13).
+	private SwipeView? _watched;
+	private readonly HashSet<Element> _watchedItems = new();
+
+	public override void SetVirtualView(IView view)
+	{
+		base.SetVirtualView(view);
+		Watch(view as SwipeView);
+	}
+
+	protected override void DisconnectHandler(NativeElementHost platformView)
+	{
+		Watch(null);
+		base.DisconnectHandler(platformView);
+	}
+
+	private void Watch(SwipeView? swipe)
+	{
+		if (_watched is { } old)
+			foreach (var items in new[] { old.LeftItems, old.RightItems })
+				if (items is not null)
+					items.CollectionChanged -= OnItemsChanged;
+		foreach (var item in _watchedItems)
+			item.PropertyChanged -= OnItemChanged;
+		_watchedItems.Clear();
+		_watched = swipe;
+		if (swipe is null)
+			return;
+		foreach (var items in new[] { swipe.LeftItems, swipe.RightItems })
+		{
+			if (items is null)
+				continue;
+			items.CollectionChanged += OnItemsChanged;
+			foreach (var element in items)
+				if (element is Element item && _watchedItems.Add(item))
+					item.PropertyChanged += OnItemChanged;
+		}
+	}
+
+	private void OnItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+	{
+		Watch(_watched);   // new items are watched too
+		Repush();
+	}
+
+	private void OnItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Repush();
+
+	private void Repush()
+	{
+		if (ConnectedView is not null)
+			UpdateValue(nameof(ISwipeView.LeftItems));   // one snapshot key re-pushes both sides
+	}
 }
 
 /// <summary>CollectionView handler: hosting only; <see cref="QtHostCollectionBridge"/> owns rows and selection.</summary>

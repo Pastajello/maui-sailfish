@@ -30,7 +30,10 @@ public static class AppHostBuilderExtensions
 
 	static MauiAppBuilder SetupSailfishDefaults(this MauiAppBuilder builder)
 	{
-		builder.Services.AddSingleton<IDispatcherProvider>(svc => new SailfishDispatcherProvider());
+		// The provider the application installed before CreateMauiApp (SailfishMauiApplication.InstallDispatcherProvider):
+		// one instance, so MAUI's Build does not swap it and log "Replaced an existing DispatcherProvider".
+		builder.Services.AddSingleton<IDispatcherProvider>(_ =>
+			DispatcherProvider.Current as SailfishDispatcherProvider ?? new SailfishDispatcherProvider());
 
 		// Essentials in DI: MAUI's bridge installs them behind the statics (Battery.Default, …) during Build, and an
 		// app registration wins (TryAdd). Plain UseMauiApp gets the same ones from SailfishServiceOverlay instead.
