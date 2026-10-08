@@ -27,6 +27,8 @@ internal sealed partial class QtHostDiagnosticsRunner
 	private bool _qtF4Diag;
 	private readonly DiagChecks _qtF4Checks = new("Qt f4 diag");
 
+	private sealed record F4JsonProbe(string Name, int Count);
+
 
 	private void RunQtF4Diagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
@@ -44,6 +46,8 @@ internal sealed partial class QtHostDiagnosticsRunner
 		});
 	}
 
+	[System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The JSON probe checks reflection serialization on purpose (S53).")]
+	[System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050", Justification = "The JSON probe checks reflection serialization on purpose (S53).")]
 	private async Task F4StaticsA()
 	{
 		var stamp = DateTime.UtcNow.Ticks;
@@ -58,6 +62,20 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Preferences.Default.Get("f4_flag", false) && Preferences.Default.Get("f4_when", DateTime.MinValue) == when);
 		var fresh = new SailfishPreferences();
 		_qtF4Checks.Check($"A Preferences persisted: a fresh store reads stamp {fresh.Get("f4_stamp", 0L)}=={stamp}", fresh.Get("f4_stamp", 0L) == stamp);
+
+		// Tracker S53: reflection-based System.Text.Json works in a trimmed Release, as on Android (the SDK turns it off for
+		// trimmed apps; the backend's targets turn it back on under TrimMode=partial).
+		try
+		{
+			var json = System.Text.Json.JsonSerializer.Serialize(new F4JsonProbe("sailfish", 3));
+			var back = System.Text.Json.JsonSerializer.Deserialize<F4JsonProbe>(json);
+			_qtF4Checks.Check($"A reflection System.Text.Json round trip (IsReflectionEnabledByDefault={System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault}): {json} -> {back}",
+				back == new F4JsonProbe("sailfish", 3));
+		}
+		catch (Exception ex)
+		{
+			_qtF4Checks.Check($"A reflection System.Text.Json threw {ex.GetType().Name}: {ex.Message}", false);
+		}
 
 		await SecureStorage.Default.SetAsync("f4_secret", "s3cr3t");
 		var secret = await SecureStorage.Default.GetAsync("f4_secret");

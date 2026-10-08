@@ -11,6 +11,9 @@
     <IsPackable>true</IsPackable>
     <IsShipping>true</IsShipping>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Trimmed with the app under TrimMode=partial, as MAUI's own assemblies are (tracker S53); the trim analyzer
+         runs on every build, and reflection is rooted where it is used (DynamicDependency). -->
+    <IsTrimmable>true</IsTrimmable>
     <!-- Symbols beside the package (snupkg) and SourceLink to the repository (tracker S06). -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>

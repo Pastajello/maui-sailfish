@@ -133,6 +133,11 @@ often `InvalidateSurface` is called, and touch with `Handled` and parent-scroll 
 - Libraries built on SkiaSharp draw, but their own platform code is theirs to port. LiveCharts' plain-`net` input
   is a stub, so its charts show but do not react to touch.
 
+Release builds are trimmed (`TrimMode=partial`, as on Android) with Android's runtime feature switches: reflection-based
+`System.Text.Json` (`GetFromJsonAsync<T>` without a `JsonSerializerContext`) and `[DefaultValue]` work as there. The
+full table, and the few switches kept different for on-phone tracing and debugging, is in
+[aot-and-trimming.md §2.5](aot-and-trimming.md).
+
 ## Platform `#if` blocks
 
 Shared code often enables a feature per platform (`#if ANDROID || IOS || MACCATALYST`). The Sailfish head defines

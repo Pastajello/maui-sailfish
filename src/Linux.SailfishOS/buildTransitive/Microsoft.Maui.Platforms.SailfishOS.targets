@@ -139,64 +139,70 @@
   <ItemGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
     <!-- Non-single-project apps include Platforms/SailfishOS explicitly; MAUI single projects get it from the platform-folder hook. -->
     <Compile Include="Platforms/SailfishOS/**/*.cs" Condition="'$(SingleProject)' != 'true'" />
-    <!-- Images and fonts land where the platform resolvers probe; raw MauiImage copy only without the resizetizer. -->
-    <Content Include="@(MauiImage)" Link="images/%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
-             Condition="'@(MauiImage)' != '' And '$(_ResizetizerTaskAssemblyName)' == ''" />
-    <Content Include="@(MauiFont)" Link="fonts/%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
-             Condition="'@(MauiFont)' != ''" />
   </ItemGroup>
 
-  <!-- MauiAsset goes to its LogicalName (or file name) under the app root, as on the in-box heads; a target because the path is per-item. -->
-  <Target Name="_SailfishMauiAssets" BeforeTargets="AssignTargetPaths"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '@(MauiAsset)' != ''">
-    <ItemGroup>
-      <_SailfishAsset Include="@(MauiAsset)" TargetLink="%(MauiAsset.LogicalName)" Condition="'%(MauiAsset.LogicalName)' != ''" />
-      <_SailfishAsset Include="@(MauiAsset)" TargetLink="%(MauiAsset.Filename)%(MauiAsset.Extension)" Condition="'%(MauiAsset.LogicalName)' == ''" />
-      <Content Include="@(_SailfishAsset)" Link="$([System.String]::Copy('%(_SailfishAsset.TargetLink)').Replace('\','/'))"
-               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-      <_SailfishAsset Remove="@(_SailfishAsset)" />
-    </ItemGroup>
-  </Target>
+  <!-- ================= Images, fonts, assets ================= -->
+  <!-- MAUI's resizetizer through its external-backend contract (Microsoft.Maui.Resizetizer.After.targets): setting
+       ResizetizerPlatformType makes MAUI's own ResizetizeImages / ProcessMauiFonts / ProcessMauiAssets run for this head,
+       referenced projects' MauiImage/MauiFont/MauiAsset included, and hand the results over as @(MauiProcessedImage),
+       @(MauiProcessedFont) and @(MauiProcessedAsset). The "wpf" layout gives one raster per image: 4x its dp size for the
+       ones it resizes, the rest copied as they are. App heads only: a library's items reach the app through its
+       ProjectReference, as on the in-box heads. -->
+  <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_SailfishIsApp)' == 'true'">
+    <ResizetizerPlatformType Condition="'$(ResizetizerPlatformType)' == ''">wpf</ResizetizerPlatformType>
+    <!-- No head SDK runs them here (Android's does through its resource targets); the Content they produce needs them
+         before target paths are assigned. -->
+    <ResizetizeBeforeTargets>$(ResizetizeBeforeTargets);AssignTargetPaths</ResizetizeBeforeTargets>
+    <ProcessMauiFontsBeforeTargets>$(ProcessMauiFontsBeforeTargets);AssignTargetPaths</ProcessMauiFontsBeforeTargets>
+    <ResizetizerAfterImageProcessingTargets>$(ResizetizerAfterImageProcessingTargets);_SailfishMauiProcessedImages</ResizetizerAfterImageProcessingTargets>
+    <ResizetizerAfterFontProcessingTargets>$(ResizetizerAfterFontProcessingTargets);_SailfishMauiProcessedFonts</ResizetizerAfterFontProcessingTargets>
+    <ResizetizerAfterAssetProcessingTargets>$(ResizetizerAfterAssetProcessingTargets);_SailfishMauiProcessedAssets</ResizetizerAfterAssetProcessingTargets>
+  </PropertyGroup>
 
-  <!-- Runs MAUI's resizetizer like the in-box heads; the "wpf" layout gives one 4x raster per image, and the composed app icon feeds the icon set. -->
-  <Target Name="_SailfishProcessMauiImages"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_ResizetizerTaskAssemblyName)' != '' And ('@(MauiImage)' != '' Or '@(MauiIcon)' != '')"
-          BeforeTargets="AssignTargetPaths">
+  <!-- Images land in images/, where QtHostImages probes. The app icon (a MauiIcon becomes a MauiImage with IsAppIcon)
+       feeds the hicolor icon set instead (_CopySailfishRpmIcon). maui-resized.txt lists the 4x rasters, so Image
+       measures them as Android does (the resizetizer's own rule: an SVG, or a bitmap with BaseSize or Resize="true"). -->
+  <Target Name="_SailfishMauiProcessedImages">
     <ItemGroup>
-      <_SailfishImageInput Include="@(MauiImage)" Condition="'%(MauiImage.Extension)' != '.gif' And '%(MauiImage.Filename)%(MauiImage.Extension)' != '.DS_Store'" />
-      <!-- Animated GIFs are copied, not rasterized (as MAUI does). -->
-      <_SailfishImageInput Include="@(MauiImage)" Condition="'%(MauiImage.Extension)' == '.gif'" Resize="False" />
-      <_SailfishImageInput Include="@(MauiIcon)" IsAppIcon="true" Link="sailfish-appicon%(MauiIcon.Extension)" />
-    </ItemGroup>
-    <ResizetizeImages PlatformType="wpf"
-                      IntermediateOutputPath="$(IntermediateOutputPath)sailfish-images/"
-                      InputsFile="$(IntermediateOutputPath)sailfish-images.inputs"
-                      Images="@(_SailfishImageInput)">
-      <Output TaskParameter="CopiedResources" ItemName="_SailfishProcessedImage" />
-    </ResizetizeImages>
-    <!-- The rasterized images (an SVG, or a bitmap with BaseSize or Resize="true") are 4x their dp size; the rest were copied
-         as they are (Android's drawable/, one dp per pixel). The resizetizer's own rule, so Image measures as on Android. -->
-    <ItemGroup>
-      <_SailfishResizedImage Include="@(_SailfishImageInput)" Condition="'%(_SailfishImageInput.IsAppIcon)' != 'true' And ('%(_SailfishImageInput.Resize)' == 'true' Or ('%(_SailfishImageInput.Resize)' == '' And ('%(_SailfishImageInput.BaseSize)' != '' Or '%(_SailfishImageInput.Extension)' == '.svg')))" />
+      <_SailfishAppIconName Include="@(MauiIcon->'%(Filename)')" />
+      <_SailfishAppIconImage Include="@(MauiProcessedImage)" Condition="'@(_SailfishAppIconName)' != '' And '%(Filename)' == '@(_SailfishAppIconName)'" />
+      <_SailfishImage Include="@(MauiProcessedImage)" Exclude="@(_SailfishAppIconImage)" />
+      <_SailfishResizedImage Include="@(MauiImage)" Condition="'%(MauiImage.IsAppIcon)' != 'True' And '%(MauiImage.Extension)' != '.gif' And ('%(MauiImage.Resize)' == 'true' Or ('%(MauiImage.Resize)' == '' And ('%(MauiImage.BaseSize)' != '' Or '%(MauiImage.Extension)' == '.svg')))" />
       <_SailfishResizedName Include="$([System.IO.Path]::GetFileNameWithoutExtension('%(_SailfishResizedImage.Link)'))" Condition="'%(_SailfishResizedImage.Link)' != ''" />
       <_SailfishResizedName Include="%(_SailfishResizedImage.Filename)" Condition="'%(_SailfishResizedImage.Link)' == ''" />
     </ItemGroup>
-    <WriteLinesToFile File="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" Lines="@(_SailfishResizedName)"
-                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <PropertyGroup>
+      <_SailfishResizedList>$(IntermediateOutputPath)sailfish-images/maui-resized.txt</_SailfishResizedList>
+      <_SailfishAppIconSource Condition="'@(_SailfishAppIconImage)' != ''">%(_SailfishAppIconImage.FullPath)</_SailfishAppIconSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_SailfishResizedList)" Lines="@(_SailfishResizedName->Distinct())" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
-      <Content Include="@(_SailfishProcessedImage)" Condition="'%(Filename)' != 'sailfish-appicon'"
-               Link="images/%(Filename)%(Extension)"
-               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-      <!-- The app's list only: a library's images still reach the app, but its list would collide with the app's. -->
-      <Content Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" Link="images/maui-resized.txt"
-               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false"
-               Condition="'$(_SailfishIsApp)' == 'true'" />
-      <FileWrites Include="@(_SailfishProcessedImage)" />
-      <FileWrites Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" />
+      <Content Include="@(_SailfishImage)" Link="images/%(Filename)%(Extension)"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+      <Content Include="$(_SailfishResizedList)" Link="images/maui-resized.txt"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+      <FileWrites Include="$(_SailfishResizedList)" />
+      <_SailfishAppIconName Remove="@(_SailfishAppIconName)" />
+      <_SailfishImage Remove="@(_SailfishImage)" />
       <_SailfishResizedImage Remove="@(_SailfishResizedImage)" />
       <_SailfishResizedName Remove="@(_SailfishResizedName)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Fonts land in fonts/, where QtHostFonts registers them. -->
+  <Target Name="_SailfishMauiProcessedFonts">
+    <ItemGroup>
+      <Content Include="@(MauiProcessedFont)" Link="fonts/%(Filename)%(Extension)"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    </ItemGroup>
+  </Target>
+
+  <!-- MauiAsset goes to its LogicalName (or file name) under the app root, as on the in-box heads (Resources/Raw keeps its
+       subfolders); MAUI resolves that path into Link. FileSystem.OpenAppPackageFileAsync and file image sources read it there. -->
+  <Target Name="_SailfishMauiProcessedAssets">
+    <ItemGroup>
+      <Content Include="@(MauiProcessedAsset)" Link="$([System.String]::Copy('%(MauiProcessedAsset.Link)').Replace('\','/'))"
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
     </ItemGroup>
   </Target>
 
@@ -235,8 +241,23 @@
   <ItemGroup Condition="'$(SailfishGenerateMain)' == 'true' And '$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
     <Compile Include="$(MSBuildThisFileDirectory)../scaffold/SailfishGeneratedEntryPoint.cs"
              Link="SailfishGeneratedEntryPoint.cs" Visible="false" />
-    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)../scaffold/trimmer.xml" />
   </ItemGroup>
+
+  <!-- The generated Main finds CreateMauiApp() through reflection; a trimmed publish keeps it on the app's *MauiProgram
+       types. The descriptor names the app assembly, so no other assembly's types are rooted (it matters under
+       TrimMode=full; partial copies the app untrimmed). -->
+  <Target Name="_SailfishTrimmerDescriptor" BeforeTargets="PrepareForILLink"
+          Condition="'$(SailfishGenerateMain)' == 'true' And '$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
+    <PropertyGroup>
+      <_SailfishTrimmerDescriptor>$(IntermediateOutputPath)sailfish-trimmer.xml</_SailfishTrimmerDescriptor>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_SailfishTrimmerDescriptor)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="&lt;linker&gt;;  &lt;assembly fullname=&quot;$(AssemblyName)&quot;&gt;;    &lt;type fullname=&quot;*MauiProgram&quot; preserve=&quot;methods&quot; /&gt;;  &lt;/assembly&gt;;&lt;/linker&gt;" />
+    <ItemGroup>
+      <TrimmerRootDescriptor Include="$(_SailfishTrimmerDescriptor)" />
+      <FileWrites Include="$(_SailfishTrimmerDescriptor)" />
+    </ItemGroup>
+  </Target>
 
   <!-- ================= Native assets of a checkout app ================= -->
   <!-- A package consumer gets the shim, the launcher and the secrets bridge as NuGet runtime assets. An app that
@@ -320,6 +341,25 @@
 
   <PropertyGroup Condition="'$(SailfishReadyToRun)' == 'true'">
     <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+
+  <!-- Runtime feature switches of a trimmed publish, aligned with the Android head (Microsoft.Android.Sdk's
+       DefaultProperties.targets) so app code behaves as it does there; the full table, including the switches kept
+       different on purpose, is in docs/aot-and-trimming.md §2.5. These run before the ILLink targets' defaults. -->
+  <PropertyGroup Condition="'$(PublishTrimmed)' == 'true' And '$(TrimMode)' == 'partial'">
+    <!-- Reflection-based System.Text.Json (GetFromJsonAsync<T>, Deserialize<T> without a JsonSerializerContext). The SDK
+         turns it off for every trimmed app; partial trimming keeps the app's and libraries' types, so it works. -->
+    <JsonSerializerIsReflectionEnabledByDefault Condition="'$(JsonSerializerIsReflectionEnabledByDefault)' == ''">true</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- [DefaultValue] keeps working instead of throwing (dotnet/runtime#109724). -->
+    <_DefaultValueAttributeSupport Condition="'$(_DefaultValueAttributeSupport)' == ''">true</_DefaultValueAttributeSupport>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PublishTrimmed)' == 'true'">
+    <!-- A development-time check of DI open generics; production builds skip its startup cost. -->
+    <VerifyDependencyInjectionOpenGenericServiceTrimmability Condition="'$(VerifyDependencyInjectionOpenGenericServiceTrimmability)' == ''">false</VerifyDependencyInjectionOpenGenericServiceTrimmability>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PublishTrimmed)' == 'true' And '$(Optimize)' == 'true'">
+    <StartupHookSupport Condition="'$(StartupHookSupport)' == ''">false</StartupHookSupport>
+    <HttpActivityPropagationSupport Condition="'$(HttpActivityPropagationSupport)' == ''">false</HttpActivityPropagationSupport>
   </PropertyGroup>
 
   <!-- The SDK regenerates the publish deps.json only when the project or assets files change, not when the trimmer keeps
@@ -579,7 +619,7 @@ Exec=/usr/bin/invoker --type=$(_SailfishInvokerType) --single-instance --desktop
     <PropertyGroup>
       <!-- Prefer the resizetizer-composed icon when it was built -->
       <_SailfishIconSource>%(MauiIcon.Identity)</_SailfishIconSource>
-      <_SailfishIconSource Condition="Exists('$(IntermediateOutputPath)sailfish-images/sailfish-appicon.png')">$(IntermediateOutputPath)sailfish-images/sailfish-appicon.png</_SailfishIconSource>
+      <_SailfishIconSource Condition="'$(_SailfishAppIconSource)' != '' And Exists('$(_SailfishAppIconSource)')">$(_SailfishAppIconSource)</_SailfishIconSource>
     </PropertyGroup>
     <SailfishIconSet Source="$(_SailfishIconSource)" HicolorDir="$(_SailfishBuildRoot)/usr/share/icons/hicolor"
                      Name="$(SailfishPackageName)" Sizes="$(SailfishIconSizes)"

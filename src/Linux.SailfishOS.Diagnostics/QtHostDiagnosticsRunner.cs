@@ -4338,6 +4338,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtPerfBaseDepth = renderer.NativePageIds.Count;
 		_qtPerfBaseLive = qml0.Live;
 		_perfS0 = Snap();
+		// Launch to first frame: the process age now, minus the shim clock's age, plus the shim's first frame. Covers what
+		// firstFrameMs does not (runtime start, assembly loading and JIT before the shim starts), where trimming and
+		// ReadyToRun differ.
+		var processAgeMs = (long)(DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime).TotalMilliseconds;
+		var processToFirstFrameMs = processAgeMs - _perfS0.UptimeMs + _perfS0.FirstFrameMs;
 		_perfA0 = GC.GetTotalAllocatedBytes(true);
 		// Idle-churn attribution baselines.
 		_perfLayoutPasses0 = renderer.LayoutPasses;
@@ -4346,7 +4351,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_perfGeoReads0 = _perfS0.GeometryReads;
 		_perfRowsBuilt0 = renderer.Collection.RowsBuilt;
 		var loopOk = _perfS0.RenderLoop is "QSGThreadedRenderLoop" or "QSGWindowsRenderLoop";
-		Console.Error.WriteLine($"[Sailfish] QT PERF startup: firstFrameMs={_perfS0.FirstFrameMs} frames={_perfS0.Frames} renderLoop={_perfS0.RenderLoop} " +
+		Console.Error.WriteLine($"[Sailfish] QT PERF startup: processToFirstFrameMs={processToFirstFrameMs} firstFrameMs={_perfS0.FirstFrameMs} frames={_perfS0.Frames} renderLoop={_perfS0.RenderLoop} " +
 			$"uptimeMs={_perfS0.UptimeMs} cpuMs={_perfS0.CpuMs} rssKb={_perfS0.RssKb} qmlObjects={_perfS0.QmlObjects} qmlItems={_perfS0.QmlItems} | " +
 			$"evals={_perfS0.Evals} opsEvals={_perfS0.OpsEvals} propsBatches={_perfS0.PropsBatches} geometryBatches={_perfS0.GeometryBatches} " +
 			$"textMeasures={_perfS0.TextMeasures} findObjects={_perfS0.FindObjects} grabs={_perfS0.Grabs} " +

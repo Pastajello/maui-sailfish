@@ -304,7 +304,13 @@ ships in the package next to the shim (`runtimes/<rid>/native/`).
   (as on Android/iOS): SVGs become PNGs under the name XAML uses, `BaseSize`,
   `TintColor` and `Resize` apply, and the app icon is composed from `MauiIcon`,
   `ForegroundFile` and `Color`. `MauiSplashScreen` is ignored (Sailfish apps
-  have no splash screen; the window shows the first page directly).
+  have no splash screen; the window shows the first page directly). The head
+  uses the resizetizer's contract for external backends
+  (`ResizetizerPlatformType=wpf` and the `ResizetizerAfter…ProcessingTargets`
+  hooks), so `MauiImage`, `MauiFont` and `MauiAsset` of referenced projects are
+  included, as on the in-box heads. They land in `images/`, `fonts/` and, for
+  assets, under their `LogicalName` at the app root (`Resources/Raw` keeps its
+  subfolders; `FileSystem.OpenAppPackageFileAsync("sub/file.txt")` reads them there).
 - A PNG `MauiIcon` must be square (8-bit, non-interlaced); it is
   resampled to 86, 108, 128 and 172 px (`SailfishIconSizes`). Ship at least
   172x172 — smaller sources are upscaled with a build warning.

@@ -275,6 +275,68 @@ first-frame is inconclusive, because the run bands overlap between profiles.
 stays as an escape hatch). Changing the default requires another full sweep
 and G1b on the default path — recorded below after running.
 
+### 2.5 Feature switches, `IsTrimmable` and composite R2R (tracker S53, 2026-10-08)
+
+**Feature switches of a trimmed publish.** `PublishTrimmed` brings the ILLink defaults
+(`Microsoft.NET.ILLink.targets`); the Android head overrides several of them
+(`Microsoft.Android.Sdk.DefaultProperties.targets`), and MAUI adds its own `RuntimeFeature` switches
+(`Microsoft.Maui.Controls.targets`, `_MauiPrepareForILLink`). Sailfish Release (`trimr2r`, `TrimMode=partial`) now
+follows Android except where a phone-side tool needs the feature. Values as published (`*.runtimeconfig.json`):
+
+| Switch (MSBuild property) | ILLink default | Android Release | Sailfish Release | Why |
+|---|---|---|---|---|
+| `System.Text.Json…IsReflectionEnabledByDefault` (`JsonSerializerIsReflectionEnabledByDefault`) | false | true (partial) | **true** (partial) | `GetFromJsonAsync<T>` / `Deserialize<T>` without a `JsonSerializerContext` works as on Android; it threw before (the 2026-09-15 failure, §2.3, hit every app). f4 leg checks it on the phone |
+| `System.ComponentModel.DefaultValueAttribute.IsSupported` (`_DefaultValueAttributeSupport`) | false | true (partial) | **true** (partial) | `[DefaultValue]` keeps working (dotnet/runtime#109724) |
+| `…DependencyInjection.VerifyOpenGenericServiceTrimmability` | true | false (trimmed) | **false** | a development-time check, startup cost in production |
+| `System.StartupHookProvider.IsSupported` (`StartupHookSupport`) | true | false (Release) | **false** | no startup hooks in a Release RPM (hot reload is a Debug matter, M21) |
+| `System.Net.Http.EnableActivityPropagation` (`HttpActivityPropagationSupport`) | true | false (Release) | **false** | no distributed-tracing headers on every request |
+| `System.Diagnostics.Metrics.Meter.IsSupported` (`MetricsSupport`) | true | false (Release) | false (`SailfishMetrics=false`, since 2026-09) | MAUI's per-layout instrumentation costs CPU |
+| `System.Runtime.TieredPGO` (`TieredPGO`) | true | true | false | re-jitting hot R2R code costs idle CPU (§2.4) |
+| `EventSourceSupport` | true | false (Release) | true (deliberately different) | `dotnet-trace` / EventPipe on Release builds (`profiling.md`) |
+| `DebuggerSupport` | true | false (Release) | true (deliberately different) | attaching to a Release build (`SailfishRpmDebugPayload`) |
+| `System.Resources.UseSystemResourceKeys` | false | true (trimmed) | false (deliberately different) | readable exception messages in `/tmp/sf_run.log` |
+| `UseSizeOptimizedLinq` | — | true | not set (deliberately different) | speed over size on the phone; not measured |
+| `System.Globalization.Invariant` | false | false | app's choice (the samples set true) | `SatelliteResourceLanguages=en` follows it |
+| MAUI `IsIVisualAssemblyScanningEnabled` / `AreBindingInterceptorsSupported` / `IsIncrementalHotReloadEnabled` | — | false / true / false | same | MAUI's defaults, all heads |
+| MAUI `IsQueryPropertyAttributeSupported`, `IsShellSearchResultsRendererDisplayMemberNameSupported`, `IsImplicitCastOperatorsUsageViaReflectionSupported`, `IsCssEnabled` | — | unset under partial (only `full`/AOT turns them off) | same | `SearchHandler.DisplayMemberName` (S21) relies on it |
+
+Set in `buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets` (before the ILLink defaults, each overridable
+from the csproj); `BuildTargetsTests.A_trimmed_release_sets_the_android_feature_switches` pins them.
+
+**`IsTrimmable=true` on `Microsoft.Maui.SailfishOS.dll`.** Under `TrimMode=partial` only assemblies marked trimmable
+are trimmed, so the backend was copied whole. The trim analyzer already ran on every Release build with 0 warnings
+(reflection is rooted with `DynamicDependency`); marked trimmable, it is trimmed like MAUI's own assemblies. The
+generated `Main`'s descriptor (`*MauiProgram` kept for `CreateMauiApp()` discovery) now names the app assembly
+(`obj/sailfish-trimmer.xml`, written by `_SailfishTrimmerDescriptor`) instead of rooting `*MauiProgram` in every
+assembly (`scaffold/trimmer.xml`, removed).
+
+**Measurement.** Sample app, Release `trimr2r`, Jolla phone (SFOS 5.2, linux-arm64), `perf` leg three times per
+variant (all 21/21 PASS). New in the leg: `processToFirstFrameMs`, process start to the first presented frame
+(includes runtime start, assembly loading and JIT before the shim starts, where trimming and R2R differ; `firstFrameMs`
+counts from the shim's start).
+
+| Variant | RPM | Payload / files / dll | processToFirstFrameMs | firstFrameMs | cpuMs (35 s) | RSS end |
+|---|---|---|---|---|---|---|
+| before (2026-10-08) | 13 698 882 B | 47.1 MB / 143 / 59 | 934 / 937 / 977 | 168–182 | 10 684–10 843 | 261–263 MB |
+| `IsTrimmable` + app-only descriptor | 13 638 784 B | 46.9 MB / 143 / 59 | 936 / 945 / 993 | 177–198 | 10 676–10 734 | 260–262 MB |
+| + feature switches (**shipped**) | 14 042 833 B | 48.4 MB / 143 / 59 | 930 / 946 / 957 | 181–199 | 10 668–10 988 | 263–264 MB |
+| composite R2R (`PublishReadyToRunComposite=true`) | 15 096 001 B | 55.4 MB / 144 / 60 | 882 / 894 / 902 | 165–170 | 10 455–10 623 | 264–265 MB |
+| composite **partial** + MAUI's Android MIBC (as MAUI does on Android) | 8 972 474 B | 32.0 MB / 144 / 60 | 1184 / 1205 / 1215 | 289–309 | 11 436–11 675 | 253–255 MB |
+
+Reading:
+
+- `IsTrimmable` saves little (−60 KB RPM): the backend's code is mostly reachable (handlers, adapters, Essentials are
+  all registered). Startup and CPU are inside the run-to-run band.
+- The feature switches cost +0.4 MB RPM, mostly System.Text.Json's reflection serializer, which partial trimming now
+  keeps. Android pays the same for the same compatibility. Startup unchanged.
+- Composite R2R starts ~50 ms (~5%) sooner, for +1.4 MB RPM (+10%), +8.5 MB on disk and ~+2 MB RSS. Not the default:
+  opt in with `-p:PublishReadyToRunComposite=true` (the deps.json check, `sf-depscheck.py`, accepts the composite
+  `<app>.r2r.dll` since this measurement).
+- Partial composite with MAUI's **Android** profiles halves the payload but starts 27% slower and burns 8% more CPU:
+  those profiles cover Android's startup paths, not ours, so most Sailfish startup code is JIT-compiled. A Sailfish
+  MIBC (recorded with `dotnet-pgo` from a `tools/sf trace` of the Kitchen startup) could give the size win without the
+  cost. Left as a follow-up, not tried.
+
 ## 3. NativeAOT: two hard blockers
 
 ### 3.1 Toolchain — **a Linux build host is required**

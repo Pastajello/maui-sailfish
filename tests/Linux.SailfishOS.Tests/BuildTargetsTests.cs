@@ -54,9 +54,13 @@ public sealed class BuildTargetsTests : IDisposable
 		return (p.ExitCode, stdout.Result + stderr);
 	}
 
-	private static Dictionary<string, string> Properties(string project, params string[] names)
+	private static Dictionary<string, string> Properties(string project, params string[] names) =>
+		Properties(project, [], names);
+
+	// globals: -p: arguments, as `dotnet publish -c Release` passes Configuration (the SDK props derive Optimize from it).
+	private static Dictionary<string, string> Properties(string project, string[] globals, params string[] names)
 	{
-		var (exit, output) = Dotnet(Path.GetDirectoryName(project)!, ["msbuild", project, .. names.Select(n => "-getProperty:" + n)]);
+		var (exit, output) = Dotnet(Path.GetDirectoryName(project)!, ["msbuild", project, .. globals, .. names.Select(n => "-getProperty:" + n)]);
 		Assert.True(exit == 0, output);
 		if (names.Length == 1)   // one property prints its bare value, more print JSON
 			return new() { [names[0]] = output.Trim() };
@@ -110,6 +114,62 @@ public sealed class BuildTargetsTests : IDisposable
 		Assert.Contains("SF_PKG=\"harbour-probe\"", args);
 		Assert.Contains("SF_RID=\"linux-arm64\"", args);
 		Assert.EndsWith("bash \"/tools/sf\" run --follow", args);
+	}
+
+	// Tracker S53: the generated Main's CreateMauiApp() is rooted in the app assembly only, not in every assembly.
+	[Fact]
+	public void The_trimmer_descriptor_roots_mauiprogram_in_the_app_assembly_only()
+	{
+		var project = Project("Exe", "<AssemblyName>Probe.App</AssemblyName>");
+		var (exit, output) = Dotnet(_dir, "msbuild", project, "-t:_SailfishTrimmerDescriptor", "-getItem:TrimmerRootDescriptor");
+
+		Assert.True(exit == 0, output);
+		var descriptor = Assert.Single(Directory.GetFiles(Path.Combine(_dir, "obj"), "sailfish-trimmer.xml", SearchOption.AllDirectories));
+		var xml = System.Xml.Linq.XDocument.Load(descriptor);
+		var assembly = Assert.Single(xml.Root!.Elements("assembly"));
+		Assert.Equal("Probe.App", (string?)assembly.Attribute("fullname"));
+		Assert.Equal("*MauiProgram", (string?)Assert.Single(assembly.Elements("type")).Attribute("fullname"));
+		Assert.Contains("sailfish-trimmer.xml", output);
+	}
+
+	// Tracker S53: a trimmed Release keeps reflection-based System.Text.Json and [DefaultValue] (as on Android), and drops
+	// the development-time DI check, startup hooks and HTTP activity propagation.
+	[Fact]
+	public void A_trimmed_release_sets_the_android_feature_switches()
+	{
+		var p = Properties(Project("Exe"), ["-p:Configuration=Release"],
+			"PublishTrimmed", "TrimMode", "JsonSerializerIsReflectionEnabledByDefault", "_DefaultValueAttributeSupport",
+			"VerifyDependencyInjectionOpenGenericServiceTrimmability", "StartupHookSupport", "HttpActivityPropagationSupport",
+			"EventSourceSupport", "UseSystemResourceKeys");
+
+		Assert.Equal("true", p["PublishTrimmed"]);
+		Assert.Equal("partial", p["TrimMode"]);
+		Assert.Equal("true", p["JsonSerializerIsReflectionEnabledByDefault"]);
+		Assert.Equal("true", p["_DefaultValueAttributeSupport"]);
+		Assert.Equal("false", p["VerifyDependencyInjectionOpenGenericServiceTrimmability"]);
+		Assert.Equal("false", p["StartupHookSupport"]);
+		Assert.Equal("false", p["HttpActivityPropagationSupport"]);
+		Assert.NotEqual("false", p["EventSourceSupport"]);      // dotnet-trace on Release builds
+		Assert.NotEqual("true", p["UseSystemResourceKeys"]);    // readable exception messages in the device log
+	}
+
+	// Tracker S51: images, fonts and assets go through MAUI's external-backend contract on the app head; a library's items
+	// reach the app through its ProjectReference, as on the in-box heads.
+	[Fact]
+	public void The_app_head_opts_into_the_resizetizer_external_backend_contract()
+	{
+		string[] names = ["ResizetizerPlatformType", "ResizetizeBeforeTargets", "ProcessMauiFontsBeforeTargets",
+			"ResizetizerAfterImageProcessingTargets", "ResizetizerAfterFontProcessingTargets", "ResizetizerAfterAssetProcessingTargets"];
+		var app = Properties(Project("Exe"), names);
+		var library = Properties(Project("Library"), names);
+
+		Assert.Equal("wpf", app["ResizetizerPlatformType"]);
+		Assert.Contains("AssignTargetPaths", app["ResizetizeBeforeTargets"]);
+		Assert.Contains("AssignTargetPaths", app["ProcessMauiFontsBeforeTargets"]);
+		Assert.Contains("_SailfishMauiProcessedImages", app["ResizetizerAfterImageProcessingTargets"]);
+		Assert.Contains("_SailfishMauiProcessedFonts", app["ResizetizerAfterFontProcessingTargets"]);
+		Assert.Contains("_SailfishMauiProcessedAssets", app["ResizetizerAfterAssetProcessingTargets"]);
+		Assert.Equal("", library["ResizetizerPlatformType"]);
 	}
 
 	[Fact]

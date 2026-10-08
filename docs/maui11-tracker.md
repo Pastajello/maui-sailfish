@@ -102,9 +102,9 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 - [ ] [S50](#s50) `DrawImage`, `ImagePaint`, screenshot as `IImage` · 📱
 
 **Phase I — build, SDK, developer experience**
-- [ ] [S51](#s51) Resizetizer through MAUI's external-backend hook · 📱
+- [x] [S51](#s51) Resizetizer through MAUI's external-backend hook · 📱
 - [x] [S52](#s52) TFM side effects, library projects, MSBuild tests
-- [ ] [S53](#s53) Trimming profile and feature switches · 📱
+- [x] [S53](#s53) Trimming profile and feature switches · 📱
 - [x] [S54](#s54) `dotnet run`, env switch table · 📱
 - [ ] [S55](#s55) Hot reload over SSH · ✅D7 · 📱 (deferred by D7 b)
 - [ ] [S56](#s56) Device tools out of the NuGet package · ✅D8
@@ -1361,6 +1361,7 @@ Notes:
   - Phone: the last `navdialog` step passes. Show(entry) focuses the entry and Maliit opens (`Qt.inputMethod.visible`); Hide closes it and unfocuses the entry. Screenshot `navdialog-5-keyboard` checked.
 - `Loaded` on a root page, probed in the harness: `Loaded` fires with no handler on the page or its child. In MAUI's plain-net build `IsLoaded => Window != null`, so `Loaded` fires the moment the app's `new Window(page)` parents the page. The app creates both objects, so the backend cannot attach a handler earlier, and re-raising `Loaded` would mean a fake `Unloaded` through reflection. This stays an upstream seam, documented in the porting guide (use `OnAppearing`/`HandlerChanged`). Pages pushed later already get their handlers first (`NativeStackSyncTests.A_shell_route_page_has_its_handlers_when_Loaded_fires`).
 - Upstream issues: not filed — opening issues on dotnet/maui is for the owner to decide. The texts are ready: the soft-input partials throw on the plain TFM, and `IsLoaded` raises `Loaded` before a handler can exist.
+- 2026-10-08: drafts written to [`docs/upstream-issues/`](upstream-issues/README.md): `ISSUE.md` plus a runnable `repro/` (plain `net11.0`, no device) for each. Both repros were run against MAUI 11.0.0-rc.1.26451.6 and reproduce. The code quotes are checked against that version's decompiled `net11.0` assemblies.
 - Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s46"></a>
@@ -1432,14 +1433,19 @@ Notes:
 <a id="s51"></a>
 ### S51 · Resizetizer through MAUI's external-backend hook
 Plan: §M19 step 1 · Audit: build-sdk B3 · Phone: template app + `f3` · Depends: —
-- [ ] `ResizetizerPlatformType=wpf`, `ResizetizerAfterAssetProcessingTargets`, `@(MauiProcessedImage/Asset/Font)`
-- [ ] private `ResizetizeImages` call and manual asset/font items removed; `maui-resized.txt` kept
-- [ ] `Resources/Raw` location checked against `ResolveFilePath` and `OpenAppPackageFileAsync`
+- [x] `ResizetizerPlatformType=wpf`, `ResizetizerAfterAssetProcessingTargets`, `@(MauiProcessedImage/Asset/Font)`
+- [x] private `ResizetizeImages` call and manual asset/font items removed; `maui-resized.txt` kept
+- [x] `Resources/Raw` location checked against `ResolveFilePath` and `OpenAppPackageFileAsync`
 
 Done when: binlog shows the external targets ran; images and fonts render in the template app on the phone.
 
 Notes:
--
+- 2026-10-08: the app head sets `ResizetizerPlatformType=wpf`. Adding `AssignTargetPaths` to `ResizetizeBeforeTargets`/`ProcessMauiFontsBeforeTargets` runs MAUI's targets; nothing else triggers them on an external head. The three `ResizetizerAfter{Image,Font,Asset}ProcessingTargets` hooks hand over to `_SailfishMauiProcessedImages` (→ `images/`, app icon → `_SailfishAppIconSource` for the icon set, `maui-resized.txt` from `@(MauiImage)` metadata), `_SailfishMauiProcessedFonts` (→ `fonts/`) and `_SailfishMauiProcessedAssets` (→ `%(Link)` at the app root). Removed: `_SailfishProcessMauiImages` (the private `ResizetizeImages` call), `_SailfishMauiAssets`, the `Content @(MauiFont)` and the raw-`MauiImage` fallback. Heads only: a library's items reach the app through `ResizetizeCollectItems` on its ProjectReference, as on the in-box heads (previously each library processed its own).
+- A probe on Kitchen first: `@(MauiProcessedImage)` carries no metadata. The app icon is found by the `MauiIcon` file name, and its raster (`resizetizer/r/appicon.png`, 432 px) is byte-identical to the old `sailfish-appicon.png`, as is `meal_placeholder.png`.
+- Same output: Kitchen (in-repo import) 28 non-binary output files, `diff` identical. Template app (package consumer, OpenSans fonts, `dotnet_bot.svg`, `Resources/Raw/AboutAssets.txt`) identical outside `publish/`. A clean build with `-v:d -bl` ran `ResizetizeCollectItems`, `ResizetizeImages`, `ProcessMauiFonts`, `ProcessMauiAssets`, the three `ResizetizerAfter…` targets and our three consumers. With the package the evaluation-time path applies; `_PrepareExternal*` were not needed.
+- `Resources/Raw`: `LogicalName` → `Link` = path under the app root. `SailfishFileSystem.OpenAppPackageFileAsync` and `QtHostImages.ResolveFilePath` both read `AppContext.BaseDirectory/<path>`, matching Android's convention.
+- Phone: the template app deploys (VERIFY PASSED). The RPM holds `fonts/OpenSans-*.ttf`, `images/dotnet_bot.png`, `images/maui-resized.txt`, `AboutAssets.txt` and hicolor 86/108/128/172. The `.desktop` icon hash `appicon-529c54f2014b` is the same as in the two earlier deploys with the old pipeline. Screenshot `deploy-20261008-181543.png`: dotnet_bot renders and the page lays out as before. The fonts are installed byte-identically; which face draws the text is not checked separately (the `f3` images/fonts checks cover that path for the in-repo sample). The `f3` leg was not needed: its sample is a plain `net11.0` project that ships its images as its own Content, so this change does not touch it.
+- `BuildTargetsTests.The_app_head_opts_into_the_resizetizer_external_backend_contract` (the library leaves it unset). Suite 578/578.
 
 <a id="s52"></a>
 ### S52 · TFM side effects, library projects, MSBuild tests
@@ -1464,13 +1470,21 @@ Notes:
 <a id="s53"></a>
 ### S53 · Trimming profile and feature switches
 Plan: §M20 · Audit: build-sdk B4 · Phone: `tools/sf package-test --trimr2r` · Depends: —
-- [ ] `IsTrimmable=true` on the backend; descriptor narrowed to the app
-- [ ] feature-switch table in `aot-and-trimming.md`; composite R2R measured
+- [x] `IsTrimmable=true` on the backend; descriptor narrowed to the app
+- [x] feature-switch table in `aot-and-trimming.md`; composite R2R measured
 
 Done when: Release RPM size and startup measured before/after in `aot-and-trimming.md`; matrix legs `page controls collection` green.
 
 Notes:
--
+- 2026-10-08, results in `aot-and-trimming.md` §2.5.
+- `IsTrimmable=true` on `Microsoft.Maui.SailfishOS.dll`: the trim analyzer already ran in Release with 0 warnings. Effect −60 KB RPM. Startup and CPU stay within run-to-run noise.
+- Descriptor: `scaffold/trimmer.xml` (`*MauiProgram` rooted in **every** assembly) is removed. `_SailfishTrimmerDescriptor` writes `obj/sailfish-trimmer.xml` naming the app assembly (BeforeTargets `PrepareForILLink`), covered by a test. The plan's alternative (a generated attribute instead of reflection discovery) was not needed: under partial the app is copied untrimmed anyway.
+- Feature switches, found while building the table: the SDK turns reflection-based System.Text.Json off for every trimmed app. Android turns it back on for partial, we didn't, so `GetFromJsonAsync<T>`/`Deserialize<T>` without a source-gen context worked in Debug and threw on the phone in Release. Now aligned with Android: JSON reflection and `[DefaultValue]` on (partial); DI open-generic verification, startup hooks and HTTP activity propagation off. Kept deliberately different: `EventSourceSupport` (dotnet-trace), `DebuggerSupport` (Release attach), `UseSystemResourceKeys` (readable exceptions in the log), `UseSizeOptimizedLinq`. Cost +0.4 MB RPM. Test `A_trimmed_release_sets_the_android_feature_switches`. f4 leg on the phone: "reflection System.Text.Json round trip (IsReflectionEnabledByDefault=True)" CHECK OK.
+- New metric in the perf leg: `processToFirstFrameMs` (process start → first frame; `firstFrameMs` only counts from the shim's start, after runtime start and JIT).
+- Measured, perf leg ×3 per variant, all PASS. Launch → first frame: before 934–977 ms / 13.70 MB RPM; shipped (IsTrimmable + switches) 930–957 ms / 14.04 MB; composite R2R 882–902 ms / 15.10 MB (opt-in, not the default: +10% RPM, +8.5 MB on disk for −5% startup); composite partial with MAUI's Android MIBC 1184–1215 ms / 8.97 MB (Android's profiles don't cover our paths; a Sailfish MIBC recorded with dotnet-pgo is a follow-up, not tried).
+- Found on the way: `sf-depscheck.py` (S61) rejected the composite `<app>.r2r.dll` (not in deps.json by design). It now skips `*.r2r.dll`.
+- Matrix `page controls collection f4`: 4/4 PASS (18/49/31/45 checks).
+- Phone state during the run: from ~17:24 Android App Support was starting up (load average 12.5, CPU idle). The ssh session to the launch helper hung for ~9 min per leg. Verdicts are unaffected: they come from the device log. Nothing restarted.
 
 <a id="s54"></a>
 ### S54 · `dotnet run`, env switch table
