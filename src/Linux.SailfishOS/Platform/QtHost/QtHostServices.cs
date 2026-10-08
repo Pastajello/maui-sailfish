@@ -158,7 +158,7 @@ internal static class QtHostServices
 			}
 			catch (Exception ex)
 			{
-				QtHostDiag.Error(QtHostDiagChannel.QmlSignal, $"service event '{name}' handler failed: {ex}");
+				SailfishExceptions.Report(ex, $"service event '{name}'");
 			}
 		}
 	}

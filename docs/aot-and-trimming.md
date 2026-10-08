@@ -158,7 +158,7 @@ Linux mostly `Unsupported*` implementations).
 
 ### 2.2 What is already in the code (Phase 1)
 
-**MSBuild** — `src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets`:
+**MSBuild** — `src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets`:
 
 - `SailfishTrim` (→ `PublishTrimmed`), `SailfishTrimMode` (→ `TrimMode`, default
   `partial`), `SailfishReadyToRun` (→ `PublishReadyToRun`). All default to
@@ -339,7 +339,7 @@ the JIT and full diagnostics.
 > The default profile stays `jit` until G1/G1b pass. Switching the
 > default to `trimr2r` is a separate, deliberate step after on-device acceptance.
 
-- [x] 1.1 Payload flags — as `SailfishTrim` / `SailfishTrimMode` / `SailfishReadyToRun` in `Microsoft.Maui.SailfishOS.targets`, **not** in `Directory.Build.props` (there they would hit the `src/Linux.SailfishOS` library). Default `false` = the Q22A payload. `DebugType` left for the decision at 1.7. Details: §2.2.
+- [x] 1.1 Payload flags — as `SailfishTrim` / `SailfishTrimMode` / `SailfishReadyToRun` in `Microsoft.Maui.Platforms.SailfishOS.targets`, **not** in `Directory.Build.props` (there they would hit the `src/Linux.SailfishOS` library). Default `false` = the Q22A payload. `DebugType` left for the decision at 1.7. Details: §2.2.
 - [x] 1.2 — closed 2026-09-15 as a no-action on the backend side: the backend's reflection roots eliminated (page registry 2.3, `Quote` 2.5, `SelfTextLabel` 2.7); the only remaining roots are owned by the app (`ItemDisplayBinding` models, see the suppression in 2.4) and do not require `ILLink.Descriptors.xml` in the backend.
 - [x] 1.3 Validation in `.targets`: `_ValidateSailfishReleaseProfile` (PublishAot, missing RID, non-Linux RID, missing `SelfContained`) + profile message. All five paths run — table in §2.2.
 - [x] 1.4 `tools/lib/sf-lib.sh` (`SF_PROFILE`, `sf_set_profile`) + `--jit|--trim|--trimr2r` flags in `sf deploy` and `sf package-test`; the `n_dll` threshold in `payload_audit()` made per profile (100 / 60), because the old hard threshold of 100 would fail a healthy trimmed payload.
@@ -400,6 +400,13 @@ and 4.x return with it.
 - **R2R costs +12 MB** for a startup gain. If measurement 0.1/1.7 shows that
   startup is dominated by Qt/QML, R2R may not pay off — trim alone gives
   93 → 26 MB.
+
+- **A stale `deps.json` after an incremental trimmed publish (fixed 2026-10-08).** The SDK rebuilds the
+  publish `deps.json` only when the project or assets files change. A code change whose first use of a
+  framework facade (`System.Threading.Thread`) came with an incremental publish copied the facade without a
+  `deps.json` entry, and the app failed with `FileNotFoundException` at that first use. The package's targets
+  now rebuild `deps.json` on every trimmed publish (`_SailfishRegenerateTrimmedDepsFile`), and `sf deploy` /
+  `sf package-test` stop when a payload `.dll` is not listed (`tools/py/sf-depscheck.py`).
 
 ## 7. Build host: SDK RC1 (aligned 2026-09-15)
 

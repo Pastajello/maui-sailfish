@@ -1,0 +1,12 @@
+<Project>
+  <!-- `dotnet run` asks whether DeployToDevice exists before it restores, and later calls it on that same evaluation.
+       On a fresh clone the package's target (Microsoft.Maui.Platforms.SailfishOS.Run.targets) is not imported there,
+       and the run would silently start whatever is installed on the phone. This target exists without restore and
+       evaluates the project again (restored by then; the extra global property keeps MSBuild from reusing the
+       cached evaluation) to reach the package's _SailfishDeployToDevice. Only the sailfish
+       app head imports this file, so the Android and iOS heads keep their own DeployToDevice. -->
+  <Target Name="DeployToDevice">
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="_SailfishDeployToDevice"
+             Properties="TargetFramework=$(TargetFramework);_SailfishDeployEvaluation=true" />
+  </Target>
+</Project>

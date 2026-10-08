@@ -34,8 +34,9 @@ internal sealed class SailfishRenderSession
 	/// <summary>A navigation sync + reconcile on the next loop turn (no-op before the renderer runs).</summary>
 	public void RequestPoll() => Renderer?.RequestPoll();
 
-	/// <summary>A MAUI push/pop was requested: starts the navigation timeline and kicks a poll.</summary>
-	public void NoteNavigationRequest() => Renderer?.NoteNavigationRequest();
+	/// <summary>A MAUI push/pop was requested: starts the navigation timeline and kicks a poll; animated false makes the
+	/// native step go without a slide.</summary>
+	public void NoteNavigationRequest(bool animated = true) => Renderer?.NoteNavigationRequest(animated);
 
 	/// <summary>A container handler changed its children: its subtree is diffed on the next loop turn.</summary>
 	public void RequestSubtree(IView container) => Renderer?.RequestSubtree(container);

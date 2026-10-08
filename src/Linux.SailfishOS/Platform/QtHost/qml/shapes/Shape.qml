@@ -181,8 +181,8 @@ Canvas {
         var fill = PathOps.paintStyle(ctx, mauiFillSpec, null);
         if (fill) {
             ctx.fillStyle = fill;
-            try { ctx.fill(mauiWinding === 0 ? "evenodd" : "nonzero"); }
-            catch (e) { ctx.fill(); }
+            ctx.fillRule = mauiWinding === 0 ? Qt.OddEvenFill : Qt.WindingFill;   /* fill()'s argument is ignored */
+            ctx.fill();
         }
         var stroke = mauiStrokeWidth > 0 ? PathOps.paintStyle(ctx, mauiStrokeSpec, null) : null;
         if (stroke) {

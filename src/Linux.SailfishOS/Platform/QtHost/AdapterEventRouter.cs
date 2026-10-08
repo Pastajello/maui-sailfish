@@ -129,6 +129,7 @@ internal sealed class AdapterEventRouter
 				case "list-item-pressed":
 				case "list-scroll":
 				case "carousel-position":
+				case "carousel-motion":
 					_r.Collection.HandleEvent(name, payload);   // ListView delegate/selection/scroll events, carousel pages
 					break;
 				case "indicator-tapped":
@@ -191,6 +192,15 @@ internal sealed class AdapterEventRouter
 				case "remorse-done":
 					SailfishRemorse.OnDone(payload);   // RemorsePopup/RemorseItem countdown ended or was cancelled
 					break;
+				case "search-changed":
+					_r.ApplySearchChanged(payload);    // Shell.SearchHandler field → Query
+					break;
+				case "search-submit":
+					_r.ApplySearchSubmit(payload);     // its enter key → the query confirmed
+					break;
+				case "span-tapped":
+					ApplySpanTapped(payload);          // a tappable FormattedText span → its TapGestureRecognizers
+					break;
 				case "toolbar-activated":
 					_r.ApplyToolbarActivated(payload); // pulley MenuItem → ToolbarItem
 					break;
@@ -241,8 +251,9 @@ internal sealed class AdapterEventRouter
 		}
 		catch (Exception ex)
 		{
-			// Full ToString with stack: bridge failures must be diagnosable from the device log alone.
-			QtHostDiag.Error(QtHostDiagChannel.QmlSignal, $"event '{name}' handling failed: {ex}");
+			// An app handler raised from the event (Clicked, TextChanged, …) or the routing itself: logged with its stack,
+			// and the app ends unless SailfishExceptions.Unhandled handles it.
+			SailfishExceptions.Report(ex, $"event '{name}'");
 		}
 	}
 
@@ -818,5 +829,25 @@ internal sealed class AdapterEventRouter
 		host.AppliedProperties["mauiScrollY"] = BridgeValue.Serialize(y);
 		ScrollWriteBacks++;
 		_r.RequestScrollGeometry();   // the position moves root rects only; MAUI's layout is unchanged
+	}
+
+	/// <summary>A tapped FormattedText span (Label.qml "span:N" link) fires the span's TapGestureRecognizers with the
+	/// label as the sender, as MAUI's Android and iOS span taps do (tracker S42).</summary>
+	private void ApplySpanTapped(string payload)
+	{
+		using var doc = JsonDocument.Parse(payload);
+		if (!_r.TryResolveHost(doc.RootElement, out var id, out var host) || host.Element is not Label { FormattedText: { } formatted } label)
+		{
+			QtHostDiag.Warn(QtHostDiagChannel.Input, $"span-tapped for an unknown label id='{id}'");
+			return;
+		}
+		var index = BridgeJson.Int(doc.RootElement, "index");
+		if (index < 0 || index >= formatted.Spans.Count)
+			return;
+		foreach (var tap in formatted.Spans[index].GestureRecognizers.OfType<TapGestureRecognizer>().ToList())
+		{
+			QtHostDiag.Trace(QtHostDiagChannel.Input, $"span {index} tap -> MAUI TapGestureRecognizer (label id={id})");
+			tap.SendTapped(label);
+		}
 	}
 }

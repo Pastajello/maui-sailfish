@@ -37,8 +37,8 @@ Item {
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             PathOps.buildPath(ctx, root.clipOps);
-            try { ctx.fill(root.clipEvenOdd ? "evenodd" : "nonzero"); }
-            catch (e) { ctx.fill(); }
+            ctx.fillRule = root.clipEvenOdd ? Qt.OddEvenFill : Qt.WindingFill;   /* fill()'s argument is ignored */
+            ctx.fill();
         }
     }
 

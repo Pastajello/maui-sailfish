@@ -98,6 +98,10 @@ internal sealed class QtHostInputRouter
 	private double _longPressSlopDp;           // the recognizers' AllowableMovement: travel beyond it cancels
 	private double _lastPressDpX, _lastPressDpY;   // every press, captured or not (a list row's capture starts there)
 	private Action<bool>? _rowHold;            // a list row captured for a pan: keeps the ListView from stealing it
+	private bool _pageDragHeld;                // a view captured for a pan/swipe/pinch: the page's back swipe and pulley wait
+	private IGraphicsView? _interaction;       // a GraphicsView pressed: Start/Drag/EndInteraction follow the finger
+	private Rect _interactionDp;               // its root-space rect (points are relative to it)
+	private bool _interactionHeld;             // it holds the page drag like a pan does
 	private bool _rowGestureTook;              // a row long press fired or a row pan started: the row's tap is no tap
 	private bool _fingerDown;                  // between a press and its release (a late row capture is dropped)
 	private bool _rowCapture;                  // the captured sequence started on a list row (CaptureRow)
@@ -138,6 +142,9 @@ internal sealed class QtHostInputRouter
 
 	/// <summary>PinchGestureRecognizer updates sent (started/running/completed).</summary>
 	public long PinchUpdatesFired { get; private set; }
+
+	/// <summary>Captured sequences that held the page's back swipe and pulley for a view's own drag (tracker S60).</summary>
+	public long PageDragHolds { get; private set; }
 
 	/// <summary>PointerGestureRecognizer events sent (entered/pressed/moved/released/exited).</summary>
 	public long PointerEventsFired { get; private set; }
@@ -322,6 +329,11 @@ internal sealed class QtHostInputRouter
 			return;
 		}
 
+		// A GraphicsView takes the touch itself, as on the other platforms: IGraphicsView Start/Drag/EndInteraction
+		// with points in its own coordinates (tracker S31); its recognizers, if any, follow below as anywhere else.
+		if (ve is IGraphicsView graphics)
+			StartInteraction(graphics, host.MauiLogicalBounds, dpX, dpY);
+
 		// MAUI gestures bubble: the nearest element carrying recognizers owns the sequence.
 		if (!TryFindRecognizers(ve, out var owner, out _taps, out _pans, out _swipes, out _longPresses, out _pointers, out _pinches))
 		{
@@ -337,6 +349,15 @@ internal sealed class QtHostInputRouter
 				$"(tap={_taps is not null} pan={_pans?.Count ?? 0} swipe={_swipes?.Count ?? 0} " +
 				$"longPress={_longPresses?.Count ?? 0} pointer={_pointers?.Count ?? 0} pinch={_pinches?.Count ?? 0})");
 		BeginCapture(owner, dpX, dpY, OwnerRect(ve, owner, host.MauiLogicalBounds));
+		// A view handling its own drags keeps them, as on Android and iOS: Silica's back swipe and the page flickable
+		// (pulley) would take the same drag otherwise (tracker S60, D17 a). KeepsDrag=false hands it to Silica too.
+		if ((_pans is not null || _swipes is not null || _pinches is not null) &&
+		    Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.GetKeepsDrag(owner))
+		{
+			_pageDragHeld = true;
+			PageDragHolds++;
+			_renderer.HoldPageDrag(true);
+		}
 	}
 
 	/// <summary>Starts a captured sequence on <paramref name="owner"/> with the recognizer lists already set.</summary>
@@ -539,6 +560,8 @@ internal sealed class QtHostInputRouter
 	{
 		if (_tabSwipeArmed)
 			TrackTabDrag(x, y);
+		if (_interaction is { } graphics)
+			graphics.DragInteraction(new[] { InteractionPoint(x, y) });
 
 		// Travel beyond the tap slop cancels the armed hold.
 		if (_holdFlyout is not null && !_holdFired)
@@ -585,6 +608,7 @@ internal sealed class QtHostInputRouter
 		_holdFired = false;
 		_holdHostId = null;
 		FinishTabSwipe(x, y);
+		EndInteraction(x, y);
 
 		if (_captured is null)
 			return;   // the press was QML-consumed or ignored
@@ -692,7 +716,7 @@ internal sealed class QtHostInputRouter
 		}
 		catch (Exception ex)
 		{
-			QtHostDiag.Error(QtHostDiagChannel.Input, $"Tapped handler failed: {ex.Message}");
+			SailfishExceptions.Report(ex, "a Tapped handler");
 		}
 	}
 
@@ -753,6 +777,8 @@ internal sealed class QtHostInputRouter
 	/// </summary>
 	private void OnSecondPoint(double x, double y, int fingersDown)
 	{
+		if (fingersDown >= 2)
+			CancelInteraction();
 		if (_captured is null || _pinches is null)
 			return;
 		var p1X = _pressDpX + _totalDpX;
@@ -816,7 +842,7 @@ internal sealed class QtHostInputRouter
 				}
 				catch (Exception ex)
 				{
-					QtHostDiag.Error(QtHostDiagChannel.Input, $"pinch {status} handler failed: {ex.Message}");
+					SailfishExceptions.Report(ex, $"a pinch {status} handler");
 				}
 			}
 		});
@@ -856,6 +882,11 @@ internal sealed class QtHostInputRouter
 		{
 			_rowHold = null;
 			hold(false);
+		}
+		if (_pageDragHeld)
+		{
+			_pageDragHeld = false;
+			_renderer.HoldPageDrag(false);
 		}
 	}
 
@@ -941,7 +972,7 @@ internal sealed class QtHostInputRouter
 				}
 				catch (Exception ex)
 				{
-					QtHostDiag.Error(QtHostDiagChannel.Input, $"pointer {phase} handler failed: {ex.Message}");
+					SailfishExceptions.Report(ex, $"a pointer {phase} handler");
 				}
 			}
 		});
@@ -971,7 +1002,7 @@ internal sealed class QtHostInputRouter
 				}
 				catch (Exception ex)
 				{
-					QtHostDiag.Error(QtHostDiagChannel.Input, $"LongPressing handler failed: {ex.Message}");
+					SailfishExceptions.Report(ex, "a LongPressing handler");
 				}
 			}
 		});
@@ -1009,7 +1040,7 @@ internal sealed class QtHostInputRouter
 				}
 				catch (Exception ex)
 				{
-					QtHostDiag.Error(QtHostDiagChannel.Input, $"LongPressed handler failed: {ex.Message}");
+					SailfishExceptions.Report(ex, "a LongPressed handler");
 				}
 			}
 		});
@@ -1032,5 +1063,56 @@ internal sealed class QtHostInputRouter
 		SecondPoint => "second-point",
 		_ => kind.ToString(CultureInfo.InvariantCulture),
 	};
-}
 
+	/* --- GraphicsView interactions (tracker S31) --- */
+
+	/// <summary>GraphicsView interactions started (diagnostics).</summary>
+	public long Interactions { get; private set; }
+
+	private void StartInteraction(IGraphicsView graphics, Rect boundsDp, double dpX, double dpY)
+	{
+		_interaction = graphics;
+		_interactionDp = boundsDp;
+		Interactions++;
+		graphics.StartInteraction(new[] { new PointF((float)(dpX - boundsDp.X), (float)(dpY - boundsDp.Y)) });
+		// A drawing surface keeps its drags, as a pan does (S60): no back swipe or pulley over it.
+		if (!_interactionHeld && Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.GetKeepsDrag((BindableObject)graphics))
+		{
+			_interactionHeld = true;
+			_renderer.HoldPageDrag(true);
+		}
+	}
+
+	private PointF InteractionPoint(double x, double y) =>
+		new((float)(QtHostUnits.ToLogical(x) - _interactionDp.X), (float)(QtHostUnits.ToLogical(y) - _interactionDp.Y));
+
+	private void EndInteraction(double x, double y)
+	{
+		if (_interaction is not { } graphics)
+			return;
+		_interaction = null;
+		var point = InteractionPoint(x, y);
+		graphics.EndInteraction(new[] { point }, new Rect(0, 0, _interactionDp.Width, _interactionDp.Height).Contains(point.X, point.Y));
+		ReleaseInteractionHold();
+	}
+
+	/// <summary>A second finger turns the sequence into a pinch: the drawing interaction is cancelled, as MAUI's
+	/// Android GraphicsView reports a gesture it loses.</summary>
+	private void CancelInteraction()
+	{
+		if (_interaction is not { } graphics)
+			return;
+		_interaction = null;
+		graphics.CancelInteraction();
+		ReleaseInteractionHold();
+	}
+
+	private void ReleaseInteractionHold()
+	{
+		if (!_interactionHeld)
+			return;
+		_interactionHeld = false;
+		if (!_pageDragHeld)
+			_renderer.HoldPageDrag(false);
+	}
+}

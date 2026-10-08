@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Microsoft.Maui.SailfishOS.Platform;
 
 /// <summary>
-/// What MSBuild bakes into qml/maui-appmeta.json (Microsoft.Maui.SailfishOS.targets, _SailfishWriteAppMeta): window
+/// What MSBuild bakes into qml/maui-appmeta.json (Microsoft.Maui.Platforms.SailfishOS.targets, _SailfishWriteAppMeta): window
 /// orientation, cover, title, the Harbour identity, the app's id and versions (ApplicationId,
 /// ApplicationDisplayVersion, ApplicationVersion) and the D-Bus openUrl names. Read once; a build without the file
 /// (a plain net11.0 head) gets <see cref="Empty"/>.

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<!-- Sailfish OS through the Microsoft.Maui.SailfishOS package; on a Mac also iOS, to compare native UIKit rendering. -->
+		<!-- Sailfish OS through the Microsoft.Maui.Platforms.SailfishOS package; on a Mac also iOS, to compare native UIKit rendering. -->
 		<TargetFrameworks>net11.0-sailfish</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">$(TargetFrameworks);net11.0-ios</TargetFrameworks>
 
@@ -59,7 +59,7 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
-		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
+		<PackageReference Include="Microsoft.Maui.Platforms.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
 	</ItemGroup>
 
 </Project>

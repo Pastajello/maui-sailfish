@@ -180,11 +180,12 @@ public static class QtHostRuntime
 		if (rc != 0)
 			throw BootFailed(rc, "sailfish_host_show");
 
-		// Input callbacks run inside Qt's event delivery: an exception there would fail fast, so it is logged instead.
+		// Input callbacks run inside Qt's event delivery: an exception must not unwind into native code, so it goes to
+		// SailfishExceptions (which ends the app from a thread of its own, unless the app handles it).
 		_pointer = (kind, x, y, delta, extra, _) =>
 		{
 			try { PointerInput?.Invoke(kind, x, y, delta, extra); }
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in pointer input: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "pointer input"); }
 		};
 		_key = (kind, key, mods, text, _) =>
 		{
@@ -192,7 +193,7 @@ public static class QtHostRuntime
 			{
 				KeyInput?.Invoke(kind, key, mods, text == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(text) ?? string.Empty);
 			}
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in key input: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "key input"); }
 		};
 		QtHostNative.sailfish_host_set_input_callbacks(_pointer, _key, IntPtr.Zero);
 
@@ -205,7 +206,7 @@ public static class QtHostRuntime
 				QmlEvent?.Invoke(name == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(name) ?? string.Empty,
 					payload == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(payload) ?? string.Empty);
 			}
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in QML event handler: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "a QML event handler"); }
 		};
 		QtHostNative.sailfish_host_set_event_callback(_event, IntPtr.Zero);
 
@@ -215,7 +216,7 @@ public static class QtHostRuntime
 			dispatcher.DrainQueue();
 			var now = DateTime.UtcNow;
 			try { SailfishRuntime.TickDueTimers(now); }
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in timer callback: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "a timer callback"); }
 			var next = dispatcher.HasPendingWork ? 0 : SailfishRuntime.NextTimerDelayMs(DateTime.UtcNow);
 			QtHostNative.sailfish_host_wake(next >= 0 ? Math.Min(next, HeartbeatMs) : HeartbeatMs);
 		};

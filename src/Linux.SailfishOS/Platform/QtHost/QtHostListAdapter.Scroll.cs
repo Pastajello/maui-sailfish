@@ -19,6 +19,7 @@ internal sealed partial class QtHostListAdapter
 		if (!Carousel || index < 0)
 			return;
 		Push("mauiPosition", index);
+		ApplyCarouselStates(index);
 	}
 
 	/// <summary>The native carousel settled on a page; Position and CurrentItem follow.</summary>
@@ -34,6 +35,7 @@ internal sealed partial class QtHostListAdapter
 			carousel.Position = index;
 		if (!ItemsEqual(carousel.CurrentItem, item) && item is not null)
 			carousel.CurrentItem = item;
+		ApplyCarouselStates(index);
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"carousel '{Host}' page {index} → Position/CurrentItem");
 	}
 
@@ -52,16 +54,18 @@ internal sealed partial class QtHostListAdapter
 		var yDp = QtHostUnits.ToLogical(yQt);
 		if (yDp == LastReportedYDp)
 			return;   // echo of the last reported offset
+		// The first report has no earlier offset (-1): its delta counts from the top, where a list starts.
+		var delta = yDp - Math.Max(0, LastReportedYDp);
 		LastReportedYDp = yDp;
 
-		// MAUI mirrors the scroll this for observers; nothing is pushed back to the ListView (no echo loop).
-		if (View is IScrollViewController controller)
-			controller.SetScrolledPosition(Horizontal ? yDp : 0, Horizontal ? 0 : yDp);
+		// Nothing is pushed back to the ListView (no echo loop).
 		var args = new ItemsViewScrolledEventArgs
 		{
 			// The adapter reports the offset along ITS scroll axis.
 			HorizontalOffset = Horizontal ? yDp : 0,
 			VerticalOffset = Horizontal ? 0 : yDp,
+			HorizontalDelta = Horizontal ? delta : 0,
+			VerticalDelta = Horizontal ? 0 : delta,
 			FirstVisibleItemIndex = RowToItemIndex(firstRow),
 			LastVisibleItemIndex = RowToItemIndex(lastRow),
 		};
@@ -110,7 +114,7 @@ internal sealed partial class QtHostListAdapter
 		return ordinal;
 	}
 
-	/// <summary>ScrollTo → native positionViewAtIndex as an immediate jump; the tick re-fires equal targets.</summary>
+	/// <summary>ScrollTo → native positionViewAtIndex: a jump, or an eased scroll to the same place when animated.</summary>
 	internal void OnScrollToRequested(ScrollToRequestEventArgs e)
 	{
 		FlushInvalidate();   // an Add right before ScrollTo must be in the rows first
@@ -140,7 +144,7 @@ internal sealed partial class QtHostListAdapter
 			_ => 3,                          // MakeVisible → Contain
 		};
 		ScrollRequests++;
-		AdapterCommands.Send(Host, "scrollTo", new() { ["row"] = rowIndex, ["pos"] = pos });
+		AdapterCommands.Send(Host, "scrollTo", new() { ["row"] = rowIndex, ["pos"] = pos, ["animate"] = e.IsAnimated });
 		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"collection ScrollTo('{e.Item ?? e.Index}', {e.ScrollToPosition}) → row {rowIndex} (request {ScrollRequests})");
 	}
 }

@@ -7,7 +7,7 @@
     <TargetFramework>net11.0</TargetFramework>
     <RootNamespace>Microsoft.Maui.SailfishOS.SkiaSharp</RootNamespace>
     <AssemblyName>Microsoft.Maui.SailfishOS.SkiaSharp</AssemblyName>
-    <PackageId>Microsoft.Maui.SailfishOS.SkiaSharp</PackageId>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS.SkiaSharp</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <Description>Sailfish OS handlers for SkiaSharp.Views.Maui (SKCanvasView, SKGLView, SK*ImageSource): reference it next to SkiaSharp.Views.Maui.Controls and SkiaSharp.NativeAssets.Linux in the Sailfish head.</Description>
     <PackageTags>maui;sailfish;sailfishos;skiasharp</PackageTags>

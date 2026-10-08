@@ -1,4 +1,4 @@
-// Moved from an inline RoslynCodeTaskFactory task in buildTransitive/Microsoft.Maui.SailfishOS.targets.
+// Moved from an inline RoslynCodeTaskFactory task in buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets.
 #nullable disable
 using System;
 using System.Collections.Generic;

@@ -294,11 +294,11 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 
 		// Never race a pageStack transition or an open dialog/flyout: those adapters are transient layers over the
 		// model page.
-		if (busy || _dialogTcs is not null || _openFlyout is not null)
+		if (busy || _dialogTcs is not null || AnyMenuOpen)
 		{
 			if (_navOp is not null && QtHostDiag.TraceEnabled)
 				QtHostDiag.Trace(QtHostDiagChannel.Navigation,
-					$"navigation {_navOp} waits: busy={busy} dialog={_dialogTcs is not null} flyout={_openFlyout is not null}");
+					$"navigation {_navOp} waits: busy={busy} dialog={_dialogTcs is not null} flyout={AnyMenuOpen}");
 			_nativeTopUnfollowed = topId.Length > 0 && NativeTopPageId is { } waitingTop && topId != waitingTop;
 			return;
 		}
@@ -331,6 +331,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		foreach (var host in _current)
 			host.AppliedGeometrySet = false;
 		_openFlyout = null;   // a context menu lives on the page it opened on
+		CloseShellFlyoutMenu();
 		QtHostDiag.Trace(QtHostDiagChannel.Navigation, $"model page switched ({reason}) — title/background/scroll/geometry re-armed");
 	}
 
@@ -343,6 +344,9 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 	private void ReArmPageChrome()
 	{
 		_renderedTitle = string.Empty;
+		_renderedHeader = string.Empty;
+		_renderedSearch = string.Empty;
+		_searchNativeText = null;   // a fresh or cleared model page's field is empty
 		_renderedBusy = string.Empty;
 		_renderedBack = string.Empty;
 		_renderedOrientations = string.Empty;
@@ -450,7 +454,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			// Transactional push: the synchronous eval pushes and reads back the confirmed state, and the mirror is
 			// committed only if the pageStack took the page. Single-level pushes past activation animate like Silica;
 			// this poll reconciles the new page before the first frame, so it slides in complete.
-			var action = count == 1 && RetentionArmed && NavAnimation ? "Animated" : "Immediate";
+			var action = count == 1 && RetentionArmed && NavAnimation && !_nextNavImmediate ? "Animated" : "Immediate";
 			string rc;
 			if (FaultNextPush)
 			{
@@ -481,7 +485,9 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			_nativePageIds.Add(id);
 			NativePushes++;
 			LogNavOp("PUSH", "MAUI", id, $"{rc}|{action}");
+			LastNativeNavStep = "PUSH " + action;
 		}
+		_nextNavImmediate = false;   // the request is served
 	}
 
 	private void PopModelPages(int count)
@@ -497,7 +503,7 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			var id = _nativePageIds[^1];
 			// Animated back like the Silica gesture: the popped page keeps its QML hosts while sliding out and the
 			// mirror drops them without an eval. Requires the returned-to page to be its restored back-cache self.
-			var animated = count == 1 && NavAnimation && RetentionArmed &&
+			var animated = count == 1 && NavAnimation && RetentionArmed && !_nextNavImmediate &&
 			               _nativePageIds.Count > 1 && _pageCache.IsParkedOn(ResolveCurrentPage(), _nativePageIds[_nativePageIds.Count - 2]);
 			if (animated)
 			{
@@ -551,7 +557,9 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 			NativePops++;
 			_pageCache.Prune();   // pages parked on the popped model page died with it
 			LogNavOp("POP", "MAUI", id, $"rc={rc}|{(animated ? "Animated" : "Immediate")}");
+			LastNativeNavStep = "POP " + (animated ? "Animated" : "Immediate");
 		}
+		_nextNavImmediate = false;   // the request is served
 	}
 
 	/// <summary>

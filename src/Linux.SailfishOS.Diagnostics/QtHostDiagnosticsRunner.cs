@@ -252,6 +252,27 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			});
 		};
 
+		// MAUI_SAILFISH_DIAG_CRASH=1 (tracker S59, D11): a Clicked handler throws 2 s after the first page rendered and no
+		// SailfishExceptions.Unhandled handler handles it, so the app must end with the exception and its stack in the log.
+		if (SailfishEnv.Flag("MAUI_SAILFISH_DIAG_CRASH"))
+		{
+			var armed = false;
+			QtHost.QtHostRuntime.QmlEvent += (name, _) =>
+			{
+				if (name != "rendered" || armed)
+					return;
+				armed = true;
+				dispatcher.DispatchDelayed(TimeSpan.FromSeconds(2), () =>
+				{
+					Console.Error.WriteLine("[Sailfish] crash diag: a Clicked handler throws now; the app must end");
+					var button = new Button { Text = "crash" };
+					button.Clicked += (_, _) => throw new InvalidOperationException("MAUI_SAILFISH_DIAG_CRASH: unhandled in a Clicked handler");
+					button.SendClicked();
+					Console.Error.WriteLine("[Sailfish] crash diag: FAIL — the app is still running");
+				});
+			};
+		}
+
 		// MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN=1: once the injected tap has navigated and the next page rendered, run the enabled legs, then tear down.
 		if (SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN"))
 		{
@@ -289,6 +310,14 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				_qtPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_PULLEY_DIAG");
 				// Pulley menus following the selected tab (QtHostDiagnosticsRunner.TabPulley.cs).
 				_qtTabPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_TABPULLEY_DIAG");
+				// Header: TitleView, HasNavigationBar, TabBarIsVisible (QtHostDiagnosticsRunner.Header.cs).
+				_qtHeaderDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_HEADER_DIAG");
+				// Canvas: DrawString baseline, EvenOdd fills, Antialias (QtHostDiagnosticsRunner.Canvas.cs).
+				_qtCanvasDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_CANVAS_DIAG");
+				// The legacy ListView on the list adapter (QtHostDiagnosticsRunner.LegacyList.cs).
+				_qtLegacyListDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_LEGACYLIST_DIAG");
+				// Chained/background dialogs and unanimated navigation (QtHostDiagnosticsRunner.NavDialog.cs).
+				_qtNavDialogDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_NAVDIALOG_DIAG");
 				// Native Silica idioms behind MAUI APIs (QtHostDiagnosticsRunner.Silica.cs).
 				_qtSilicaDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_SILICA_DIAG");
 				// Recording scenes for docs/sailfish-apis.md (QtHostDiagnosticsRunner.ApiDemo.cs).
@@ -3910,10 +3939,18 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		{
 			_qtColChecks.Check($"idle: no row rebuilt while nothing changed (materialized {idleMaterialized}→{bridge.ItemsMaterialized}, destroyed {idleDestroyed}→{bridge.ItemsDestroyed} over 1.5 s of resync polls)",
 				bridge.ItemsMaterialized == idleMaterialized && bridge.ItemsDestroyed == idleDestroyed);
-			_qtColChecks.Accept("OK — Q14 CollectionView runs on the native virtualized ListView: MAUI owns item content, selection authority and scroll state while QML owns delegates/flicking (PLAN Q14)");
-			Console.Error.WriteLine("[Sailfish] Qt diag: collection diag done; auto-shutdown in 20s (compositor screenshot window)");
-			dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
+			RunColChatChecks(renderer, dispatcher,
+				() => RunColItemStateChecks(renderer, dispatcher,
+					() => RunColSizingChecks(renderer, dispatcher,
+						() => RunColUnboundedCheck(renderer, dispatcher, () => FinishColAcceptance(dispatcher)))));
 		});
+	}
+
+	private void FinishColAcceptance(SailfishDispatcher dispatcher)
+	{
+		_qtColChecks.Accept("OK — Q14 CollectionView runs on the native virtualized ListView: MAUI owns item content, selection authority and scroll state while QML owns delegates/flicking (PLAN Q14)");
+		Console.Error.WriteLine("[Sailfish] Qt diag: collection diag done; auto-shutdown in 20s (compositor screenshot window)");
+		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
 	}
 
 	// Input diag: real Qt pointer events follow the event-ownership contract. The startup tap on a Silica button was QML-consumed;
@@ -3977,7 +4014,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				QtHost.QtHostRuntime.InjectPointer(2, cx + i * 20.0, cy);
 			QtHost.QtHostRuntime.InjectPointer(1, cx + 100.0, cy);
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600),
-				() => RunQtRouterChecks(renderer, dispatcher, () => VerifyQtInputDiagnostics(renderer, dispatcher, router)));
+				() => RunQtRouterChecks(renderer, dispatcher,
+					() => RunQtDragHoldChecks(renderer, dispatcher,
+						() => RunQtGraphicsInteractionCheck(renderer, dispatcher, () => VerifyQtInputDiagnostics(renderer, dispatcher, router)))));
 		});
 	}
 
@@ -4136,10 +4175,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	/// </summary>
 	private void RunQtErrorDiagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => RunQtErrorLegs(renderer));
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => RunQtErrorLegs(renderer, dispatcher));
 	}
 
-	private void RunQtErrorLegs(QtHost.QtHostPageRenderer renderer)
+	private void RunQtErrorLegs(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
 		var baseErrors = QtHost.QtHostDiag.TotalErrors;
 		var injected = 0;
@@ -4196,7 +4235,32 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtErrorChecks.Check($"leg D channels: observed {observed}/11 after the touch pass ({observedBefore}/11 from the run itself)",
 			observed == 11);
 
-		// Leg E: no unexpected errors; all channel errors come from the injected legs A–C.
+		// Leg F (tracker S59, D11): an app exception on the UI thread that a SailfishExceptions.Unhandled handler marks
+		// handled keeps the app running (unhandled, it would end it: MAUI_SAILFISH_DIAG_CRASH checks that on its own).
+		var hookSaw = new List<string>();
+		void Handle(object? sender, SailfishUnhandledExceptionEventArgs e)
+		{
+			hookSaw.Add($"{e.Source}: {e.Exception.Message}");
+			e.Handled = true;
+		}
+		SailfishExceptions.Unhandled += Handle;
+		var ranAfter = false;
+		dispatcher.Dispatch(() => throw new InvalidOperationException("error diag leg F"));
+		dispatcher.Dispatch(() => ranAfter = true);
+		injected++;   // Report logs the exception as an error
+		// The two actions run on the next loop turns: the rest of the leg waits for them.
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(300), () =>
+		{
+			SailfishExceptions.Unhandled -= Handle;
+			_qtErrorChecks.Check($"leg F handled app exception: the hook saw [{string.Join(" | ", hookSaw)}], the loop went on ({ranAfter})",
+				hookSaw.Count == 1 && hookSaw[0] == "dispatched work: error diag leg F" && ranAfter);
+			FinishQtErrorLegs(baseErrors, injected);
+		});
+	}
+
+	private void FinishQtErrorLegs(long baseErrors, int injected)
+	{
+		// Leg E: no unexpected errors; all channel errors come from the injected legs A–C and F.
 		var totalErrors = QtHost.QtHostDiag.TotalErrors;
 		_qtErrorChecks.Check($"leg E error budget: total channel errors {totalErrors} == baseline {baseErrors} + injected {injected} (no unexpected errors)",
 			totalErrors == baseErrors + injected);
@@ -4233,6 +4297,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		(_qtContainersDiag, (r, d, _) => RunQtContainersDiagnostics(r, d)),
 		(_qtPulleyDiag, (r, d, _) => RunQtPulleyDiagnostics(r, d)),
 		(_qtTabPulleyDiag, (r, d, _) => RunQtTabPulleyDiagnostics(r, d)),
+		(_qtHeaderDiag, (r, d, _) => RunQtHeaderDiagnostics(r, d)),
+		(_qtCanvasDiag, (r, d, _) => RunQtCanvasDiagnostics(r, d)),
+		(_qtLegacyListDiag, (r, d, _) => RunQtLegacyListDiagnostics(r, d)),
+		(_qtNavDialogDiag, (r, d, _) => RunQtNavDialogDiagnostics(r, d)),
 		(_qtSilicaDiag, (r, d, _) => RunQtSilicaDiagnostics(r, d)),
 		(_qtApiDemo is not null, (r, d, _) => RunQtApiDemo(r, d)),
 		(_qtF3Diag, (r, d, _) => RunQtF3Diagnostics(r, d)),

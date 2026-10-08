@@ -266,10 +266,37 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 		if (ReferenceEquals(page, _watched))
 			return;
 		if (_watched is { } old)
+		{
 			old.IsPresentedChanged -= OnPresentedChanged;
+			old.PropertyChanging -= OnFlyoutPageChanging;
+			old.PropertyChanged -= OnFlyoutPageChanged;
+		}
 		_watched = page;
 		if (page is not null)
+		{
 			page.IsPresentedChanged += OnPresentedChanged;
+			page.PropertyChanging += OnFlyoutPageChanging;
+			page.PropertyChanged += OnFlyoutPageChanged;
+		}
+	}
+
+	private Page? _replacedDetail;
+
+	private void OnFlyoutPageChanging(object? sender, Microsoft.Maui.Controls.PropertyChangingEventArgs e)
+	{
+		if (e.PropertyName == nameof(FlyoutPage.Detail))
+			_replacedDetail = (sender as FlyoutPage)?.Detail;
+	}
+
+	/// <summary>A replaced Detail lets go of its handlers, as the platforms' FlyoutPage handlers disconnect the old
+	/// detail (tracker S38): its subscriptions no longer keep it, or follow it.</summary>
+	private void OnFlyoutPageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName != nameof(FlyoutPage.Detail) || _replacedDetail is not { } old)
+			return;
+		_replacedDetail = null;
+		if (!ReferenceEquals(old, (sender as FlyoutPage)?.Detail))
+			((IView)old).DisconnectHandlers();
 	}
 
 	public override void SetVirtualView(IView view)
@@ -416,7 +443,7 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 				return null;
 			// Bottom tabs: the item's sections; top tabs: a section's contents.
 			var sections = ((IShellItemController)item).GetItems();
-			if (sections.Count > 1)
+			if (SectionTabsShown(item, sections))
 				return new SailfishTabRow(sections.Select(sec => SailfishPageContainers.TabTitle(sec, sec.Title)).ToList(),
 					Math.Max(0, IndexOf(sections, item.CurrentItem)),
 					// As the platform tab bars switch: ProposeSection runs Shell's navigation (Navigating/Navigated, the page's
@@ -432,12 +459,18 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 		get
 		{
 			// Bottom tabs are the sections; a section's own contents are its top tabs (Profitocracy: All / Recurring).
-			if (ShellView?.CurrentItem is not { } item || ((IShellItemController)item).GetItems().Count < 2 ||
+			if (ShellView?.CurrentItem is not { } item || !SectionTabsShown(item, ((IShellItemController)item).GetItems()) ||
 			    item.CurrentItem is not { } section)
 				return null;
 			return ContentTabs(section);
 		}
 	}
+
+	/// <summary>The item's sections show as tabs: two or more, and Shell.TabBarIsVisible (on the shown page, its content,
+	/// section, item or the Shell) not false. A hidden bar keeps the section's contents as the top tabs, as on Android.</summary>
+	private bool SectionTabsShown(ShellItem item, IReadOnlyList<ShellSection> sections) =>
+		sections.Count > 1 &&
+		QtHostPageRenderer.ShellValue((Element?)ShellView?.CurrentPage ?? item, Shell.TabBarIsVisibleProperty, true);
 
 	/// <summary>A section's contents as a tab row (null with fewer than two).</summary>
 	private SailfishTabRow? ContentTabs(ShellSection section)

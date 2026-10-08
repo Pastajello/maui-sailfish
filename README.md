@@ -56,17 +56,17 @@ If you got a feed from someone else, add it with `dotnet nuget add source <feed>
 
 ```bash
 # once per machine: teach the SDK the net11.0-sailfish target framework
-dnx Microsoft.Maui.SailfishOS.Workload install
+dnx Microsoft.Maui.Platforms.SailfishOS.Workload install
 
 # a MAUI app with a Sailfish OS head next to Android/iOS/Mac Catalyst/Windows
 dotnet new install Microsoft.Maui.Platforms.SailfishOS.Templates
 dotnet new maui-sailfish -n MyApp && cd MyApp     # --sailfish-only: just the Sailfish head
 
-# build the RPM, install it on the phone and start it
-dotnet build -f net11.0-sailfish -t:SailfishRun
+# build the RPM, install it on the phone, start it and stream its log (Ctrl+C stops it)
+dotnet run -f net11.0-sailfish
 ```
 
-The first `SailfishRun` asks for the phone's address, user and the Remote connection password, installs your
+`dotnet build -f net11.0-sailfish -t:SailfishRun` does the same but returns once the app has started. The first run asks for the phone's address, user and the Remote connection password, installs your
 SSH key and saves the settings in `~/.config/maui-sailfish/connect.info`. Details and error messages:
 [docs/connecting-your-phone.md](docs/connecting-your-phone.md).
 
@@ -170,7 +170,7 @@ MAUI does all layout. Native elements are created once and updated in place. Lis
 ## Repository layout
 
 ```
-src/Linux.SailfishOS/                 the backend (Microsoft.Maui.SailfishOS package)
+src/Linux.SailfishOS/                 the backend (Microsoft.Maui.Platforms.SailfishOS package)
   Handlers/                           Sailfish handlers: controls, pages, Shell/Tabbed/Flyout
   Native/                             C++ shim (libsailfishhost.so)
   Platform/QtHost/                    renderer, navigation, bridges; qml/ = Silica adapters

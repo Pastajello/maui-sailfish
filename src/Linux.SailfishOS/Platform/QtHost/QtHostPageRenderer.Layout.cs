@@ -162,7 +162,7 @@ internal sealed partial class QtHostPageRenderer
 	/// </summary>
 	internal void ApplyWindowGeometry(string payload)
 	{
-		double pageW, pageH, header, status;
+		double pageW, pageH, header, status, title;
 		try
 		{
 			using var doc = JsonDocument.Parse(payload);
@@ -171,6 +171,7 @@ internal sealed partial class QtHostPageRenderer
 			pageH = BridgeJson.Num(root, "pageHeight");
 			header = BridgeJson.Num(root, "headerHeight");
 			status = BridgeJson.Num(root, "statusHeight");
+			title = BridgeJson.Num(root, "titleHeight");
 		}
 		catch (Exception ex)
 		{
@@ -211,13 +212,13 @@ internal sealed partial class QtHostPageRenderer
 
 		var changed = !_windowGeometryKnown
 			|| pageW != _lastPageW || pageH != _lastPageH
-			|| header != _lastHeader || status != _lastStatus
+			|| header != _lastHeader || status != _lastStatus || title != _lastTitleH
 			|| dpr != _lastDpr || orientation != _lastOrientation;
 		if (GeometryTrace)
 			QtHostDiag.Trace(QtHostDiagChannel.Geometry, $"window-geometry {payload} screen_info={screenInfo} changed={changed}");
 		if (!changed)
 			return;
-		_lastPageW = pageW; _lastPageH = pageH; _lastHeader = header; _lastStatus = status;
+		_lastPageW = pageW; _lastPageH = pageH; _lastHeader = header; _lastStatus = status; _lastTitleH = title;
 		_lastDpr = dpr; _lastOrientation = orientation;
 
 		// Density follows the same dp model as the SDL2 backend, so logical bounds match across backends.
@@ -229,6 +230,8 @@ internal sealed partial class QtHostPageRenderer
 		// Content starts below the Silica status area and PageHeader; MAUI never sees the QML chrome.
 		var topDp = QtHostUnits.ToLogical(status + header);
 		_contentRectDp = new Rect(0, topDp, _windowDp.Width, Math.Max(0, _windowDp.Height - topDp));
+		// The PageHeader's own band (no tab rows): a TitleView's area.
+		_titleRectDp = new Rect(0, QtHostUnits.ToLogical(status), _windowDp.Width, QtHostUnits.ToLogical(Math.Max(0, title)));
 		_windowGeometryKnown = true;
 		_layoutDirty = true;
 		// Window.Width/Height follow the platform window, as the other platforms report their frame.
@@ -275,11 +278,13 @@ internal sealed partial class QtHostPageRenderer
 		try
 		{
 			var root = page is ContentPage contentPage ? contentPage.Content as VisualElement : page;
+			var hosted = new HashSet<NativeElementHost>(_current);
 			if (root is not null)
 			{
 				var rootMatrix = RootMatrix(root);
-				CollectGeometry(root, rootMatrix, rootMatrix, new HashSet<NativeElementHost>(_current), parentVisible: true);
+				CollectGeometry(root, rootMatrix, rootMatrix, hosted, parentVisible: true);
 			}
+			CollectPageOverlays(hosted);
 			FlushGeometry();
 		}
 		catch (Exception ex)
@@ -294,6 +299,19 @@ internal sealed partial class QtHostPageRenderer
 			_suppressPush--;
 		}
 		_collection.RefreshSceneBounds(force: false);
+	}
+
+	/// <summary>The rects of the views on the page canvas outside its content: the TitleView, arranged in the header
+	/// (<see cref="_titleRectDp"/>), and the search results over the content area.</summary>
+	private void CollectPageOverlays(HashSet<NativeElementHost> hosted)
+	{
+		foreach (var overlay in new[] { _titleView, _searchResultsView })
+		{
+			if (overlay is null)
+				continue;
+			var matrix = RootMatrix(overlay);
+			CollectGeometry(overlay, matrix, matrix, hosted, parentVisible: true);
+		}
 	}
 
 	private void RunLayoutPass(Page page)
@@ -314,18 +332,30 @@ internal sealed partial class QtHostPageRenderer
 				var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
 				QtHostLayout.AttachHandlers(page, _mauiContext);
 				QtHostLayout.MeasureAndArrange(page, _windowDp, _contentRectDp);
+				if (_titleView is { } titleView)
+				{
+					QtHostLayout.AttachHandlers(titleView, _mauiContext);
+					QtHostLayout.MeasureAndArrangeIn(titleView, _titleRectDp);
+				}
+				if (_searchResultsView is { } results)
+				{
+					QtHostLayout.AttachHandlers(results, _mauiContext);
+					QtHostLayout.MeasureAndArrangeIn(results, _contentRectDp);
+				}
 				var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
 				// Absolutize parent-relative Bounds against the root space (content area origin, dp).
 				var root = page is ContentPage contentPage
 					? contentPage.Content as VisualElement
 					: page;
+				var hosted = new HashSet<NativeElementHost>(_current);
 				if (root is not null)
 				{
 					// The root's host sits on the page canvas: its parent-relative matrix is its root matrix.
 					var rootMatrix = RootMatrix(root);
-					CollectGeometry(root, rootMatrix, rootMatrix, new HashSet<NativeElementHost>(_current), parentVisible: true);
+					CollectGeometry(root, rootMatrix, rootMatrix, hosted, parentVisible: true);
 				}
+				CollectPageOverlays(hosted);
 				var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
 				FlushGeometry();
@@ -416,7 +446,7 @@ internal sealed partial class QtHostPageRenderer
 		if (element is ItemsView)
 			return;
 
-		foreach (var child in ((IVisualTreeElement)element).GetVisualChildren())
+		foreach (var child in QtHostVisualChildren.Of(element))
 		{
 			if (child is not VisualElement visual)
 				continue;
@@ -693,7 +723,7 @@ internal sealed partial class QtHostPageRenderer
 		{
 			refresh ??= e as RefreshView;
 			if (e is Page page)
-				return refresh is not null && page.ToolbarItems.Count == 0 && !HasFlyoutPulley(page) ? refresh : null;
+				return refresh is not null && ToolbarItemsOf(page).Count == 0 && !HasFlyoutPulley(page) ? refresh : null;
 		}
 		return null;
 	}

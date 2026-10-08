@@ -22,7 +22,7 @@
        The gate lives in the Error condition because a Target Condition misbehaved across import contexts. -->
   <Target Name="_SailfishNativeHostCheck" AfterTargets="Publish">
     <Error Condition="'$(SailfishSkipNativeCheck)' != 'true' And '$(RuntimeIdentifier)' != '' And $([System.String]::Copy('$(RuntimeIdentifier)').Contains('linux')) And !Exists('$(OutDir)libsailfishhost.so') And !Exists('$(PublishDir)libsailfishhost.so')"
-           Text="libsailfishhost.so is missing from the publish output ($(PublishDir)). Build it with tools/sf native-build, or reference a Microsoft.Maui.SailfishOS package carrying runtimes/$(RuntimeIdentifier)/native/. Override with -p:SailfishSkipNativeCheck=true." />
+           Text="libsailfishhost.so is missing from the publish output ($(PublishDir)). Build it with tools/sf native-build, or reference a Microsoft.Maui.Platforms.SailfishOS package carrying runtimes/$(RuntimeIdentifier)/native/. Override with -p:SailfishSkipNativeCheck=true." />
   </Target>
 
   <!-- ================= net11.0-sailfish TFM recognition ================= -->
@@ -55,11 +55,29 @@
     <_SailfishPermissions Condition="'$(_SailfishSandboxed)' != 'true'"></_SailfishPermissions>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- An app head, as opposed to a class library with the TFM (OutputType defaults to Library in the SDK props). Only
+         heads get the device RID, self-contained payload, RPM and generated Main. -->
+    <_SailfishIsApp>false</_SailfishIsApp>
+    <_SailfishIsApp Condition="'$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe'">true</_SailfishIsApp>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
     <TargetPlatformSupported>true</TargetPlatformSupported>
-    <!-- The in-box platforms get IOS/ANDROID from their SDKs; this lets shared code use #if SAILFISH. -->
+    <!-- SAILFISH1_0 and SAILFISH1_0_OR_GREATER come from the SDK once _SailfishRestorePlatformIdentifier puts the
+         platform back; SAILFISH is listed here too so evaluation-time consumers (IDE, analyzers) see it. -->
     <DefineConstants>$(DefineConstants);SAILFISH</DefineConstants>
-    <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+    <EnableDefaultMauiItems Condition="'$(EnableDefaultMauiItems)' == ''">true</EnableDefaultMauiItems>
+    <EnableDefaultXamlItems Condition="'$(EnableDefaultXamlItems)' == ''">true</EnableDefaultXamlItems>
+    <MauiXamlInflator Condition="'$(MauiXamlInflator)' == ''">SourceGen</MauiXamlInflator>
+  </PropertyGroup>
+
+  <!-- CA1416 treats sailfish-only APIs as platform specific, as on the in-box platforms. -->
+  <ItemGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <SupportedPlatform Include="sailfish" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_SailfishIsApp)' == 'true'">
     <!-- Device payload by default; self-contained because Sailfish OS has no shared .NET runtime. -->
     <!-- SailfishRuntimeIdentifier picks it for this leg only (tools/sf deploy): a global -r would reach every head. -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(SailfishRuntimeIdentifier)</RuntimeIdentifier>
@@ -68,11 +86,8 @@
     <!-- The RPM is this leg's publish artifact; _SailfishRpmDefaulted keeps plain `dotnet build` from warning about it. -->
     <_SailfishRpmDefaulted Condition="'$(CreateSailfishRpm)' == ''">true</_SailfishRpmDefaulted>
     <CreateSailfishRpm Condition="'$(CreateSailfishRpm)' == ''">true</CreateSailfishRpm>
-    <!-- Restore can miss a RID that only these targets set (NETSDK1047); detect it so _SailfishRefreshRestoreForRid can fix it. -->
+    <!-- Restore can miss a RID that only these targets set (NETSDK1047); _SailfishCheckRestoreHasRid reports it. -->
     <_SailfishAssetsHasRid Condition="'$(RuntimeIdentifier)' != '' and Exists('$(ProjectAssetsFile)')">$([System.IO.File]::ReadAllText('$(ProjectAssetsFile)').Contains('$(TargetFramework)/$(RuntimeIdentifier)'))</_SailfishAssetsHasRid>
-    <EnableDefaultMauiItems Condition="'$(EnableDefaultMauiItems)' == ''">true</EnableDefaultMauiItems>
-    <EnableDefaultXamlItems Condition="'$(EnableDefaultXamlItems)' == ''">true</EnableDefaultXamlItems>
-    <MauiXamlInflator Condition="'$(MauiXamlInflator)' == ''">SourceGen</MauiXamlInflator>
     <!-- A Platforms/SailfishOS/Program.cs brings its own Main (like Platforms/iOS/Program.cs); otherwise one is generated. -->
     <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == '' And Exists('$(MSBuildProjectDirectory)/Platforms/SailfishOS/Program.cs')">false</SailfishGenerateMain>
     <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == ''">true</SailfishGenerateMain>
@@ -94,9 +109,10 @@
     </ItemGroup>
   </Target>
 
-  <!-- Also for a plain net11.0 head that opens URLs: the app reads its D-Bus names from the meta. -->
+  <!-- Also for a plain net11.0 head that opens URLs: the app reads its D-Bus names from the meta. Heads only: a class
+       library's copy would land on the same qml/maui-appmeta.json path in the app (NETSDK1152). -->
   <Target Name="_SailfishWriteAppMeta" BeforeTargets="BeforeBuild" DependsOnTargets="_SailfishOpenUrlNames"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true' Or '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">
+          Condition="'$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true' Or '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '')">
     <Error Condition="'$(SailfishCoverQml)' != '' And !Exists('$(SailfishCoverQml)')"
            Text="SailfishCoverQml '$(SailfishCoverQml)' does not exist (a QML item file relative to the project)." />
     <PropertyGroup>
@@ -173,8 +189,10 @@
       <Content Include="@(_SailfishProcessedImage)" Condition="'%(Filename)' != 'sailfish-appicon'"
                Link="images/%(Filename)%(Extension)"
                CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <!-- The app's list only: a library's images still reach the app, but its list would collide with the app's. -->
       <Content Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" Link="images/maui-resized.txt"
-               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+               CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false"
+               Condition="'$(_SailfishIsApp)' == 'true'" />
       <FileWrites Include="@(_SailfishProcessedImage)" />
       <FileWrites Include="$(IntermediateOutputPath)sailfish-images/maui-resized.txt" />
       <_SailfishResizedImage Remove="@(_SailfishResizedImage)" />
@@ -198,13 +216,23 @@
     </PropertyGroup>
   </Target>
 
+  <!-- Puts the platform back once the framework references are resolved, so what the SDK keys on it afterwards still
+       happens: the SAILFISH1_0/SAILFISH1_0_OR_GREATER defines and the TargetPlatform/SupportedOSPlatform("sailfish1.0")
+       assembly attributes. -->
+  <Target Name="_SailfishRestorePlatformIdentifier" AfterTargets="ProcessFrameworkReferences"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
+    <PropertyGroup>
+      <TargetPlatformIdentifier>sailfish</TargetPlatformIdentifier>
+    </PropertyGroup>
+  </Target>
+
   <!-- ================= Generated entry point ================= -->
   <!-- With SailfishGenerateMain the app ships no Main; the scaffold finds a public static CreateMauiApp(). -->
   <PropertyGroup>
     <SailfishGenerateMain Condition="'$(SailfishGenerateMain)' == ''">false</SailfishGenerateMain>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(SailfishGenerateMain)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
+  <ItemGroup Condition="'$(SailfishGenerateMain)' == 'true' And '$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == '' Or '$(_SailfishLegPlatform)' == 'sailfish')">
     <Compile Include="$(MSBuildThisFileDirectory)../scaffold/SailfishGeneratedEntryPoint.cs"
              Link="SailfishGeneratedEntryPoint.cs" Visible="false" />
     <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)../scaffold/trimmer.xml" />
@@ -294,6 +322,17 @@
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
+  <!-- The SDK regenerates the publish deps.json only when the project or assets files change, not when the trimmer keeps
+       another framework assembly. A code change whose first use of a facade (System.Threading.Thread) comes with an
+       incremental trimmed publish shipped the facade without a deps.json entry: FileNotFoundException at that first use
+       (tracker S61). Trimmed publishes always rebuild it (well under a second). -->
+  <Target Name="_SailfishRegenerateTrimmedDepsFile"
+          BeforeTargets="GeneratePublishDependencyFile"
+          DependsOnTargets="_ComputeIntermediateDepsFilePath"
+          Condition="'$(PublishTrimmed)' == 'true' and '$(PublishAot)' != 'true'">
+    <Delete Files="$(IntermediateDepsFilePath)" />
+  </Target>
+
   <!-- TieredPGO off: it re-jits hot R2R code after launch and costs idle CPU. SailfishTieredCompilation=false drops re-jitting entirely. -->
   <PropertyGroup>
     <TieredPGO Condition="'$(TieredPGO)' == ''">false</TieredPGO>
@@ -321,13 +360,13 @@
     <SatelliteResourceLanguages Condition="'$(SatelliteResourceLanguages)' == ''">en</SatelliteResourceLanguages>
   </PropertyGroup>
 
-  <!-- One-shot restore with the RID when the assets lack it. Single-TFM only: a global RID restore would hit every head of a multi-targeted project. -->
-  <Target Name="_SailfishRefreshRestoreForRid"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish' and '$(TargetFrameworks)' == '' and '$(_SailfishAssetsHasRid)' != 'true' and '$(_SailfishRidRestoreDone)' != 'true'"
-          BeforeTargets="_CheckForNETCoreSdkIsPreview;Restore;Build;Publish;CreateSailfishRpm">
-    <Message Importance="high"
-             Text="Sailfish: assets lack the $(RuntimeIdentifier) target — refreshing restore once." />
-    <Exec Command="dotnet restore &quot;$(MSBuildProjectFullPath)&quot; -p:RuntimeIdentifier=&quot;$(RuntimeIdentifier)&quot; -p:_SailfishRidRestoreDone=true" />
+  <!-- Restore normally gets the RID from the workload manifest; when the assets still lack it (manifest missing or
+       older, RID only set here), say which restore fixes it instead of restoring from inside the build. -->
+  <Target Name="_SailfishCheckRestoreHasRid"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' and '$(_SailfishIsApp)' == 'true' and '$(RuntimeIdentifier)' != '' and Exists('$(ProjectAssetsFile)') and '$(_SailfishAssetsHasRid)' != 'true'"
+          BeforeTargets="ResolvePackageAssets">
+    <Error Code="SAILFISH0001"
+           Text="The restore of $(MSBuildProjectFile) has no $(TargetFramework)/$(RuntimeIdentifier) target (NETSDK1047 would follow). Restore with the RID: dotnet restore &quot;$(MSBuildProjectFullPath)&quot; -p:SailfishRuntimeIdentifier=$(RuntimeIdentifier) (this head only, unlike -r) — or install the workload manifest, which sets it for every restore: dnx Microsoft.Maui.Platforms.SailfishOS.Workload install" />
   </Target>
 
   <!-- ================= Validate Properties ================= -->
@@ -417,7 +456,7 @@
     <Error Condition="'$(SailfishHarbour)' == 'true' And '$(_SailfishSandboxed)' != 'true'"
            Text="SailfishHarbour=true needs a sandboxed app: drop SailfishSandboxing=false — Harbour rejects Sandboxing=Disabled." />
     <Error Condition="'$(SailfishHarbour)' == 'true' And !Exists('$(PublishDir)sailfish-launcher')"
-           Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with tools/sf native-build or reference a Microsoft.Maui.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
+           Text="SailfishHarbour=true needs the native launcher (sailfish-launcher) in the publish output — build it with tools/sf native-build or reference a Microsoft.Maui.Platforms.SailfishOS package that carries runtimes/$(RuntimeIdentifier)/native/sailfish-launcher." />
 
     <Copy SourceFiles="@(_SailfishPublishFiles)"
           DestinationFiles="@(_SailfishPublishFiles->'$(_SailfishPayloadDir)/%(RecursiveDir)%(Filename)%(Extension)')"
@@ -693,6 +732,12 @@ $(_SailfishDBusServiceFile)
     <Message Importance="high" Text="SailfishRun: deploying $(SailfishPackageName) and launching on the device (tools: $(SailfishToolsDir))..." />
     <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; bash &quot;$(SailfishToolsDir)sf&quot; deploy --run" />
   </Target>
+
+  <!-- ================= dotnet run ================= -->
+  <!-- Its own file, imported for this leg only: a DeployToDevice defined on every leg would replace the Android or iOS
+       SDK's own when a multi-head project references the package on those legs too. -->
+  <Import Project="$(MSBuildThisFileDirectory)Microsoft.Maui.Platforms.SailfishOS.Run.targets"
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_SailfishIsApp)' == 'true'" />
 
   <!-- ================= Build-time Warning ================= -->
   <!-- One-time phone setup: -t:SailfishSetup (-p:SailfishSetupForce=true to redo). -->

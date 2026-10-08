@@ -101,10 +101,9 @@ internal class SailfishDispatcher : IDispatcher
 			}
 			catch (Exception ex)
 			{
-				// Where an async void handler's exception lands (its continuation is posted here). Android would crash;
-				// the loop keeps running, but the failure must show in the device log (WhatToEat's aborted push was
-				// silent while it only went to Debug output).
-				QtHost.QtHostDiag.Error(QtHost.QtHostDiagChannel.QtHost, $"unhandled exception in dispatched work: {ex}");
+				// Where an async void handler's exception lands (its continuation is posted here): it ends the app, as on
+				// Android, unless SailfishExceptions.Unhandled handles it (D11; the log alone hid WhatToEat's aborted push).
+				SailfishExceptions.Report(ex, "dispatched work");
 			}
 		}
 	}

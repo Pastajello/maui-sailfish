@@ -40,9 +40,9 @@ internal static class SailfishRuntime
 			}
 			catch (Exception ex)
 			{
-				// One failing Tick must not skip the other due timers of this pump (as the dispatcher queue logs and
-				// carries on); its next tick was already scheduled, so it does not re-fire every pump either.
-				QtHost.QtHostDiag.Error(QtHost.QtHostDiagChannel.QtHost, $"unhandled exception in a dispatcher timer: {ex}");
+				// Ends the app unless handled; when handled, one failing Tick must not skip the other due timers of this
+				// pump, and its next tick was already scheduled, so it does not re-fire every pump either.
+				SailfishExceptions.Report(ex, "a dispatcher timer");
 			}
 			if (start != 0)
 				ReportSlow(start, timer.TickSource);

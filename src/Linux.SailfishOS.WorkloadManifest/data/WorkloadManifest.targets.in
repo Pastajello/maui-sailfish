@@ -5,8 +5,14 @@
     <!-- NuGet needs a platform version (NU1012); 1.0 keeps the TFM OS-version-neutral. -->
     <TargetPlatformVersion Condition="'$(TargetPlatformVersion)' == ''">1.0</TargetPlatformVersion>
     <SupportedOSPlatformVersion Condition="'$(SupportedOSPlatformVersion)' == ''">1.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <!-- App heads only: a class library with the TFM stays RID-neutral and framework-dependent. -->
+  <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And ('$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe')">
     <!-- The device RID must be known at restore (NETSDK1047 otherwise), and restore never sees the package's targets;
-         a multi-head app would need it in its csproj without this. 32-bit phones set linux-arm. -->
+         a multi-head app would need it in its csproj without this. 32-bit phones set linux-arm; SailfishRuntimeIdentifier
+         picks it for this head only (tools/sf deploy), where a global -r would reach every head. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">$(SailfishRuntimeIdentifier)</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-arm64</RuntimeIdentifier>
     <!-- Self-contained from restore on, so restore downloads the runtime pack (NETSDK1112 on a clean machine
          otherwise: the package's buildTransitive targets set it, too late for restore). -->
@@ -20,9 +26,13 @@
   <PropertyGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">
     <SailfishPackageVersion Condition="'$(SailfishPackageVersion)' == ''">@SAILFISH_VERSION@</SailfishPackageVersion>
   </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And '$(SailfishImplicitPackageReference)' != 'false' And '@(PackageReference->WithMetadataValue(&quot;Identity&quot;, &quot;Microsoft.Maui.SailfishOS&quot;))' == ''">
-    <PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(SailfishPackageVersion)" IsImplicitlyDefined="true" />
+  <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And '$(SailfishImplicitPackageReference)' != 'false' And '@(PackageReference->WithMetadataValue(&quot;Identity&quot;, &quot;Microsoft.Maui.Platforms.SailfishOS&quot;))' == ''">
+    <PackageReference Include="Microsoft.Maui.Platforms.SailfishOS" Version="$(SailfishPackageVersion)" IsImplicitlyDefined="true" />
   </ItemGroup>
+
+  <!-- dotnet run's device deploy, declared before restore (see the file). -->
+  <Import Project="$(MSBuildThisFileDirectory)WorkloadManifest.Run.targets"
+          Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish' And ('$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe') And Exists('$(MSBuildThisFileDirectory)WorkloadManifest.Run.targets')" />
 
   <!-- The SDK validates the platform version against this list (NETSDK1140 without it). -->
   <ItemGroup Condition="'$(TargetFramework)' != '' And '$([MSBuild]::GetTargetPlatformIdentifier(&quot;$(TargetFramework)&quot;))' == 'sailfish'">

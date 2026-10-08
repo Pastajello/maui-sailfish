@@ -27,7 +27,7 @@ samples/SailfishKitchen/
 The project is a plain MAUI app, laid out like one made from the
 `maui-sailfish` template:
 - the Sailfish head is `net11.0-sailfish`;
-- the backend comes from the `Microsoft.Maui.SailfishOS` package;
+- the backend comes from the `Microsoft.Maui.Platforms.SailfishOS` package;
 - nothing in the csproj points into the repo.
 
 To build it against this checkout, pack the checkout into the local feed

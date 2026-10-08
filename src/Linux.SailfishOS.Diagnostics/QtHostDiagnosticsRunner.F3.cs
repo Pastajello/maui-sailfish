@@ -1205,14 +1205,19 @@ internal sealed partial class QtHostDiagnosticsRunner
 					? System.IO.Directory.GetFiles(QtHost.QtHostImageSources.CacheDirectory("streams")).Length : -1;
 				_qtF3Checks.Check($"F S25 IsLoading false once shown for the stream/service/GIF images [{loading}]; stream cache holds this run's {streamFiles} file(s) (<= 3: swept at start)",
 					loading == "0,0,0,0" && streamFiles is >= 1 and <= 3);
-				// The GIF's frame is read again 400 ms later, before the step moves on to the next page.
-				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () =>
+				// The GIF's frame is sampled three more times, 120 ms apart, before the step moves on to the next page: a
+				// single read 400 ms later could land on the same frame after a whole loop (pulse.gif has 3 frames).
+				var gifSamples = new List<string> { gifFrames };
+				void SampleGif() => gifSamples.Add(QtHost.QtHostRuntime.Eval($"(function(i){{return i?(i.mauiFrameCount+'/'+i.mauiFrame+'/'+String(i.mauiSource).slice(-4)):'no host';}})({gifJs})"));
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(120), SampleGif);
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(240), SampleGif);
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(360), SampleGif);
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(420), () =>
 				{
-					var gifFramesLater = QtHost.QtHostRuntime.Eval($"(function(i){{return i?(i.mauiFrameCount+'/'+i.mauiFrame+'/'+String(i.mauiSource).slice(-4)):'no host';}})({gifJs})");
 					var a = gifFrames.Split('/');
-					var b = gifFramesLater.Split('/');
-					_qtF3Checks.Check($"F S25 stream GIF plays: frames/current/ext {gifFrames} then {gifFramesLater} (more than one frame, the frame moved, cached as .gif)",
-						a.Length == 3 && b.Length == 3 && int.TryParse(a[0], out var frameCount) && frameCount > 1 && a[1] != b[1] && a[2] == ".gif");
+					var framesSeen = gifSamples.Select(x => x.Split('/')).Where(x => x.Length == 3).Select(x => x[1]).Distinct().Count();
+					_qtF3Checks.Check($"F S25 stream GIF plays: frames/current/ext samples [{string.Join(" ", gifSamples)}] (more than one frame, the frame moved, cached as .gif)",
+						a.Length == 3 && int.TryParse(a[0], out var frameCount) && frameCount > 1 && framesSeen > 1 && a[2] == ".gif");
 					NativeElementHostOf(renderer, glyphButton, out var bh);
 					var icon = bh is null ? "" : QtHost.QtHostRuntime.GetProperty(bh.NativeHandle, "mauiIconSource");
 					_qtF3Checks.Check($"F Button ImageSource glyph → icon '{(icon.Length > 30 ? "…" + icon[^30..] : icon)}' is a rendered PNG", icon.EndsWith(".png", StringComparison.Ordinal));

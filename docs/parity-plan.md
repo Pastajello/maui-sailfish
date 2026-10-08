@@ -234,7 +234,7 @@ no empty frames, pop reveals a ready page even 2+ levels back; check with `tools
   Android's camera distance), exact for shear too (leg `visual` F, screenshot `visual-3d`). Left: hit-testing uses
   the 2D footprint. Button colours set back to `null` return to Silica's (fixed 2026-10-02, leg `visual` D2).
 - Full `dotnet workload install` (requires the `microsoft.net.workloads.<band>` aggregate, which the repo does not pack;
-  today the `sailfish-workload` tool, `dnx Microsoft.Maui.SailfishOS.Workload install`, or `tools/sf workload-install`).
+  today the `sailfish-workload` tool, `dnx Microsoft.Maui.Platforms.SailfishOS.Workload install`, or `tools/sf workload-install`).
   Tried 2026-10-03 in a private SDK (W10 13a): once the tool has installed the manifest, `dotnet workload install
   sailfish` works in both modes and adds the backend to the SDK's `library-packs` (no NuGet source needed for it),
   `workload list` and `workload uninstall`. Without the tool it fails ("Workload ID sailfish is not recognized"):

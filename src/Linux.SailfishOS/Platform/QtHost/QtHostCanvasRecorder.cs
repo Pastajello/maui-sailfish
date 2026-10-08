@@ -11,8 +11,10 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// </summary>
 internal sealed class QtHostCanvasRecorder : ICanvas
 {
-	/// <summary>Per-pass cap so a runaway Draw loop cannot grow the bridge JSON without bound.</summary>
-	private const int MaxCommands = 4096;
+	/// <summary>Per-pass cap so a runaway Draw loop cannot grow the bridge JSON without bound. 4096 cut real charts
+	/// (a few thousand points, each a command); the list is one property push and one replay, so a larger cap is the
+	/// whole fix (tracker S31).</summary>
+	internal const int MaxCommands = 32768;
 
 	private readonly List<object?> _commands = new();
 
@@ -27,7 +29,7 @@ internal sealed class QtHostCanvasRecorder : ICanvas
 	/// <summary>The screen scale (dp → device px) MAUI reports to drawables.</summary>
 	public float DisplayScale { get; set; } = (float)SailfishDisplay.Density;
 
-	public bool Antialias { set => Add("aa", value ? 1 : 0); }   // Qt antialiases in the scene graph
+	public bool Antialias { set => Add("aa", value ? 1 : 0); }   // the adapter turns the canvas's antialiasing off
 
 	public float Alpha { set => Add("al", Num(value)); }
 
@@ -80,9 +82,10 @@ internal sealed class QtHostCanvasRecorder : ICanvas
 	public void SetShadow(SizeF offset, float blur, Color color) =>
 		Add("shadow", Num(offset.Width), Num(offset.Height), Num(blur), BridgeValue.ColorString(color));
 
+	/// <summary>A ConfigureFonts alias resolves to its Qt family, as a Label's FontFamily does (tracker S30).</summary>
 	public IFont Font
 	{
-		set => Add("fon", value?.Name ?? string.Empty, value?.Weight ?? 400,
+		set => Add("fon", QtHostFonts.Resolve(value?.Name), value?.Weight ?? 400,
 		           value is { StyleType: not FontStyleType.Normal } ? 1 : 0);
 	}
 

@@ -234,6 +234,28 @@ public class SailfishGraphicsHandler : SailfishSnapshotHandler<IGraphicsView>
 	/// <summary>The path/drawing is built for the arranged size.</summary>
 	protected override bool SnapshotDependsOnSize => true;
 
-	protected override Dictionary<string, object?>? Snapshot(IGraphicsView view) =>
-		view is GraphicsView graphics ? QtHostGraphics.Props(graphics) : null;
+	private Dictionary<string, object?>? _recorded;
+	private Size _recordedSize;
+
+	/// <summary>Times the drawable was recorded (tests, diagnostics).</summary>
+	internal int Recordings { get; private set; }
+
+	/// <summary>Records the drawable: on Invalidate, a mapped property, a new arranged size or the first walk, as the
+	/// other platforms draw again only then (tracker S31; it used to be re-recorded on every reconcile).</summary>
+	protected override Dictionary<string, object?>? Snapshot(IGraphicsView view)
+	{
+		if (view is not GraphicsView graphics)
+			return null;
+		_recorded = QtHostGraphics.Props(graphics);
+		_recordedSize = new Size(graphics.Width, graphics.Height);
+		Recordings++;
+		return _recorded;
+	}
+
+	/// <summary>The reconcile walk reuses the last recording while the size holds (a copy: the walk merges generic
+	/// state into it).</summary>
+	protected override Dictionary<string, object?>? AdapterState() =>
+		ConnectedView is GraphicsView graphics && _recorded is not null && new Size(graphics.Width, graphics.Height) == _recordedSize
+			? new Dictionary<string, object?>(_recorded)
+			: base.AdapterState();
 }

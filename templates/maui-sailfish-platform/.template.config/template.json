@@ -48,7 +48,7 @@
       "description": "Add the Sailfish OS head to the project.",
       "manualInstructions": [
         {
-          "text": "Add to the csproj, after the other TargetFrameworks lines:\n  <TargetFrameworks>$(TargetFrameworks);net11.0-sailfish</TargetFrameworks>\nThe Microsoft.Maui.SailfishOS package and the linux-arm64 RID come with the TFM (workload manifest: tools/sf workload-install). Guide: docs/add-sailfish-to-existing-app.md"
+          "text": "Add to the csproj, after the other TargetFrameworks lines:\n  <TargetFrameworks>$(TargetFrameworks);net11.0-sailfish</TargetFrameworks>\nThe Microsoft.Maui.Platforms.SailfishOS package and the linux-arm64 RID come with the TFM (workload manifest: tools/sf workload-install). Guide: docs/add-sailfish-to-existing-app.md"
         }
       ],
       "actionId": "AC1156F7-BB77-4DB8-B28F-24EEBCCA1E5C",

@@ -4,7 +4,7 @@
     <TargetFramework>net11.0</TargetFramework>
     <RootNamespace>Microsoft.Maui.SailfishOS</RootNamespace>
     <AssemblyName>Microsoft.Maui.SailfishOS</AssemblyName>
-    <PackageId>Microsoft.Maui.SailfishOS</PackageId>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <Description>A .NET MAUI backend for Sailfish OS: MAUI apps render as native Qt Quick / Sailfish Silica UI on the device compositor and ship as harbour-style RPMs (linux-arm64, SFOS 5.2+).</Description>
     <PackageTags>maui;sailfish;sailfishos;linux;rpm;harbour;dotnet;cross-platform</PackageTags>
@@ -64,7 +64,7 @@
           Pack="true" PackagePath="buildTransitive/net11.0/tools/cmd/" />
     <None Include="../../tools/remote/sf-run-remote.sh;../../tools/remote/sf-kill-remote.sh;../../tools/remote/sf-remote-env.sh;../../tools/remote/sf-screenshot-remote.sh"
           Pack="true" PackagePath="buildTransitive/net11.0/tools/remote/" />
-    <None Include="../../tools/py/sf-rpmbuild.py;../../tools/py/sf-rpmquery.py;../../tools/py/sf_rpm.py;../../tools/py/sf-debug-dap-filter.py"
+    <None Include="../../tools/py/sf-rpmbuild.py;../../tools/py/sf-rpmquery.py;../../tools/py/sf_rpm.py;../../tools/py/sf-debug-dap-filter.py;../../tools/py/sf-depscheck.py"
           Pack="true" PackagePath="buildTransitive/net11.0/tools/py/" />
   </ItemGroup>
 

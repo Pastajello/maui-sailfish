@@ -49,7 +49,41 @@ internal sealed partial class QtHostListAdapter
 			selectable.SelectionChanged += SelectionHandler;
 		}
 		SubscribeSource();
+		SubscribeItemsLayout();
 		ReadLayout();
+	}
+
+	private IItemsLayout? _layoutSub;
+
+	/// <summary>The ItemsLayout object itself: a Span or spacing set on it (the same object) changes the rows, which no
+	/// ItemsView property reports.</summary>
+	private void SubscribeItemsLayout()
+	{
+		var layout = (View as StructuredItemsView)?.ItemsLayout ?? (View as CarouselView)?.ItemsLayout;
+		if (ReferenceEquals(layout, _layoutSub))
+			return;
+		if (_layoutSub is INotifyPropertyChanged old)
+			old.PropertyChanged -= OnItemsLayoutChanged;
+		_layoutSub = layout;
+		if (layout is INotifyPropertyChanged now)
+			now.PropertyChanged += OnItemsLayoutChanged;
+	}
+
+	private void OnItemsLayoutChanged(object? sender, PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName is nameof(GridItemsLayout.Span) or nameof(LinearItemsLayout.ItemSpacing) or
+		    nameof(GridItemsLayout.VerticalItemSpacing) or nameof(GridItemsLayout.HorizontalItemSpacing))
+			QtHostRuntime.RunOnQtThread(() =>
+			{
+				if (_bridge.IsRegistered(this))
+					Invalidate();
+			});
+		else if (e.PropertyName is nameof(ItemsLayout.SnapPointsType) or nameof(ItemsLayout.SnapPointsAlignment))
+			QtHostRuntime.RunOnQtThread(() =>
+			{
+				if (_bridge.IsRegistered(this))
+					PushLayout();
+			});
 	}
 
 	/// <summary>A mapped ItemsView property changed (SailfishListViewHandler's mapper).</summary>
@@ -100,13 +134,24 @@ internal sealed partial class QtHostListAdapter
 			case nameof(CarouselView.IsBounceEnabled):
 			case nameof(ItemsView.VerticalScrollBarVisibility):
 			case nameof(ItemsView.HorizontalScrollBarVisibility):
+			case nameof(ItemsView.ItemsUpdatingScrollMode):
+			case nameof(CarouselView.IsScrollAnimated):
 				PushLayout();
 				break;
-			case nameof(CarouselView.PeekAreaInsets):
 			case nameof(StructuredItemsView.ItemsLayout):
+				SubscribeItemsLayout();
+				Invalidate();
+				break;
+			case nameof(StructuredItemsView.ItemSizingStrategy):
+				Invalidate();
+				break;
+			case nameof(CarouselView.PeekAreaInsets):
 			case nameof(StructuredItemsView.Header):
 			case nameof(StructuredItemsView.Footer):
+			case nameof(StructuredItemsView.HeaderTemplate):
+			case nameof(StructuredItemsView.FooterTemplate):
 			case nameof(ItemsView.EmptyView):
+			case nameof(ItemsView.EmptyViewTemplate):
 			case nameof(ItemsView.ItemTemplate):
 			case nameof(GroupableItemsView.IsGrouped):
 			case nameof(GroupableItemsView.GroupHeaderTemplate):
@@ -390,6 +435,17 @@ internal sealed partial class QtHostListAdapter
 			["mauiVBar"] = (int)View.VerticalScrollBarVisibility,
 			["mauiHBar"] = (int)View.HorizontalScrollBarVisibility,
 		};
+		// ItemsUpdatingScrollMode (KeepItemsInView 0 / KeepScrollOffset 1 / KeepLastItemInView 2): ListView.qml keeps the
+		// offset or follows the end when the rows change. A carousel moves by pages (Position).
+		if (View is not CarouselView)
+		{
+			props["mauiUpdatingMode"] = (int)View.ItemsUpdatingScrollMode;
+			props["mauiUnbounded"] = Unbounded;
+			// ItemsLayout snap points: SnapPointsType None 0 / Mandatory 1 / MandatorySingle 2, alignment Start 0 / Center 1 / End 2.
+			var layout = (View as StructuredItemsView)?.ItemsLayout as ItemsLayout;
+			props["mauiSnapType"] = (int)(layout?.SnapPointsType ?? SnapPointsType.None);
+			props["mauiSnapAlign"] = (int)(layout?.SnapPointsAlignment ?? SnapPointsAlignment.Start);
+		}
 		if (View is CarouselView carousel)
 		{
 			props["mauiPeekStart"] = QtHostUnits.ToQtUnits(PeekStartDp);
@@ -397,6 +453,8 @@ internal sealed partial class QtHostListAdapter
 			props["mauiSwipeEnabled"] = carousel.IsSwipeEnabled;
 			props["mauiBounce"] = carousel.IsBounceEnabled;
 			props["mauiPosition"] = carousel.Position;
+			// IsScrollAnimated false: a Position set from code jumps (highlightMoveDuration 0).
+			props["mauiScrollAnimated"] = carousel.IsScrollAnimated;
 		}
 		return props;
 	}
@@ -573,6 +631,9 @@ internal sealed partial class QtHostListAdapter
 		if (SelectionHandler is not null && View is SelectableItemsView selectable)
 			selectable.SelectionChanged -= SelectionHandler;
 		SelectionHandler = null;
+		if (_layoutSub is INotifyPropertyChanged layout)
+			layout.PropertyChanged -= OnItemsLayoutChanged;
+		_layoutSub = null;
 		RefreshBinding.Disarm();
 	}
 }

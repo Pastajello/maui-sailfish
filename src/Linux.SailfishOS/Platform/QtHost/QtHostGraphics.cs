@@ -5,8 +5,8 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 
 /// <summary>
 /// Records GraphicsView draw calls via <see cref="QtHostCanvasRecorder"/> for replay by the
-/// GraphicsView.qml Context2D adapter. There is no platform handler for Invalidate(), so the
-/// drawable is re-recorded on every reconcile poll and the bridge diff skips unchanged output.
+/// GraphicsView.qml Context2D adapter. SailfishGraphicsHandler records on Invalidate(), a mapped property and a new
+/// arranged size, and the reconcile walk reuses that recording.
 /// </summary>
 internal static class QtHostGraphics
 {
@@ -40,7 +40,7 @@ internal static class QtHostGraphics
 			}
 			catch (Exception ex)
 			{
-				// Re-recorded every reconcile: one line per drawable type, not one per poll.
+				// One line per drawable type, not one per recording.
 				if (FailedDrawables.TryAdd(drawable.GetType(), 0))
 					QtHostDiag.Warn(QtHostDiagChannel.QmlObject,
 						$"IDrawable.Draw ({drawable.GetType().FullName}) failed: {ex.GetType().Name}: {ex.Message} — drawn as far as it got");

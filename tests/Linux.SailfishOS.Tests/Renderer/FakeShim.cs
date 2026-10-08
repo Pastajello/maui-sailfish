@@ -80,7 +80,7 @@ internal sealed class FakeShim : IQtHostShim
 	private static readonly HashSet<string> PageMethods = new(StringComparer.Ordinal)
 	{
 		"setMauiScroll", "setMauiTabs", "setMauiRefresh", "mauiReattachPulleys", "mauiSetTabDrag", "mauiEndTabDrag",
-		"mauiRemorse", "mauiRemorseCancel", "__destroyAllHosts",
+		"mauiRemorse", "mauiRemorseCancel", "__destroyAllHosts", "mauiHoldDrag",
 	};
 
 	private static readonly System.Text.RegularExpressions.Regex PageIdRx =

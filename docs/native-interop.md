@@ -243,7 +243,7 @@ This cannot be done today:
 | L4 | No `QQmlEngine*` and no "before shell load" hook | no image providers, context objects or NAM factory | [sailfish_host.h](../src/Linux.SailfishOS/Native/sailfish_host.h) |
 | L5 | No `QObject*` for a handle | native code cannot touch a MAUI element | [NativeElementHost.cs:44](../src/Linux.SailfishOS/Platform/QtHost/NativeElementHost.cs#L44) |
 | L6 | No QML import paths from the package | QML modules with a C++ plugin and a library's `qmldir` modules do not work | [host_core.cpp:969](../src/Linux.SailfishOS/Native/host_core.cpp#L969) |
-| L7 | RPM: `AutoReqProv: no`, `Requires:` hard-coded only for Secrets | the app cannot declare e.g. `nemo-qml-plugin-configuration-qt5`, so on a clean system the QML import fails | [Microsoft.Maui.SailfishOS.targets:565](../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets#L565) |
+| L7 | RPM: `AutoReqProv: no`, `Requires:` hard-coded only for Secrets | the app cannot declare e.g. `nemo-qml-plugin-configuration-qt5`, so on a clean system the QML import fails | [Microsoft.Maui.Platforms.SailfishOS.targets:565](../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets#L565) |
 | L8 | No MSBuild items for native `.so` files and QML modules (rpath, strip, Harbour validation) | everyone looks after location, permissions and dependencies themselves | targets, `_PrepareSailfishRpmStaging` |
 | L9 | No toolchain and sysroot for the app's native code | you have to recreate `sf native-build` or set up `sfdk` | [tools/sf native-build](../tools/sf native-build) |
 | L10 | No documentation or example beyond adapters | this section was until now knowledge from the code | — |
@@ -319,7 +319,7 @@ int   sailfish_host_add_import_path(const char *path);
   the element's `window()`. Contract: the pointer is borrowed, QML remains the owner, and it may be used only until
   the end of the current call on the Qt thread.
 
-**MSBuild** (in `Microsoft.Maui.SailfishOS.targets`):
+**MSBuild** (in `Microsoft.Maui.Platforms.SailfishOS.targets`):
 
 ```xml
 <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'sailfish'">

@@ -4,7 +4,7 @@
 # `dotnet workload install sailfish` works only once this manifest is there (no
 # workload set is shipped); copying into sdk-manifests/<band>/ is what the installer does.
 # Remove that folder to uninstall. Without a checkout the sailfish-workload tool does
-# the same: dnx Microsoft.Maui.SailfishOS.Workload install (tools/sf pack-local packs it).
+# the same: dnx Microsoft.Maui.Platforms.SailfishOS.Workload install (tools/sf pack-local packs it).
 #
 # Usage: ./tools/sf workload-install
 
@@ -21,12 +21,15 @@ BAND="$(dotnet --version | sed -E 's/^([0-9]+\.[0-9]+)\.([0-9]*)[0-9]{2}(-[0-9A-
 SDK_ROOT="$(dotnet --list-sdks | grep -F "$(dotnet --version)" | sed -E 's/.*\[(.*)\].*/\1/' | head -1)"
 [ -n "$SDK_ROOT" ] || { echo "ERROR: cannot locate the active SDK root"; exit 1; }
 # --list-sdks brackets the sdk/ dir itself; sdk-manifests/ is its sibling.
-DEST="$(dirname "$SDK_ROOT")/sdk-manifests/$BAND/microsoft.maui.sailfishos"
+DEST="$(dirname "$SDK_ROOT")/sdk-manifests/$BAND/microsoft.maui.platforms.sailfishos"
+# The manifest of the old package name (before the maui-labs naming, tracker S07) defines the same "sailfish" workload;
+# the SDK refuses two manifests for one workload.
+LEGACY="$(dirname "$SDK_ROOT")/sdk-manifests/$BAND/microsoft.maui.sailfishos"
 
 PROJECT="$REPO_ROOT/src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj"
 if [ -f "$PROJECT" ]; then
 	FEED="${SF_WORKLOAD_FEED:-/tmp/sf-workload-feed}"
-	MANIFEST_NUPKG="$FEED/microsoft.maui.sailfishos.Manifest-$BAND."*.nupkg
+	MANIFEST_NUPKG="$FEED/microsoft.maui.platforms.sailfishos.Manifest-$BAND."*.nupkg
 	# Repacked every run: a stale nupkg in the feed would install an old manifest.
 	echo "==> packing the workload manifest into $FEED"
 	mkdir -p "$FEED"
@@ -35,18 +38,24 @@ if [ -f "$PROJECT" ]; then
 else
 	# Without the checkout: the manifest tools/sf pack-local put into the local feed.
 	FEED="${SF_WORKLOAD_FEED:-${SF_LOCAL_FEED:-$HOME/.local/share/maui-sailfish/feed}}"
-	MANIFEST_NUPKG="$FEED/microsoft.maui.sailfishos.Manifest-$BAND."*.nupkg
+	MANIFEST_NUPKG="$FEED/microsoft.maui.platforms.sailfishos.Manifest-$BAND."*.nupkg
 	ls $MANIFEST_NUPKG >/dev/null 2>&1 ||
-		{ echo "ERROR: no microsoft.maui.sailfishos.Manifest-$BAND nupkg in $FEED (run tools/sf pack-local, or set SF_WORKLOAD_FEED)"; exit 1; }
+		{ echo "ERROR: no microsoft.maui.platforms.sailfishos.Manifest-$BAND nupkg in $FEED (run tools/sf pack-local, or set SF_WORKLOAD_FEED)"; exit 1; }
 	echo "==> using the workload manifest from $FEED"
 fi
 
 echo "==> installing manifest for band $BAND into $DEST"
+if [ -d "$LEGACY" ]; then
+	rm -rf "$LEGACY"
+	echo "    removed the manifest of the old package name ($LEGACY)"
+fi
 mkdir -p "$DEST"
 TMP="$(mktemp -d)"
 unzip -q -o "$(ls $MANIFEST_NUPKG | head -1)" 'data/*' -d "$TMP"
 cp "$TMP/data/WorkloadManifest.json" "$TMP/data/WorkloadManifest.targets" "$DEST/"
+# The dotnet run deploy hook (newer manifests only).
+[ ! -f "$TMP/data/WorkloadManifest.Run.targets" ] || cp "$TMP/data/WorkloadManifest.Run.targets" "$DEST/"
 rm -rf "$TMP"
 
-echo "    OK   sdk-manifests/$BAND/microsoft.maui.sailfishos installed"
+echo "    OK   sdk-manifests/$BAND/microsoft.maui.platforms.sailfishos installed"
 echo "    (remove that directory to uninstall; apps then need the plain net11.0 TFM)"

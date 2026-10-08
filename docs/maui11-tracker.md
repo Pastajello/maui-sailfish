@@ -41,8 +41,8 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 - [x] [S06](#s06) Packaging hygiene (launcher path, symbols, versioning)
 
 **Phase B — small items behind a decision**
-- [ ] [S07](#s07) Rename the NuGet ids · ❓D1 · 📱
-- [ ] [S08](#s08) Swipe-back: opt-out and immediate re-push · ❓D3 · 📱
+- [x] [S07](#s07) Rename the NuGet ids · ✅D1 · 📱
+- [x] [S08](#s08) Swipe-back: opt-out and immediate re-push · ✅D3 · 📱
 
 **Phase C — Essentials, handlers, input router**
 - [x] [S09](#s09) `AppInfo` identity and `VersionTracking` · 📱
@@ -55,82 +55,87 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 - [x] [S16](#s16) Router: swipe flags, `InputTransparent`, transformed hit-test, positions · 📱
 - [x] [S17](#s17) Router: recognizers around native adapters, LongPress, gestures in rows · 📱
 - [x] [S18](#s18) Missing control events, keyboard flags, `ReturnType.Next` · 📱
+- [x] [S59](#s59) (new) Unhandled exceptions on the UI thread: crash unless the app handles them · ✅D11 · 📱
+- [x] [S60](#s60) (new) Views with gestures keep their drags from Silica (`preventStealing`) · ✅D17 · 📱
+- [x] [S61](#s61) (new) A facade only a library references is published but missing from `deps.json` · 📱
 
 **Phase D — page chrome on MAUI's `Toolbar`**
-- [ ] [S19](#s19) `SailfishToolbarHandler` skeleton · ❓D16 · 📱
-- [ ] [S20](#s20) `TitleView`, `HasNavigationBar`, `NavBarIsVisible`, `TabBarIsVisible` · 📱
-- [ ] [S21](#s21) `Shell.SearchHandler`: search field and query · ❓D14 · 📱
-- [ ] [S22](#s22) `Shell.SearchHandler`: results list and selection · 📱
-- [ ] [S23](#s23) `FlyoutIsPresented` and flyout-content warnings · ❓D15 · 📱
+- [x] [S19](#s19) `SailfishToolbarHandler` skeleton · ✅D16 · 📱
+- [x] [S20](#s20) `TitleView`, `HasNavigationBar`, `NavBarIsVisible`, `TabBarIsVisible` · 📱
+- [x] [S21](#s21) `Shell.SearchHandler`: search field and query · ✅D14 · 📱
+- [x] [S22](#s22) `Shell.SearchHandler`: results list and selection · 📱
+- [x] [S23](#s23) `FlyoutIsPresented` and flyout-content warnings · ✅D15 · 📱
 
 **Phase E — images, collections, canvas**
 - [x] [S24](#s24) Image sources through `IImageSourceService` · 📱
 - [x] [S25](#s25) Image loading: `IsLoading`, cancellation, stream cache, GIF, decode size · 📱
-- [ ] [S26](#s26) CollectionView scrolling behaviours · 📱
-- [ ] [S27](#s27) Selection and carousel visual states · ❓D4 · 📱
-- [ ] [S28](#s28) Snap points, `MeasureFirstItem`, lazy templating · 📱
-- [ ] [S29](#s29) CollectionView inside ScrollView, items parity, vertical loop · 📱
-- [ ] [S30](#s30) Canvas text anchor, fonts, fill rule, antialias · 📱
-- [ ] [S31](#s31) `GraphicsView` touch interactions and re-record policy · 📱
+- [x] [S26](#s26) CollectionView scrolling behaviours · 📱
+- [x] [S27](#s27) Selection and carousel visual states · ✅D4 · 📱
+- [x] [S28](#s28) Snap points, `MeasureFirstItem`, lazy templating · 📱
+- [x] [S29](#s29) CollectionView inside ScrollView, items parity, vertical loop · 📱
+- [x] [S30](#s30) Canvas text anchor, fonts, fill rule, antialias · 📱
+- [x] [S31](#s31) `GraphicsView` touch interactions and re-record policy · 📱
 
-**Phase F — legacy ListView and TableView** (❓D2 decides how far)
-- [ ] [S32](#s32) Legacy `ListView` handler: cells, tap, selection · ❓D2 · 📱
-- [ ] [S33](#s33) Legacy `ListView`: grouping, header/footer, separators, row height · 📱
-- [ ] [S34](#s34) Legacy `ListView`: refresh, context actions, Switch/Entry cells · 📱
-- [ ] [S35](#s35) `TableView` · 📱
-- [ ] [S36](#s36) Legacy list leg, ported apps, docs · 📱
+**Phase F — legacy ListView and TableView** (D2 (b): the minimal set; `TableView`, context actions and Switch/Entry cells only when a ported app needs them)
+- [x] [S32](#s32) Legacy `ListView` handler: cells, tap, selection · ✅D2 · 📱
+- [x] [S33](#s33) Legacy `ListView`: grouping, header/footer, separators, row height · 📱
+- [x] [S34](#s34) Legacy `ListView`: refresh, context actions, Switch/Entry cells · 📱 (D2 b: refresh only; the rest when an app needs it)
+- [ ] [S35](#s35) `TableView` · 📱 (deferred by D2 b)
+- [x] [S36](#s36) Legacy list leg, ported apps, docs · 📱
 
 **Phase G — navigation details, dialogs, drag & drop**
-- [ ] [S37](#s37) `animated:false`, `InsertPageBefore`, `RemovePage` · 📱
-- [ ] [S38](#s38) Dialogs: queue, thread hop, RTL, keyboard; Detail swap · 📱
+- [x] [S37](#s37) `animated:false`, `InsertPageBefore`, `RemovePage` · 📱
+- [x] [S38](#s38) Dialogs: queue, thread hop, RTL, keyboard; Detail swap · 📱
 - [ ] [S39](#s39) Drag & drop: router core and drag ghost · 📱
 - [ ] [S40](#s40) Drag & drop: rows, leg, docs · 📱
 
 **Phase H — visuals, text, keyboard, theme, platform API**
-- [ ] [S41](#s41) Gradient backgrounds on every view · ❓D10 · 📱
-- [ ] [S42](#s42) FormattedText spans: properties and gestures · 📱
+- [x] [S41](#s41) Gradient backgrounds on every view · ✅D10 · 📱
+- [x] [S42](#s42) FormattedText spans: properties and gestures · 📱
 - [ ] [S43](#s43) Mixed-font measure and `FontAutoScalingEnabled` · 📱
 - [ ] [S44](#s44) Keyboard avoidance · 📱
 - [ ] [S45](#s45) Upstream-seam workarounds: `SailfishKeyboard`, `Loaded` · 📱
 - [ ] [S46](#s46) Theme from the first frame, highlight colour, RTL locale · 📱
-- [ ] [S47](#s47) `On<SailfishOS>()` platform configuration · ❓D13
-- [ ] [S48](#s48) `HybridWebView` · ❓D5 · 📱
-- [ ] [S49](#s49) Sailfish `IImage` · ❓D6 · 📱
+- [x] [S47](#s47) `On<SailfishOS>()` platform configuration · ✅D13
+- [ ] [S48](#s48) `HybridWebView` · ✅D5 · 📱
+- [ ] [S49](#s49) Sailfish `IImage` · ✅D6 · 📱
 - [ ] [S50](#s50) `DrawImage`, `ImagePaint`, screenshot as `IImage` · 📱
 
 **Phase I — build, SDK, developer experience**
 - [ ] [S51](#s51) Resizetizer through MAUI's external-backend hook · 📱
-- [ ] [S52](#s52) TFM side effects, library projects, MSBuild tests
+- [x] [S52](#s52) TFM side effects, library projects, MSBuild tests
 - [ ] [S53](#s53) Trimming profile and feature switches · 📱
-- [ ] [S54](#s54) `dotnet run`, env switch table · 📱
-- [ ] [S55](#s55) Hot reload over SSH · ❓D7 · 📱
-- [ ] [S56](#s56) Device tools out of the NuGet package · ❓D8
+- [x] [S54](#s54) `dotnet run`, env switch table · 📱
+- [ ] [S55](#s55) Hot reload over SSH · ✅D7 · 📱 (deferred by D7 b)
+- [ ] [S56](#s56) Device tools out of the NuGet package · ✅D8
 - [ ] [S57](#s57) Host CI, code style, template smoke test
-- [ ] [S58](#s58) Template alignment · ❓D9 · 📱
+- [ ] [S58](#s58) Template alignment · ✅D9 · 📱
 
 ## Decisions
 
-Fill in `Answer` (owner, date) before the sessions that need it start. Options and recommendations: plan §5.
+All seventeen were answered on 2026-10-07; the sessions they block are open. Each row is a question for the owner. Write the chosen letter (and a note if needed) in `Answer`, with your initials
+and the date, before the sessions in `Blocks` start. Background for each: the plan package named in brackets (§4 of
+the plan).
 
-| # | Question | Recommendation | Answer |
-| --- | --- | --- | --- |
-| D1 | NuGet id prefix | `Sailfish.Maui.*` | |
-| D2 | Legacy `ListView`/`TableView` scope | minimal set first | |
-| D3 | Swipe-back opt-out attached property | yes | |
-| D4 | Selected-row highlight | VSM `Selected` only, screenshot first | |
-| D5 | `HybridWebView` | document unsupported for now | |
-| D6 | `IImage` backing | QImage through the shim | |
-| D7 | Hot reload investment | `dotnet run` now, hot reload later | |
-| D8 | Tools inside the package | keep now, dotnet tool before public release | |
-| D9 | Template `Styles.xaml` vs Silica theme | `OnPlatform` wrap for Button/Entry/Label colours | |
-| D10 | Gradient background implementation | shader rectangle under the host | |
-| D11 | Dispatch-error policy | opt-in fail-fast switch | |
-| D12 | Device `dotnet test` runner | no, matrix stays | |
-| D13 | Platform-specific API namespace | `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific` | |
-| D14 | `Shell.SearchHandler` | Silica search field with results | |
-| D15 | `FlyoutIsPresented` from code | open a context menu with the flyout entries | |
-| D16 | `Toolbar` handler scope | full `IToolbar` handler | |
-| D17 | Gesture capture at the Qt level | `preventStealing` with a per-view opt-out | |
+| # | Question | Options | Suggested | Blocks | Answer |
+| --- | --- | --- | --- | --- | --- |
+| D1 | Which prefix should the NuGet package ids use? nuget.org reserves `Microsoft.*` for Microsoft, so today's `Microsoft.Maui.SailfishOS*` ids can never be published there. (M7) | (a) `Sailfish.Maui.*` (`Sailfish.Maui`, `Sailfish.Maui.Templates`, …)<br>(b) `MauiSailfish.*`<br>(c) your organisation's prefix, e.g. `<Org>.Maui.SailfishOS.*`<br>(d) keep `Microsoft.Maui.SailfishOS*` and ship only through private or local feeds | (a); C# namespaces stay as they are (see D13) | S07, S56, S58 | **(d)**, as maui-labs' GTK backend: keep `Microsoft.*` ids in its pattern `Microsoft.Maui.Platforms.SailfishOS[.Feature]` (see S07). — owner, 2026-10-07 |
+| D2 | How far should the legacy `ListView` and `TableView` (MAUI's old, obsolete list controls) be supported? Today they render an empty area. (M4) | (a) full: every cell type, grouping, context actions, `TableView`<br>(b) minimal: `TextCell`/`ImageCell`/`ViewCell`, tap and selection, grouping, pull-to-refresh; the rest documented as limits<br>(c) not supported: one warning and a doc note pointing to `CollectionView` | (b), then (a) when a ported app needs more | S32–S35 | **(b)** — owner, 2026-10-07 |
+| D3 | Does a page need an explicit switch to turn off Silica's swipe-back? Since S05 a page that overrides `OnBackButtonPressed` already loses the swipe and its Back veto works. (M2) | (a) add an attached property `SailfishPage.BackNavigation` (false: no swipe-back and no back indicator), on top of S05<br>(b) no new API: the S05 behaviour is enough; document it<br>(c) (a), and make the S05 override detection opt-in instead of automatic | (b); (a) when an app needs the swipe off without overriding `OnBackButtonPressed` | S08 | **(b)** — owner, 2026-10-07 |
+| D4 | How should a selected `CollectionView` row look? Today Silica's highlight is drawn under the row content, so a template with an opaque background hides it. (M8) | (a) MAUI's `VisualStateManager` `Selected` state only (the app styles it, as on Android/iOS); no Silica highlight<br>(b) keep Silica's highlight under the content (today)<br>(c) both: the VSM `Selected` state and a Silica highlight drawn above the content | (a), with a before/after screenshot before considering (c) | S27 | **(a)** — owner, 2026-10-07 |
+| D5 | Should `HybridWebView` (MAUI's web view with a JavaScript ↔ .NET bridge) work on Sailfish? Today it renders nothing. (M15) | (a) build a handler on the Gecko web view, with the JS bridge<br>(b) unsupported: one warning, documented next to `BlazorWebView` | (b) until an app asks for it | S48 | **(a)**: build the Gecko-backed handler — owner, 2026-10-07 |
+| D6 | What should back MAUI's `IImage` (`PlatformImage.FromStream`, `canvas.DrawImage`, image resize)? Today these throw or draw nothing. (M18) | (a) `QImage` in the native shim: every app gets it, no extra package<br>(b) Skia, only inside the SkiaSharp package<br>(c) none, documented | (a) | S49 | **(a)** — owner, 2026-10-07 |
+| D7 | How much should go into hot reload (changing XAML/C# in the running app on the phone)? (M21) | (a) build a delta agent over SSH (MAUI's hot reload into the app on the phone)<br>(b) none for now: redeploy with `dotnet build -t:SailfishRun` | (b) now, (a) together with the VS Code extension work | S55 | **(b)** — owner, 2026-10-07 |
+| D8 | Where should the `tools/sf` scripts (deploy, run, screenshots, matrix) live for people who use the package? Today they are bash, inside the package. (M22) | (a) a separate `*.Tools` NuGet package<br>(b) rewritten as a C# dotnet tool (works on Windows too)<br>(c) keep them as they are (macOS and Linux build machines only) | (c) now, (b) before a public release | S56 | **(b)**: a C# dotnet tool — owner, 2026-10-07 |
+| D9 | Should the app template keep MAUI's default `Styles.xaml` colours, or let Sailfish's ambience colours show? (M24) | (a) keep MAUI's colours on Sailfish too (looks like the other platforms)<br>(b) wrap the Button/Entry/Label colours in `OnPlatform`, so Sailfish uses the ambience palette<br>(c) take the colours out of the template's styles entirely | (b) | S58 | **(b)** — owner, 2026-10-07 |
+| D10 | How should gradient backgrounds (`LinearGradientBrush`/`RadialGradientBrush` as `Background`) be drawn? (M10) | (a) a shader rectangle under the element<br>(b) a QML `Canvas` | (a): GPU-drawn, no repaint on every frame | S41 | **(a)** — owner, 2026-10-07 |
+| D11 | What should happen when app code run through the dispatcher throws? Today the exception is logged and the app goes on. (L7) | (a) log and continue (today)<br>(b) crash, as Android does<br>(c) log and continue by default; `MAUI_SAILFISH_CRASH_ON_DISPATCH_ERROR=1` makes it crash (used in the matrix) | (c) | S59 | **(b)**: crash by default, with a handler the app can use to decide to continue or rethrow (see S59) — owner, 2026-10-07 |
+| D12 | Should unit tests be able to run on the phone with `dotnet test`? (M21) | (a) yes: a Microsoft.Testing.Platform runner packed into the RPM<br>(b) no: the device matrix (`tools/sf matrix`) stays the on-device test | (b) | — | **(b)** — owner, 2026-10-07 |
+| D13 | In which namespace should Sailfish's platform-specific APIs (`On<SailfishOS>()…`) live? (M14) | (a) `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific`, like Android/iOS/Windows and the GTK and Tizen backends<br>(b) `Sailfish.Maui.PlatformConfiguration`, following a D1 rename | (a), unless D1 also renames the C# namespaces | S47 | **(a)** — owner, 2026-10-07 |
+| D14 | How should `Shell.SearchHandler` (the search box in a Shell page's title bar) work? Today it is ignored. (M16) | (a) a Silica `SearchField` under the page header with a results list below it (query, suggestions, selection)<br>(b) only the search field: query events, no results list<br>(c) unsupported: one warning, documented | (a): search is the core of some Shell apps | S21, S22 | **(a)** — owner, 2026-10-07 |
+| D15 | What should `Shell.FlyoutIsPresented = true` (opening the flyout from code) do? On Sailfish the flyout is the pull-down menu, which cannot be opened from code. (M16) | (a) open a Silica context menu with the flyout entries<br>(b) push the flyout entries as a page of their own (as `FlyoutPage.IsPresented` does)<br>(c) open the pull-down menu by animating the page (no Silica API; may look odd)<br>(d) one warning, nothing happens | (a) | S23 | **(a)** for now; revisit once S19–S23 are in — owner, 2026-10-07 |
+| D16 | How should the page chrome (title, toolbar items, back button, `TitleView`, hiding the navigation bar) be driven? (M16) | (a) a full `IToolbar` handler, as MAUI 11 does on the other platforms, replacing the renderer's direct reads of `Page`<br>(b) keep the renderer and patch it for `HasNavigationBar`, `TitleView` and `ToolbarItem.Priority` only | (a): one place for all chrome, matches MAUI 11 | S19, S20 | **(a)** — owner, 2026-10-07 |
+| D17 | Should a view with MAUI gestures stop Silica from taking over its drag? Today a horizontal pan also drags the page back and a vertical pan at the top opens the pull-down menu. (M17) | (a) yes: views with gesture recognizers keep their drags (`preventStealing`), with a per-view opt-out<br>(b) yes, always, no opt-out<br>(c) no: keep observing only, document the conflicts | (a); CollectionView rows already do this since S17 | S60 | **(a)** (see S60) — owner, 2026-10-07 |
 
 ---
 
@@ -298,26 +303,67 @@ Notes:
 
 <a id="s07"></a>
 ### S07 · Rename the NuGet ids
-Plan: §M7 · Audit: build-sdk B1 · Decision: D1 · Phone: template app via `SailfishRun` · Depends: S06
-- [ ] five `PackageId`s renamed (namespaces/assembly names stay unless D1 says otherwise)
-- [ ] `Linux.SailfishOS.Workload/Program.cs:16`, `tools/cmd/pack-local.sh`, manifest `packs` key, template.json, README, `add-sailfish-to-existing-app.md`
-- [ ] `ToolsPackagingTests`, `WorkloadToolTests` updated
+Plan: §M7 · Audit: build-sdk B1 · Decision: D1 (d) · Phone: template app via `SailfishRun` · Depends: S06
+
+D1 (d) follows maui-labs (`Microsoft.Maui.Platforms.Linux.Gtk4`, `…Gtk4.Templates`, `Microsoft.Maui.Platforms.MacOS`,
+`…MacOS.Essentials`): `Microsoft.Maui.SailfishOS` → `Microsoft.Maui.Platforms.SailfishOS`, `Microsoft.Maui.SailfishOS.SkiaSharp` →
+`Microsoft.Maui.Platforms.SailfishOS.SkiaSharp`, `Microsoft.Maui.SailfishOS.Workload` → `Microsoft.Maui.Platforms.SailfishOS.Workload`,
+the workload manifest `microsoft.maui.sailfishos.Manifest-<band>` → `microsoft.maui.platforms.sailfishos.Manifest-<band>`. The
+templates package (`Microsoft.Maui.Platforms.SailfishOS.Templates`) already follows it. C# namespaces and assembly names stay (D13 a).
+- [x] the `PackageId`s renamed as above
+- [x] `Linux.SailfishOS.Workload/Program.cs:16`, `tools/cmd/pack-local.sh`, manifest `packs` key, template.json, README, `add-sailfish-to-existing-app.md`
+- [x] `ToolsPackagingTests`, `WorkloadToolTests` updated
 
 Done when: workload install + template app with the new ids runs on the phone.
 
 Notes:
+- 2026-10-07 ✅. Package ids follow maui-labs (D1 d): `Microsoft.Maui.Platforms.SailfishOS`, `.SkiaSharp`, `.Workload`,
+  `microsoft.maui.platforms.sailfishos.Manifest-<band>` (manifest id and its `packs` key); `.Templates` was already
+  named so.
+  - The `buildTransitive` targets are renamed with them (`Microsoft.Maui.Platforms.SailfishOS.targets`,
+    `…SkiaSharp.targets`), since NuGet imports `<PackageId>.targets`. The sample's direct import is updated as well.
+  - The implicit `PackageReference` in `WorkloadManifest.targets`, the PackageReferences of the template, Kitchen and
+    SkiaSharpProbe, the scripts (`pack-local`, `workload-install`, `doctor`, `detect`, `sf-rpmbuild.py`), the live docs
+    and tests are updated.
+  - C# namespaces and assembly names are unchanged (D13 a). The historical docs (architecture plan/handoff, audits,
+    this plan's M7 text) keep the old names.
+- Upgrade path: an SDK still has the old `sdk-manifests/<band>/microsoft.maui.sailfishos` manifest, which defines the
+  same "sailfish" workload as the new one (the SDK refuses two manifests for one workload).
+  `sailfish-workload install`/`uninstall` (`LegacyManifestId`) and `tools/sf workload-install` remove it.
+- Verified on this machine: `tools/sf pack-local` writes the new nupkgs. `dnx Microsoft.Maui.Platforms.SailfishOS.Workload
+  install` removed the old manifest and installed the new one. The solution builds with the samples restoring the
+  new ids from the feed.
+  - A fresh `dotnet new maui-sailfish --sailfish-only` app (PackageReference `Microsoft.Maui.Platforms.SailfishOS`) ran
+    on the phone through `SailfishRun`: `docs/screenshots/maui11/s07-template-new-ids.png`.
+  - `tools/sf matrix page features skia` 3/3 PASS (skia consumes both renamed packages from the feed). Host 486 green.
+- Left on the phone: the test package `harbour-s07app` (and `harbour-harbourcheck` from S06).
+- Other machines need `tools/sf pack-local` (or the new feed) and the new workload install; the VS Code extension repo
+  (`~/Projects/sailfishos_maui_tools`) names no package id (grep).
 -
 
 <a id="s08"></a>
 ### S08 · Swipe-back: opt-out and immediate re-push
 Plan: §M2 step 2, §M27 step 1 · Audit: navigation N4 · Decision: D3 · Phone: legs `nav navback shell` · Depends: S05
-- [ ] `SailfishPage.BackNavigation` attached property → model page `backNavigation: false`; documented in `sailfish-apis.md`
-- [ ] a vetoed follow pop (depth unchanged) re-pushes at once instead of after the 3 s deadline
-- [ ] tests (harness may need the follow pop to complete outside the poll, see handoff W1.2)
+- [x] ~~`SailfishPage.BackNavigation` attached property~~ — not built, D3 (b): a page that overrides `OnBackButtonPressed` turns the swipe off (S05); document it in `sailfish-apis.md`
+- [x] a vetoed follow pop (depth unchanged) re-pushes at once instead of after the 3 s deadline
+- [x] tests (harness may need the follow pop to complete outside the poll, see handoff W1.2)
 
-Done when: a page with the opt-out cannot be swiped back; a vetoed swipe returns the page without the 3 s gap.
+Done when: a vetoed swipe returns the page without the 3 s gap; `sailfish-apis.md` names the `OnBackButtonPressed` opt-out.
 
 Notes:
+- 2026-10-07 ✅. `NativeStackCoordinator.Step`: a FollowNative operation whose MAUI pop finished (`MauiDone`) while the
+  MAUI depth stayed above the native one, with the native stack equal to the mirror (`FollowVetoed`), ends at once
+  (counter `FollowVetoes`, nav log `VETO`). The depth sync in the same step re-pushes the page. Before, the step
+  waited for the operation's 3 s deadline and a resync re-pushed it (`NavResyncs` +1).
+- D3 (b): no attached property. `sailfish-apis.md` gains "The back gesture" (the `OnBackButtonPressed` override,
+  `Shell.Navigating` cancel, `HasBackButton`/`BackButtonBehavior`).
+- Host: `NativeStackSyncTests.A_vetoed_back_gesture_brings_the_page_back_at_once` (Shell `Navigating` cancels
+  `Pop`/`PopToRoot`; a back from depth 2 arrives as `PopToRoot`); fails without the fix; 487 green. The harness completed
+  the follow pop inside its polls, so the W1.2 caveat did not bite.
+- Device: shell leg C2 pushes the detail again, cancels the native back through `Shell.Navigating`, and finds the
+  detail back on screen within 1 s (section 2, native depth 2, follow vetoes +1, resyncs +0). It then removes the
+  handler and backs out normally. `tools/sf matrix shell nav navback` 3/3 PASS. No screenshot: nothing new to see
+  (the same page comes back).
 - 2026-10-06: S05 already turned off Silica back navigation on pages that decide Back (override of
   `OnBackButtonPressed`, Shell `BackButtonBehavior.Command`), so an app can veto Back without a Sailfish attached
   property. What is left here: the immediate re-push after a vetoed follow pop (Shell `Navigating` cancel,
@@ -649,67 +695,211 @@ Notes:
 - Not checked on the phone: ImageButton press events and the auto-uppercase hint (host tests only; the VKB's shift state
   was not read). Docs: `porting-existing-apps.md` (control events).
 
+<a id="s59"></a>
+### S59 · (new) Unhandled exceptions on the UI thread: crash unless the app handles them
+Plan: §M1 (lifecycle audit L7) · Audit: lifecycle L7 · Decision: D11 (b) · Phone: leg `error` · Depends: —
+
+D11 (b): today an exception thrown by app code that runs on the Qt loop (a dispatched action, a timer, an event handler
+called from a native event) is logged and the app carries on in an unknown state. Android ends the app instead.
+- [x] one public hook, raised on the UI thread with the exception and a `Handled` flag (name and place decided in the
+  session, next to `SailfishMauiApplication`'s lifecycle events); `AppDomain.UnhandledException` still fires for a crash
+- [x] not handled → the app ends (the exception and its stack in the log, a non-zero exit), as on Android; handled →
+  the loop continues, as today
+- [x] every place that catches and logs app exceptions on the loop goes through it (dispatcher, timers, adapter event
+  routing, the input router's gesture dispatch, `QtThread`)
+- [x] host tests: handled continues, unhandled ends (a test seam instead of a real exit); `error` leg: a handled
+  exception from a button handler keeps the app running
+- [x] docs: `sailfish-apis.md` (the hook), `porting-existing-apps.md` (crash instead of log)
+
+Done when: on the phone an unhandled exception in a Clicked handler ends the app with the stack in the log, and with
+the hook set to handled the app goes on.
+
+Notes:
+- 2026-10-07 ✅. Public API in `Microsoft.Maui.SailfishOS.Platform` (PublicSurface.txt regenerated):
+  - `SailfishExceptions.Unhandled` (static event);
+  - `SailfishUnhandledExceptionEventArgs` (`Exception`, `Source`, `Handled`).
+  - `SailfishExceptions.Report(ex, source)` logs the exception, raises the event, and returns only when a handler set
+    `Handled`. A handler that throws does not keep the app.
+- How the app ends: the exception is marked (`Exception.Data`) and rethrown with its stack. Outer catch sites see the
+  mark and pass it on, so it reaches the native Qt callback, where the runtime treats it as unhandled: "Unhandled
+  exception.", `AppDomain.UnhandledException`, process end.
+  - **Found on the phone:** the first version rethrew it on a new `Thread`. The sample's trimmed RPM ships
+    `System.Threading.Thread.dll`, but its `deps.json` did not list it, so the runtime could not load it
+    (`FileNotFoundException`) and the app ended for that reason instead. See S61.
+- Routed through it: the dispatcher queue (`DrainQueue`), dispatcher timers (`TickDueTimers`), the shim's
+  pointer/key/QML-event/tick callbacks (`QtHostRuntime`), adapter event routing (`AdapterEventRouter.Handle`), the input
+  router's Tapped/Pointer/LongPress/Pinch dispatch, and service event subscribers (`QtHostServices`). `QtThread.RunAsync`
+  keeps handing exceptions to its awaiting caller. Quit-time lifecycle failures stay logged.
+- Host: `UnhandledExceptionTests` (4: dispatched work ends the app, a handler keeps it, a throwing handler does not, a
+  throwing Clicked ends it). The test assembly's module initializer (`TestCrashes`) swaps the process end for a
+  recorder. 491 green.
+- Device:
+  - The `error` leg gains leg F: a handled exception from dispatched work is seen by the hook and the loop goes on; the
+    error budget counts it. `tools/sf matrix error` PASS.
+  - `MAUI_SAILFISH_DIAG_CRASH=1` (with `MAUI_SAILFISH_QT_HOST_DIAG=1`) throws from a Clicked handler 2 s after the first
+    page. The device log shows the exception, "ending the app", `CRASH AppDomain`, then the runtime's "Unhandled exception."
+    with the original exception, and the app process ended.
+- Full matrix after S59 (unhandled exceptions now end the app, so a leg that used to swallow a backend error would end
+  early): page, controls, nav, popup, collection, collection10 PASS. Stopped there because the phone's screen had gone
+  off (`svc-display` state 2) and each leg took ~15 min.
+- 2026-10-07 (evening, screen on): the other 25 legs, 23/25 PASS. The two failures were rerun and passed (3/3 on
+  2026-10-08), so all 31 legs pass after S59. No leg ended through an unhandled exception.
+  - collection100's list host never attached on its first run, the first leg after the screen woke; both reruns passed.
+  - f3's S25 GIF check read the frame twice 400 ms apart and hit the same frame after a whole loop of the 3-frame GIF.
+    It now samples four times, 120 ms apart.
+
+<a id="s61"></a>
+### S61 · (new) A facade only a library references is published but missing from `deps.json`
+Plan: §M23 (payload) · Audit: build-sdk · Phone: an RPM with a library that uses `Thread` · Depends: —
+
+Found in S59: `Microsoft.Maui.SailfishOS` used `new Thread(…)` (its first use of a type in the
+`System.Threading.Thread` facade). The trimmed Release publish of the sample copied `System.Threading.Thread.dll`, but
+`Linux.SailfishOS.Sample.deps.json` did not list it. At the first use the runtime threw `FileNotFoundException:
+System.Threading.Thread, Version=11.0.0.0`. Any NuGet library a Sailfish app uses can hit it with any facade-only type.
+- [x] reproduce: a library (or the backend in a branch) that uses `Thread`, published with `SailfishTrim=true`
+  (partial); compare the publish folder with the `deps.json` runtime entries (S59 used a short Python check)
+- [x] find which step drops the entry (ILLink's trimmed list feeding `GenerateDepsFile` while the facade is kept as a
+  reference of a `copy` assembly) and fix it in the targets, or list such facades explicitly
+- [x] a build test: every `.dll` in the publish folder is in `deps.json`
+
+Done when: an RPM whose library uses `Thread` runs that code on the phone.
+
+Notes:
+- 2026-10-08: **cause: an incremental publish, not the trimmer's list.**
+  - A clean trimmed publish is right. A template app (net11.0-sailfish, package consumer) with a `ThreadLib` library using `new Thread`, trimmable or not, gave 193 DLLs, all in `deps.json`, in both the publish folder and the RPM. A clean publish of the Sample with a `Thread` probe also listed `System.Threading.Thread.dll`.
+  - The bug: publish the Sample once without the probe, then incrementally with it. ILLink keeps the facade (59 DLLs) but `deps.json` stays the old one (58 entries). The SDK's `GeneratePublishDependencyFile` is incremental on `ProjectAssetsFile`, `ProjectAssetsCacheFile`, `MSBuildAllProjects` and a property hash, never on the trimmer's output. `sf deploy` always publishes incrementally; S59's change was exactly that case.
+- Fix: `buildTransitive/…targets` adds `_SailfishRegenerateTrimmedDepsFile` (`BeforeTargets=GeneratePublishDependencyFile`, `PublishTrimmed` and not AOT), which deletes `$(IntermediateDepsFilePath)` so `deps.json` is rebuilt (under a second). Checked: probe-less publish, then incremental with the probe: 59 DLLs, the facade listed.
+- Build check: `tools/py/sf-depscheck.py <publish-dir> <app>` (exit 1 with the unlisted names; negative case checked). `sf_publish_rpm` runs it after every publish, so `sf deploy` and `sf package-test` stop on a gap ("publish payload: 58 assemblies, all in Linux.SailfishOS.Sample.deps.json"). Packed with the tools (`Linux.SailfishOS.csproj` py list); `tools/sf pack-local` re-run.
+- Phone: the Sample with a temporary `ModuleInitializer` probe (`new Thread` when `S61_PROBE=1`), deployed incrementally, printed `S61-THREAD-OK`, and the header leg passed 18/18 in the same run. The probe file was removed afterwards. The plain `sf run` try never activated the window (display blanked, `sf run` does not wake it); `sf shots` does.
+- Docs: `aot-and-trimming.md` risks.
+
+<a id="s60"></a>
+### S60 · (new) Views with gestures keep their drags from Silica (`preventStealing`)
+Plan: §M17 step 10 · Audit: input (Silica conflicts) · Decision: D17 (a) · Phone: legs `input shell pulley` · Depends: S17
+
+D17 (a): a horizontal pan on a MAUI view also drags the page back, and a vertical pan at the top also opens the
+pull-down menu, because the router only observes Qt's events. CollectionView rows already hold their drag (S17,
+`mauiHoldRow`).
+- [x] a view with Pan/Swipe/Pinch recognizers keeps a drag the router captured: its host's `MouseArea { preventStealing }`
+  (pushed while captured), or the page's `backNavigation`/the flickable's `interactive` held for the drag
+- [x] a per-view opt-out (attached property under the D13 namespace)
+- [x] router/harness tests; `input` leg: a horizontal pan does not move the page, a vertical pan at the top does not open
+  the pulley; with the opt-out, Silica gets the drag again
+- [x] docs: `porting-existing-apps.md`, `silica-parity.md`
+
+Done when: the two `input` leg checks pass on the phone.
+
+Notes:
+- 2026-10-08: the page-level hold, not `preventStealing`: plain MAUI hosts have no MouseArea of their own (the router watches Qt's events from the window).
+  - `QtHostInputRouter.OnPress`, after a capture whose owner has Pan, Swipe or Pinch recognizers and `KeepsDrag` true, calls `QtHostPageRenderer.HoldPageDrag(true)`. That is page call `mauiHoldDrag`, released in `ClearCapture`; the counter is `PageDragHolds`.
+  - QML `MauiModelPage.mauiHoldDrag(arg)`: page calls pass a string, so `"false"` must not read as true (caught by the harness test). It sets `backNavigation` false and `mauiDragHeld`; the flickable's `interactive` is `mauiScrollEnabled && !mauiDragHeld`. The back setting goes back to the page, or to a dialog that opened meanwhile (`__dialogBack`); a `back` op during the hold goes to `__heldBack`.
+  - Row captures keep S17's `mauiHoldRow`.
+- Opt-out: `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.KeepsDrag` (attached, default true), the first type in the D13 namespace; S47 adds the `On<SailfishOS>()` form. PublicSurface.txt regenerated.
+- Tests: `Renderer/RouterDragHoldTests.cs` (3): a pan holds from press to release (true, false); a swipe does too and a tap does not; KeepsDrag=false holds nothing. `FakeShim` knows `mauiHoldDrag`. Suite 520 green.
+- Phone: `input` leg, new step `RunQtDragHoldChecks` (`QtHostDiagnosticsRunner.DragHold.cs`): a pushed page with a pulley, two full-width boxes with Pan, the second KeepsDrag=false. Results:
+  - a real edge swipe (x 6→560 px) over the first pans it (14 updates) and the page stays (depth 2, page x mid-swipe 0);
+  - a pull down over it pans it and the flickable stays at 0 mid-pull (pulley shut);
+  - the same edge swipe over the second pans it and goes back (depth 1).
+
+  `router-checks=13/13`. The lines were read from the device log: `sf run`'s capture had stopped earlier. Screenshot `input-drag-held` (the page in place after the swipe) checked.
+- Docs: porting guide, silica-parity row, `sailfish-apis.md` (back gesture section).
+- Regression: `tools/sf matrix input navback shell pulley tabpulley controls collection features header` 9/9 PASS (the first try was cut when the previous session ended; rerun detached).
+
 ## Phase D — page chrome on MAUI's `Toolbar`
 
 <a id="s19"></a>
 ### S19 · `SailfishToolbarHandler` skeleton
 Plan: §M16 steps 1–2 · Audit: navigation N1 · Decision: D16 · Phone: legs `page nav shell pulley` · Depends: S05
-- [ ] device check: 0-height header keeps Canvas shapes painting (`QtHostPageRenderer.cs:1221-1223`); screenshot
-- [ ] `SailfishToolbarHandler` created from `SailfishWindowHandler.MapContent`; keys `Title`, `IsVisible`, `BackButtonVisible`, `ToolbarItems`
-- [ ] `PageChromeOps` reads the toolbar; `WatchToolbarItems` and direct `Page.ToolbarItems` reads removed; Priority order and Shell-level items
-- [ ] harness tests for each key
+- [x] device check: 0-height header keeps Canvas shapes painting (`QtHostPageRenderer.cs:1221-1223`); screenshot — done in S20 (leg `header`, shot `header-2-hidden`)
+- [x] `SailfishToolbarHandler` created from `SailfishWindowHandler.MapContent`; keys `Title`, `IsVisible`, `BackButtonVisible`, `ToolbarItems`
+- [x] `PageChromeOps` reads the toolbar; `WatchToolbarItems` and direct `Page.ToolbarItems` reads removed; Priority order and Shell-level items
+- [x] harness tests for each key
 
 Done when: pulley entries come from the toolbar (Priority order, Shell items) and all chrome legs stay green.
 
 Notes:
--
+- 2026-10-08: `Handlers/SailfishToolbarHandler.cs` (`ElementHandler<IToolbar, object>`, no native view). Its keys (`Title`, `IsVisible`, `BackButtonVisible`, `ToolbarItems`, `TitleView`, `BackButtonEnabled`, `DrawerToggleVisible`) all ask the session for a poll; the chrome is still built by the renderer, now from the toolbar. `SailfishHandlersFactory` resolves any stock `IToolbar` (NavigationPageToolbar, ShellToolbar) to it unless the app registered its own; `AttachToolbarHandler` connects it.
+- The toolbar is mapped from `IToolbarElement.Toolbar` on both the window (`SailfishWindowHandler.MapToolbar`) and the page (`SailfishPageHandler.MapToolbar`): MAUI puts the Shell's toolbar on the Shell, not on the window.
+- Renderer: `ToolbarItemsOf(page)` takes the toolbar's items (Priority sorted by MAUI's `ToolbarTracker`, Shell items included) when they cover the page's own items, else the page's own items sorted by Priority. `ToolbarOf(page)` returns the toolbar only for the root stack's top page and not while a modal is open, so a stale toolbar never lends its items to another page. `AddSyntheticHosts`, `WatchToolbarItems`, `ApplyToolbarActivated` and `RefreshAncestorOf` use it. `WatchToolbarItems` stays as the change trigger; it no longer reads `Page.ToolbarItems` directly.
+- Title/back still come from the page (same values the toolbar carries); S20 moves them with `TitleView`/`HasNavigationBar`.
+- Tests: `tests/.../Renderer/ToolbarHandlerTests.cs` (handler attached, Priority order, Shell items, runtime add); 495 green; PublicSurface.txt regenerated.
+- Phone: `tools/sf matrix shell page nav pulley tabpulley silica` 6/6 PASS. New check in leg E3: pulley `[Alpha,Beta,SH early,SH global,SH late]`, the page's P1/P5 items around the Shell's P3 item in Priority order.
 
 <a id="s20"></a>
 ### S20 · `TitleView`, `HasNavigationBar`, `NavBarIsVisible`, `TabBarIsVisible`
 Plan: §M16 steps 3, 5 · Audit: navigation N1, N3 · Phone: legs `page shell tabpulley` · Depends: S19
-- [ ] `TitleView` hosted in the chrome
-- [ ] `HasNavigationBar=false` / `NavBarIsVisible=false` through the header path checked in S19
-- [ ] `Shell.TabBarIsVisible` per page hides the tab row
+- [x] `TitleView` hosted in the chrome
+- [x] `HasNavigationBar=false` / `NavBarIsVisible=false` through the header path checked in S19
+- [x] `Shell.TabBarIsVisible` per page hides the tab row
 
 Done when: screenshots of a TitleView page, a header-less page and a tab-less Shell page.
 
 Notes:
--
+- 2026-10-08: new op `header {on, title}`. QML wraps the `PageHeader` in `mauiHeaderBox`: hidden = 0 high and clipped, never destroyed (the Canvas-shapes rule). The geometry report adds `titleHeight` (the header band).
+- Renderer: `HeaderShownOf` (HasNavigationBar on the page chain, else `Shell.NavBarIsVisible` via `ShellValue` — the nearest of page → ShellContent → section → item → Shell). `TitleViewOf` (NavigationPage.TitleView on the chain, else Shell.TitleView; none while the header is hidden). The TitleView is walked after the page (Walk skips it as a page child, so it gets one host) and arranged in `_titleRectDp`; the title text is cleared under it.
+- Shell `TabBarIsVisible` false (nearest setting, the current page first): the sections' row gives way to the section's contents (`SectionTabsShown`).
+- Page handler mapper keys for the four attached properties; `ReArmPageChrome` resets the header op.
+- Tests: `Renderer/HeaderChromeTests.cs` (8); suite 503 green.
+- Phone: new leg `header` (`MAUI_SAILFISH_QT_HOST_HEADER_DIAG`), 10/10, screenshots `header-1-titleview` … `header-5-tabbar-shown` checked: the TitleView label and button in the header band (a real tap clicks the button); with the header collapsed the Ellipse/RoundRectangle/BoxView paint and the content starts at the top; bar back on at runtime; the tab-less Shell page shows only the contents row. `tools/sf matrix header page nav shell tabpulley pulley silica` 7/7 PASS.
+- Docs: porting guide (header, TitleView, TabBarIsVisible bullets), silica-parity row, tools.md legs list.
 
 <a id="s21"></a>
 ### S21 · `Shell.SearchHandler`: search field and query
 Plan: §M16 step 4 · Audit: navigation N2 · Decision: D14 · Phone: leg `shell` · Depends: S19
-- [ ] search field under the header from `Toolbar`/`SearchHandler`; `Query` two-way; `Placeholder`; `SearchBoxVisibility`; `Command` on submit
-- [ ] warn once for unsupported members
-- [ ] harness test: query write-back
+- [x] search field under the header from `Toolbar`/`SearchHandler`; `Query` two-way; `Placeholder`; `SearchBoxVisibility`; `Command` on submit
+- [x] warn once for unsupported members
+- [x] harness test: query write-back
 
 Done when: typing in the field updates `Query` on the phone (screenshot).
 
 Notes:
--
+- 2026-10-08: `Platform/QtHost/QtHostPageRenderer.Search.cs`. `SearchHandlerOf(page)` = `Shell.GetSearchHandler(page)` as MAUI's Shell toolbars read it, for a page inside a Shell. It is null when `SearchBoxVisibility.Hidden` or when the header is hidden (the other platforms carry the box in the navigation bar). It is read from the page, not from `Toolbar`: MAUI's toolbars carry no search handler. New op `search {on, placeholder, enabled, text}`; `text` is null unless the app changed `Query`. The field's own keystrokes are never echoed back (`_searchNativeText`), so fast typing does not jump. `Collapsible` shows the field expanded (Silica has no search icon that opens it).
+- QML: `mauiSearchBox` with a Silica `SearchField` between `headerBox` and the tab rows, counted in `topInset`/`headerHeight`. Events: `search-changed {text}` sets `Query` (MAUI runs `OnQueryChanged`); `search-submit` (enter key) sets `Query`, then `ISearchHandlerController.QueryConfirmed()` runs `Command(CommandParameter)`/`OnQueryConfirmed`.
+- The handler's `PropertyChanged` (Query, Placeholder, IsSearchEnabled, SearchBoxVisibility) asks for a poll; page mapper key `Shell.SearchHandlerProperty`. One warning per handler lists the set members a SearchField does not take: icons, colours, fonts, alignment, `TextTransform`, `Keyboard`. The results-list members are left for S22.
+- Tests: `Renderer/SearchHandlerTests.cs` (7): placeholder, write-back without echo, the app's Query, Command on enter, IsSearchEnabled/Hidden at runtime, a hidden navigation bar, no Shell. Suite 510 green.
+- Phone: leg `header` steps 6–7 (14/14). A real tap focuses the field, injected keys "kiwi" reach `Query`, Return runs Command with "kiwi", and `Query = "pear"` from code fills the field. Screenshots `header-6-search` (keyboard up, "kiwi") and `header-7-search-set` were checked. The leg is `header`, not `shell` as planned: it already ends on a Shell.
+- Docs: porting guide bullet, silica-parity row.
 
 <a id="s22"></a>
 ### S22 · `Shell.SearchHandler`: results list and selection
 Plan: §M16 step 4 · Audit: navigation N2 · Phone: leg `shell` · Depends: S21
-- [ ] `ShowsResults` + `ItemsSource`/`ItemTemplate` as a dropdown on the list adapter
-- [ ] `SelectedItem` / `OnItemSelected`
-- [ ] sample `SearchHandler` filtering a list
+- [x] `ShowsResults` + `ItemsSource`/`ItemTemplate` as a dropdown on the list adapter
+- [x] `SelectedItem` / `OnItemSelected`
+- [x] sample `SearchHandler` filtering a list (in the `header` leg and the porting guide; see Notes)
 
 Done when: the sample filters and selects on the phone.
 
 Notes:
--
+- 2026-10-08: `QtHostPageRenderer.Search.cs`. `SearchResultsViewOf(page)` builds a page overlay: a `Grid` holding a `CollectionView` (Single selection). It shows while `ShowsResults` is set and `ItemsSource` has items. A pick or the enter key closes it until `Query` changes. It uses the handler's `ItemTemplate`, else a Label row bound to `DisplayMemberName` or `.` (`stringFormat "{0}"`; IL2026 suppressed, as MAUI's own default template does it). The overlay's `Parent` is the page (BindingContext, handler context), but it is not a logical child. It is walked after the TitleView and arranged in `_contentRectDp`; `CollectTitleView` became `CollectPageOverlays` (TitleView + results). It rides the normal list adapter (`list-view`).
+- The handler's `PropertyChanged` (ShowsResults, ItemsSource, ItemTemplate, DisplayMemberName) and an observable `ItemsSource`'s `CollectionChanged` ask for a poll.
+- A tapped row → `ISearchHandlerController.ItemSelected`: `OnItemSelected`, `SelectedItem`, then the query confirmed, as on Android/iOS. The list closes and the search op carries `blur` (the field lets go of the keyboard).
+- Bug found on the phone and fixed: the first background (black, alpha 215) let "header search body" show through the rows. It is now opaque (`#0A0C0E` dark, `#FAFAFA` light).
+- Tests: `SearchHandlerTests` +3 (list over the content: same top, after it in the walk, 2 rows; a pick selects and closes it and blurs the field; typing on reopens it; an observable source and ShowsResults at runtime; the enter key closes it). Suite 513 green.
+- Phone: leg `header` 16/16. `HeaderSearchHandler` filters `[apple, apricot, kiwi, peach, pear, plum]` on Query: "kiwi" typed gives 1 row and Return closes it; `Query = "p"` gives 5 rows; a real tap on row 3 picks "pear" (`OnItemSelected`, `SelectedItem`) and the list closes. Screenshots `header-6-search` (kiwi row under the field), `header-7-search-results` (5 rows, opaque), `header-8-search-picked` were checked. `tools/sf matrix header page nav shell containers pulley tabpulley silica collection collection100` 10/10 PASS.
+- Sample: no sample app has a Shell root (Kitchen and Sample use a NavigationPage), so the filtering handler lives in the `header` leg and as a code example in the porting guide.
+- Docs: porting guide (results list + example), silica-parity row.
 
 <a id="s23"></a>
 ### S23 · `FlyoutIsPresented` and flyout-content warnings
 Plan: §M16 step 6 · Audit: navigation N3 · Decision: D15 · Phone: legs `shell pulley` · Depends: —
-- [ ] `FlyoutIsPresented=true` from code opens the flyout entries (D15) and writes back `false` on close
-- [ ] one warning per Shell for `FlyoutHeader/Footer/Content/ItemTemplate`; porting guide "flyout = pulley, text only"
+- [x] `FlyoutIsPresented=true` from code opens the flyout entries (D15) and writes back `false` on close
+- [x] one warning per Shell for `FlyoutHeader/Footer/Content/ItemTemplate`; porting guide "flyout = pulley, text only"
 
 Done when: a "menu" button in a sample opens the entries on the phone.
 
 Notes:
--
+- 2026-10-08: `QtHostPageRenderer.Flyout.cs`.
+  - After each pass, `SyncShellFlyoutMenu` (called from `FinishPass`) opens the root Shell's `FlyoutEntries` (the pulley's flyout entries) when `FlyoutIsPresented` is true, through the page's context-menu host. The host is now also created while `ShellFlyoutWantsMenu`.
+  - QML: `__openFlyoutMenu(items)` opens it on the context-menu stand-in at the top of the visible content (0 high, full width; the anchor creation was factored out to `__openContextMenuAnchor`); `__closeFlyoutMenu()` closes it.
+  - A pick runs the entry (`ActivateShellFlyoutRow`, kept for a late pick). `context-closed` sets `FlyoutIsPresented = false`. `FlyoutIsPresented = false` from code closes the menu: the close is asked once, then `context-closed` follows. A model-page switch closes it too.
+  - Navigation waits while either menu is open (`AnyMenuOpen`).
+  - With no entries (a disabled flyout, a modal on top), FlyoutIsPresented is set back to false, with one warning.
+- One warning per Shell lists the set flyout members the pulley does not show: header/footer/content and their templates, `ItemTemplate`, `MenuItemTemplate`, background, icon, size, backdrop.
+- Page handler mapper key `FlyoutIsPresented`.
+- Tests: `Renderer/ShellFlyoutPresentedTests.cs` (4): open with both entries, once; a pick switches the item and the close writes back false; a dismiss writes back; false from code closes once and the menu reopens later; a disabled flyout is not presented. Suite 517 green.
+- Phone: leg `header` steps 9–10 (18/18). A real tap on an "HD menu" button (`FlyoutIsPresented = true`) opens a Silica ContextMenu with "HD flyout one/two" under the header. A real tap on "HD flyout two" switches the item and FlyoutIsPresented is false again. Screenshots `header-9-flyout-menu` and `header-10-flyout-picked` were checked. The "menu" button lives in the leg: no sample has a Shell root.
+- Regression after the ContextMenu QML refactor: `tools/sf matrix controls shell pulley containers tabpulley features` 6/6 PASS (long-press menus in `controls`).
+- Docs: porting guide bullet (flyout = pulley, text only; FlyoutIsPresented), silica-parity row.
 
 ## Phase E — images, collections, canvas
 
@@ -787,164 +977,284 @@ Notes:
 <a id="s26"></a>
 ### S26 · CollectionView scrolling behaviours
 Plan: §M8 steps 1, 2, 4 · Audit: collections C4 · Phone: legs `collection collection100` · Depends: —
-- [ ] `ItemsUpdatingScrollMode` (`KeepLastItemInView`, `KeepScrollOffset`)
-- [ ] `ItemsLayout.PropertyChanged` (span/spacing on the same object)
-- [ ] `ScrollTo(animate:)`; `Scrolled` deltas; dead `IScrollViewController` cast removed
-- [ ] tests per item
+- [x] `ItemsUpdatingScrollMode` (`KeepLastItemInView`, `KeepScrollOffset`)
+- [x] `ItemsLayout.PropertyChanged` (span/spacing on the same object)
+- [x] `ScrollTo(animate:)`; `Scrolled` deltas; dead `IScrollViewController` cast removed
+- [x] tests per item
 
 Done when: the sample's chat-like list keeps the last item in view on the phone.
 
 Notes:
--
+- 2026-10-08:
+  - `ItemsUpdatingScrollMode` is pushed as `mauiUpdatingMode` (CollectionView only; a carousel moves by pages) and is a watched ItemsView property. `ListView.qml.__rebuildRows` reads the count and offset before the keyed diff; afterwards `KeepLastItemInView` calls `positionViewAtEnd()` when rows were added, and `KeepScrollOffset` puts back `contentY − originY`. `KeepItemsInView` is Qt's own behaviour.
+  - `ItemsLayout`: the adapter subscribes to the layout object's `PropertyChanged` (Span, ItemSpacing, Vertical/HorizontalItemSpacing → `Invalidate` on the Qt thread). It resubscribes when ItemsLayout is replaced and unsubscribes in `UnsubscribeList`.
+  - `Scrolled` carries Horizontal/VerticalDelta from the last reported offset (the first report counts from 0). The dead `IScrollViewController` cast is gone: ItemsView never implements it.
+  - `ScrollTo(animate: true)`: the command carries `animate`. QML finds the target with `positionViewAtIndex`, goes back and eases there with a `NumberAnimation` (300 ms InOutQuad).
+  - Found on the phone: a long animation's estimated target drifts as rows are created on the way, so the end lands on the row (`positionViewAtIndex` in `onStopped`). A superseded animation clears its row first.
+- Tests: `Renderer/ListScrollBehaviourTests.cs` (4): mode pushed and changed; Span 2→3 on the same GridItemsLayout gives 3→2 rows; deltas +100/−40; animate true/false in the command. Suite 524 green.
+- Phone: `collection` leg, new chat step (`QtHostDiagnosticsRunner.Chat.cs`). With 30 messages and KeepLastItemInView, 3 appended ones bring the end into view (atYEnd, last visible item 32 of 33). Then an animated `ScrollTo(0, Start)` is mid-way at contentY 804 and lands on item 0 (contentY 0). `atYBeginning` stays false on this list, so the check reads the first visible item. 25/25. Screenshot `collection-chat` checked (ends on "chat message 33").
+- Docs: porting guide bullet.
+- Regression: `tools/sf matrix collection collection10 collection100 collection500 containers f3` 6/6 PASS.
 
 <a id="s27"></a>
 ### S27 · Selection and carousel visual states
 Plan: §M8 steps 3, 6 · Audit: collections C4 · Decision: D4 · Phone: legs `collection containers f3` · Depends: —
-- [ ] screenshot first: is the native highlight visible under opaque templates?
-- [ ] VSM `Selected`/`Normal` on cell roots; carousel `CurrentItem/NextItem/PreviousItem/DefaultItem`
-- [ ] carousel `IsScrollAnimated`, `VisibleViews`, `IsDragging`, `IsScrolling`
+- [x] screenshot first: is the native highlight visible under opaque templates?
+- [x] VSM `Selected`/`Normal` on cell roots; carousel `CurrentItem/NextItem/PreviousItem/DefaultItem`
+- [x] carousel `IsScrollAnimated`, `VisibleViews`, `IsDragging`, `IsScrolling`
 
 Done when: a `Selected` style applies on the phone (screenshot).
 
 Notes:
--
+- 2026-10-08: `Platform/QtHost/QtHostListAdapter.States.cs`.
+  - `ApplySelectionStates` (from `PushSelection`, before its no-change return, so rebuilt rows get their state) puts `Selected` on the selected cells' roots and `Normal` on those that left the selection.
+  - `ApplyCarouselStates(position)` (on `carousel-position`, `PushPosition` and after a rows rebuild) gives each page CurrentItem, PreviousItem, NextItem or DefaultItem (wrapping when `Loop`). It sets `VisibleViews` to the current page, plus its neighbours while peek areas show them.
+  - `carousel-motion {dragging, moving}` (ListView.qml in carousel mode, CarouselView.qml) → `SetIsDragging` / `IsScrolling`.
+  - `IsScrollAnimated` → `mauiScrollAnimated` → `highlightMoveDuration` 250/0. It is set imperatively, because the rebuild assigns the duration.
+- D4 (a): the "before" screenshot (`collection-item-states`, Silica highlight still drawn) showed the selected row's highlight hidden under an opaque template, with only the VSM colour visible. So ListView.qml draws only the press highlight now; `mauiSelectedRows` still flips the `s` role. Porting guide: a list that relied on a default colour needs a `Selected` state.
+- Tests: `Renderer/ItemVisualStateTests.cs` (3): Selected/Normal across two taps, the BackgroundColor setter applied; carousel states [Previous, Current, Next, Default] at position 1 and VisibleViews; IsScrollAnimated pushed false, motion on/off. Suite 527 green.
+- Phone: `collection` leg, step `RunColItemStateChecks` (`QtHostDiagnosticsRunner.ItemStates.cs`), 28/28. A real tap on row 2 selects it and its root turns SteelBlue (others stay #202428). The carousel's page A is CurrentItem (DarkGreen); a real swipe sees IsDragging, lands on page 1, page B turns CurrentItem and A leaves it. Before and after screenshots checked.
+- Docs: porting guide, silica-parity row.
+- Regression: `tools/sf matrix collection collection100 features f3 containers controls` 6/6 PASS.
 
 <a id="s28"></a>
 ### S28 · Snap points, `MeasureFirstItem`, lazy templating
 Plan: §M8 steps 5, 7 · Audit: collections C4 · Phone: legs `collection500 collection100` · Depends: —
-- [ ] `SnapPointsType/Alignment` → `snapMode` + highlight range
-- [ ] `ItemSizingStrategy.MeasureFirstItem`
-- [ ] off-screen rows templated lazily in `RequestMaterialize`
-- [ ] `collection500` timings recorded in `profiling.md` before and after
+- [x] `SnapPointsType/Alignment` → `snapMode` + highlight range
+- [x] `ItemSizingStrategy.MeasureFirstItem`
+- [x] off-screen rows templated lazily in `RequestMaterialize`
+- [x] `collection500` timings recorded in `profiling.md` before and after
 
 Done when: `collection500` open time measured and not worse; snapping works.
 
 Notes:
--
+- 2026-10-08: `QtHostListAdapter.Sizing.cs`.
+  - `MeasureFirstOnly` applies to a vertical, non-carousel list with MeasureFirstItem and an ItemTemplate that is not a `DataTemplateSelector`. Under it, `AddItemRows` templates and measures only the build's first item (a kept row seeds it too). Every later row gets its extent, `LazyCells` and a null view.
+  - `MaterializeRow` → `TemplateLazyCells` creates the views when the delegate shows them, laid out at the row's extent (`MeasureAndArrangeItemFixed`), watched, then `ApplySelectionStates`. Counter: `LazyTemplated`.
+  - Lazy rows take their tap/gesture flags from the first item's template (`RowHasTap`/`RowHasGestures` are instance methods now).
+  - `ItemSizingStrategy` is watched (Invalidate) and part of `BuildSignature`, so rows are not reused across a switch.
+- Snap points: `mauiSnapType`/`mauiSnapAlign` from the ItemsLayout (CollectionView only), also re-pushed when the layout object's SnapPointsType or Alignment changes.
+  - ListView.qml: `snapMode` SnapToItem (Mandatory) or SnapOneItem (MandatorySingle).
+  - Center/End use `ApplyRange` with a one-row highlight range at the centre or end; the row extent is `__avgRowH`.
+- Tests: `Renderer/ListSizingTests.cs` (4): lazy rows (null views, one height, tap flag from the template); an attached on-screen row templated at the first item's height; MeasureAllItems eager; a runtime switch rebuilds; snap keys follow the layout object. Suite 531 green.
+- Phone, `collection` leg, step `RunColSizingChecks` (`QtHostDiagnosticsRunner.Sizing.cs`), 30/30:
+  - The same 500-item list: MeasureAllItems builds its rows 223 ms after the push (500 views); MeasureFirstItem 61 ms, with 18 views (17 on materialize).
+  - A 60-row list with Mandatory snap points, dragged and released mid-row, rests on a row boundary: offset 275 px, stride 138 px. Screenshot `collection-snap`.
+- `collection500` before/after (`NAV-TIMELINE rows: 500`, 3 runs): 234/246/244 → 230/237/241 ms. That list uses a template selector, so it stays eager: not worse. Recorded in `profiling.md`. One extra run was needed: one `sf shots` run stopped before launch, without an app log.
+- Docs: porting guide bullets, profiling table.
+- Regression: `tools/sf matrix collection collection10 collection100 collection500 containers f3 features input controls` 9/9 PASS.
 
 <a id="s29"></a>
 ### S29 · CollectionView inside ScrollView, items parity, vertical loop
 Plan: §M8 steps 6 (vertical loop), 8, 9 · Audit: collections C5, C6 · Phone: legs `collection containers` · Depends: —
-- [ ] unbounded list: non-interactive inner list, lift the 192 cap or warn once; porting guide note
-- [ ] `CollectionView`/`CarouselView` in `HandlerParityTests.Pairs` with pinned gaps
-- [ ] vertical `Loop`: implement or document the limit
+- [x] unbounded list: non-interactive inner list, lift the 192 cap or warn once; porting guide note
+- [x] `CollectionView`/`CarouselView` in `HandlerParityTests.Pairs` with pinned gaps
+- [x] vertical `Loop`: implement or document the limit
 
 Done when: a 300-item CollectionView inside a ScrollView shows every row on the phone; parity doc lists the items handlers.
 
 Notes:
--
+- 2026-10-08:
+  - The cause: `SailfishMeasure.Collection` sizes a vertical list that has no height bound to all its rows, so its native ListView is that tall. Every row lies in its own viewport, and rows past `MaxDelegates` (192) stayed empty.
+  - Now the measure sets `QtHostListAdapter.SetUnbounded` (not for carousels). That pushes `mauiUnbounded`: ListView.qml turns `interactive` off and the outer ScrollView scrolls it.
+  - `DelegateCap` = rows + 8 for an unbounded list; one warning above 200 rows suggests a height, or Header/Footer instead of the ScrollView. The list cannot virtualize there, as a RecyclerView in a ScrollView cannot.
+- Parity: `HandlerParityTests.Pairs` now include `CollectionViewHandler` and `CarouselViewHandler`. `HeaderTemplate`, `FooterTemplate` and `EmptyViewTemplate` were the open gaps; they became watched ItemsView properties (they were already used at build), so the gaps closed. `CanReorderItems` is pinned in `KnownGaps` (no reorder gesture). `docs/handler-parity.md` regenerated.
+- Vertical `Loop`: documented limit. `AdapterUriFor` keeps the ListView (no wrap) with one warning per carousel, because the PathView path is horizontal.
+- Tests: `ListSizingTests` +2 (a 300-item list in a ScrollView: unbounded, cap ≥ 300, as tall as its rows; a bounded list keeps the cap 192); parity ratchet. Suite 533 green.
+- Phone: `collection` leg, step `RunColUnboundedCheck` (`QtHostDiagnosticsRunner.Unbounded.cs`), 31/31. In a ScrollView the list is unbounded, all 300 rows have their delegate, and after `ScrollToAsync(list, End)` the last row shows "nested row 300". Screenshot `collection-nested-end` (rows 280–300) checked.
+  - The first try failed only in the check's lookup: item hosts are the delegate's `Children`, not `CurrentHosts`.
+- Docs: porting guide (nested list, vertical loop), handler-parity.md.
+- Regression: `tools/sf matrix collection collection10 collection100 collection500 containers f3 features controls page` 9/9 PASS.
 
 <a id="s30"></a>
 ### S30 · Canvas text anchor, fonts, fill rule, antialias
 Plan: §M9 steps 1, 2, 5 · Audit: graphics G4, G9 · Phone: legs `shapes visual f3` · Depends: —
-- [ ] device check: `DrawString` next to a Label, EvenOdd star, `Antialias=false` (screenshots)
-- [ ] `DrawString` anchor as Android; `Font` through `QtHostFonts.Resolve`; `ctx.fillRule` for EvenOdd in three QML files; antialias applied
-- [ ] host tests for the recorder, shape serialisation, span HTML, glyph/stream URLs, cache policy
+- [x] device check: `DrawString` next to a Label, EvenOdd star, `Antialias=false` (screenshots)
+- [x] `DrawString` anchor as Android; `Font` through `QtHostFonts.Resolve`; `ctx.fillRule` for EvenOdd in three QML files; antialias applied
+- [x] host tests for the recorder, shape serialisation, span HTML, glyph/stream URLs, cache policy
 
 Done when: screenshots match Android anchoring within 1 px; new tests green.
 
 Notes:
--
+- 2026-10-08:
+  - `DrawString(value, x, y, align)`: GraphicsView.qml draws it with `textBaseline = "alphabetic"`, so y is the baseline, as Android's `Canvas.drawText` and MAUI's Skia backend do. It used to be "top".
+  - `Font` → `QtHostFonts.Resolve` in the recorder (a ConfigureFonts alias becomes its Qt family; off the Qt thread it passes through).
+  - Fill rule: Qt 5.6's Context2D ignores the argument of `fill("evenodd")`/`clip("evenodd")`, so EvenOdd was never applied. `ctx.fillRule = Qt.OddEvenFill/WindingFill` is now set around the fill/clip in GraphicsView.qml (fpath, clipp), Shape.qml and MauiLayerEffect.qml.
+  - `Antialias=false` anywhere in the stream turns the Canvas item's `antialiasing` off for that view (Context2D has no per-op antialias).
+- Device check: new leg `canvas` (`MAUI_SAILFISH_QT_HOST_CANVAS_DIAG`, `QtHostDiagnosticsRunner.Canvas.cs`; added to `matrix.sh` and `tools.md`), 4/4, with pixel readbacks through `getImageData`:
+  - the "A" of `DrawString("Ag", 10, 60)` has ink above the red baseline and none below it;
+  - an EvenOdd star's centre is empty (alpha 0) while the NonZero control is filled;
+  - an Antialias=false diagonal has 0 partly covered pixels against 306 on the antialiased control.
+
+  Screenshot `canvas-1-text-fill-aa` checked: the "A" stands on the red line. The first run's baseline region also took in the "g"'s descender (x 12..36); it is the "A" alone now (12..28). There was no "before" screenshot: the code was changed first. The fill-rule cause was confirmed against the Qt 5.6 Context2D API.
+- Tests:
+  - `Renderer/CanvasRecorderTests.cs` (4): state ops (aa, fos, fon with an alias, sv/rs), winding on fpath/clipp, point/rect text, the geometry and transform ops.
+  - `Renderer/DrawingSerialisationTests.cs` (6): `PathOps` in device units; a Polygon's winding/fill/stroke props; span rich text (bold, colour, both decorations, escaping, `<br/>`, an empty span dropped); the remote image cache fragments (`#maui-cache=7200`, `=0`, an app's own fragment kept).
+  - Glyph and stream URLs are covered by the existing `ImageLoadingTests`.
+  - Suite 545 green.
+- Docs: porting guide bullet (shared with S31), silica-parity row.
+- Regression (S30 + S31 build): `tools/sf matrix shapes visual f3 input canvas features tree skia` 8/8 PASS.
 
 <a id="s31"></a>
 ### S31 · `GraphicsView` touch interactions and re-record policy
 Plan: §M9 steps 3–4 · Audit: graphics G3, G5 · Phone: legs `shapes input` · Depends: S16
-- [ ] press/move/release → `Start/Drag/End/CancelInteraction`
-- [ ] record only on `Invalidate`, drawable/property and size change, not every reconcile
-- [ ] chunk the command list instead of truncating at 4096; stale comment `QtHostGraphics.cs:8-9`
+- [x] press/move/release → `Start/Drag/End/CancelInteraction`
+- [x] record only on `Invalidate`, drawable/property and size change, not every reconcile
+- [x] chunk the command list instead of truncating at 4096; stale comment `QtHostGraphics.cs:8-9` (cap raised instead of chunking, see Notes)
 
 Done when: a GraphicsView sample receives drag on the phone; `input` leg check added.
 
 Notes:
--
+- 2026-10-08: `QtHostInputRouter`.
+  - A press on a host whose element is an `IGraphicsView` calls `StartInteraction` with the point relative to the view (dp). Moves call `DragInteraction`; the release calls `EndInteraction(points, isInsideBounds)`; a second finger calls `CancelInteraction`. The view's recognizers still follow as anywhere.
+  - The interaction holds the page drag like S60 (KeepsDrag opts out). Counter: `Interactions`.
+- Re-record policy: `SailfishGraphicsHandler.Snapshot` records and caches. The reconcile walk's `AdapterState()` returns a copy of the cache while the size holds (the walk merges generic state into it). Invalidate, mapped properties and a new arranged size record again (`Recordings` counter). The stale `QtHostGraphics` comment was fixed. Self-drawing library views (`SailfishDrawnViewHandler`) still record per pass, because their children change.
+- Command cap: 4096 → 32768 (`MaxCommands`). The stream is one property push and one replay per paint, so chunking would still be one paint and one push; a higher cap is the actual fix. It still guards against a runaway `Draw`.
+- Tests: `Renderer/GraphicsViewInteractionTests.cs` (2): a drag gives start 10,20 → drag 60,20 → end 400,20 inside=False plus the hold true/false; no re-record over 7 polls and a layout pass, +1 on Invalidate, more after a resize. Suite 539 green.
+- Phone: `input` leg, step `RunQtGraphicsInteractionCheck` (`QtHostDiagnosticsRunner.GraphicsInput.cs`), router-checks 14/14. A real drag gives Start at (32,32) dp in the view (expected 31,31), 12 Drags and 1 End. Screenshot `input-graphics-drag`: the orange trail the app draws through Invalidate follows the drag.
+- Porting guide: GraphicsView draws again only on Invalidate, a property or a size change (an app relying on the old per-pass redraw must call Invalidate).
+- Regression: see S30 (8/8, the same build).
 
 ## Phase F — legacy ListView and TableView
 
 <a id="s32"></a>
 ### S32 · Legacy `ListView` handler: cells, tap, selection
 Plan: §M4 steps 1–2 · Audit: collections C2, handlers H7 · Decision: D2 · Phone: legs `collection containers` · Depends: S01
-- [ ] `Row<ListView, SailfishLegacyListViewHandler>` before `ItemsView`
-- [ ] `TemplatedItems` onto the list adapter; `ViewCell.View`, `TextCell`, `ImageCell` row templates
-- [ ] `ItemTapped`/`ItemSelected`/`SelectedItem`
-- [ ] harness tests per cell type
+- [x] `Row<ListView, SailfishLegacyListViewHandler>` before `ItemsView`
+- [x] `TemplatedItems` onto the list adapter; `ViewCell.View`, `TextCell`, `ImageCell` row templates
+- [x] `ItemTapped`/`ItemSelected`/`SelectedItem`
+- [x] harness tests per cell type
 
 Done when: a ListView with text, image and view cells shows rows and selects on the phone.
 
 Notes:
--
+- 2026-10-08: a mirror, not a second adapter. `Platform/QtHost/QtHostLegacyList.cs`: `LegacyListMirror.Of(listView)` keeps a CollectionView (Single selection, `Parent` = the ListView for its BindingContext; not a logical child).
+  - Its template is `LegacyCellView`: for each item it builds the cell the ListView would build (its ItemTemplate, a selector's choice, else `CreateDefaultCell`, `BindingContext` = item). `ViewCell` → its `View`; `TextCell` → two labels bound to the cell (Detail hidden when empty, colours only when set); `ImageCell` → a 48 dp image plus the labels. Any other cell renders empty, with one warning per type.
+  - `RowHeight` (HasUnevenRows false) and `Cell.Height` (HasUnevenRows) become the row's HeightRequest.
+  - Sync: ItemsSource and SelectedItem → the mirror; the template, RowHeight or HasUnevenRows changing rebuilds the rows. A mirror selection → `ListView.NotifyRowTapped(0, index, cell)`, so MAUI itself sets SelectedItem and raises ItemTapped, ItemSelected and Cell.Tapped. With `SelectionMode.None` the mirror selection is cleared again.
+- The mirror is the ListView's only child for the renderer: `QtHostVisualChildren.Of` is used by the walk, `AttachHandlers` and `CollectGeometry`. `SailfishLegacyListViewHandler` (NullViewHandler) measures and arranges the mirror in its frame. Factory row `Row<ListView, SailfishLegacyListViewHandler>` (ListView is `ItemsView<Cell>`, not the CollectionView `ItemsView`). PublicSurface regenerated.
+- Tests: `Renderer/LegacyListViewTests.cs` (5): TextCell text + detail, no template (item text), ViewCell and ImageCell (image source set), a tap selects with ItemTapped/ItemSelected and the code's SelectedItem reaching the mirror, SelectionMode None still taps. Suite 550 green.
+- Phone: `collection` leg, step `RunColLegacyListCheck` (`QtHostDiagnosticsRunner.LegacyList.cs`), 33/33. A selector over text, image and view cells gives 4 rows, handler SailfishLegacyListViewHandler. A real tap on row 4 sets SelectedItem 'legacy second text' and raises ItemTapped ×1 and ItemSelected ×1. Screenshot `collection-legacy-list` checked (detail line, the image cell's icon, the ViewCell's bold label).
+- Docs: porting guide bullet.
+- Regression: `tools/sf matrix collection collection100 collection500 containers f3 features controls page shapes` 9/9 PASS.
 
 <a id="s33"></a>
 ### S33 · Legacy `ListView`: grouping, header/footer, separators, row height
 Plan: §M4 step 2 · Audit: collections C2 · Phone: leg `collection` · Depends: S32
-- [ ] `IsGroupingEnabled`, `GroupDisplayBinding`, `GroupHeaderTemplate`
-- [ ] `Header`/`Footer` (+templates); `SeparatorVisibility`/`Color`; `HasUnevenRows`/`RowHeight`
-- [ ] `ScrollTo`
+- [x] `IsGroupingEnabled`, `GroupDisplayBinding`, `GroupHeaderTemplate`
+- [x] `Header`/`Footer` (+templates); `SeparatorVisibility`/`Color`; `HasUnevenRows`/`RowHeight`
+- [x] `ScrollTo`
 
 Done when: a grouped ListView with header and separators matches a screenshot expectation.
 
 Notes:
--
+- 2026-10-08, on the S32 mirror (`QtHostLegacyList.cs`):
+  - `IsGroupingEnabled` → `IsGrouped`, with group header rows from `LegacyGroupHeaderView`: the `GroupHeaderTemplate` cell, else a bold label bound through a copy of `GroupDisplayBinding` (a non-`Binding` falls back to the group's text).
+  - `Header`/`Footer` and their templates go straight to the mirror's slots.
+  - `SeparatorVisibility.Default` puts a 1 dp line under each row: `SeparatorColor`, else a faint line for the theme. Changing either rebuilds the rows. `HasUnevenRows`/`RowHeight` as in S32.
+  - `ListView.ScrollTo(item[, group], position, animated)` → `ScrollToRequested` → the mirror's `ScrollTo`.
+  - Taps in a grouped list find the item's group and index, so `ItemTapped` carries the group.
+- Tests: `LegacyListViewTests` +3: grouped headers ["Red","Other"] and a tap reporting group + item; header/footer slots, a red separator and its removal with `SeparatorVisibility.None`; ScrollTo → `scrollTo` row 40. The S32 tests now search descendants (rows are wrapped by the separator grid). Suite 553 green.
+- Phone: `collection` leg, step `RunColLegacyGroupedCheck`, 35/35. Three groups (25 items) give 3 header and 25 item rows plus the header/footer slots; `ScrollTo("grain 20", group 3, End)` makes item 24 the last visible. Screenshots `collection-legacy-grouped` (bold section headers, red separators, the header text) and `collection-legacy-scrolled` (ends on "grain 20") checked.
 
 <a id="s34"></a>
 ### S34 · Legacy `ListView`: refresh, context actions, Switch/Entry cells
 Plan: §M4 steps 2–3, 5 · Audit: collections C2 · Phone: legs `collection pulley` · Depends: S33
-- [ ] `IsPullToRefreshEnabled`/`IsRefreshing`/`RefreshCommand`
-- [ ] `Cell.ContextActions` → context menu on long press
-- [ ] `SwitchCell`, `EntryCell`; `SendCellAppearing/Disappearing`; `CachingStrategy` mapping
+- [x] `IsPullToRefreshEnabled`/`IsRefreshing`/`RefreshCommand`
+- [ ] `Cell.ContextActions` → context menu on long press — D2 (b): only when a ported app needs it
+- [x] `SwitchCell`, `EntryCell`; `SendCellAppearing/Disappearing`; `CachingStrategy` mapping — D2 (b): `SendCellAppearing/Disappearing` only
 
 Done when: each feature exercised on the phone.
 
 Notes:
--
+- 2026-10-08, D2 (b) scope (refresh, appearing):
+  - Pull-to-refresh: `LegacyListMirror.Root` is the mirror inside an internal `RefreshView` while `IsPullToRefreshEnabled`; the children helper and the handler use `Root`, and the handler's `IsPullToRefreshEnabled` key re-walks the subtree. `IsRefreshing`/`RefreshControlColor` → the RefreshView.
+  - A pull → `ListView.BeginRefresh` (IsRefreshing, Refreshing, RefreshCommand); a refresh the ListView does not allow ends at once. The RefreshView ending → `EndRefresh`.
+  - `ItemAppearing`/`ItemDisappearing`: from the mirror's `Scrolled` visible range (flat items, grouped too) through `SendCellAppearing/Disappearing`. `Scrolled` is forwarded through `SendScrolled`.
+  - Not done (D2 b): `ContextActions`, `SwitchCell`/`EntryCell` (one warning, the row shows nothing), `CachingStrategy` (the list adapter recycles natively anyway). Porting guide says so.
+- Tests: `LegacyListViewTests` +2: a native `refresh-requested` runs RefreshCommand and sets IsRefreshing, EndRefresh clears the RefreshView; scroll reports 0..4 then 3..7 give ItemAppearing [0..4], then [5,6,7], and ItemDisappearing [0,1,2]. Suite 555 green.
+- Phone: `collection` leg, step `RunColLegacyRefreshCheck`, 36/36. A real pull from the list's header runs RefreshCommand once; during it IsRefreshing is true and the list's native `mauiRefreshing` is true; EndRefresh stops it. 25 rows in view raised ItemAppearing.
+  - Screenshot `collection-legacy-refreshing` shows the spinner. The first try's screenshot came after the refresh had ended (EndRefresh after 1.5 s); the leg now ends it after the screenshot.
+- Regression: `tools/sf matrix collection collection10 collection500 containers f3 features controls pulley page` 9/9 PASS.
 
 <a id="s35"></a>
-### S35 · `TableView`
+### S35 · `TableView` — deferred by D2 (b)
 Plan: §M4 step 4 · Audit: collections C2 · Phone: leg `containers` · Depends: S34
+
+D2 (b) leaves `TableView` out of the minimal set: until an app needs it, it gets one warning and a porting-guide entry
+(done in S32).
 - [ ] `Root` flattened into adapter rows; `TableSection.Title` as group headers
 - [ ] harness test with all cell kinds
 
 Done when: a settings-style TableView renders on the phone (screenshot).
 
 Notes:
--
+- 2026-10-08: the warning was not there yet: `WalkChild` now warns once per TableView ("not supported … renders nothing"), and the porting guide's legacy ListView bullet names it. The rendering itself stays deferred. The S32–S34 mirror (`LegacyListMirror`) is the way in when an app needs it: flatten `Root` sections into grouped items.
 
 <a id="s36"></a>
 ### S36 · Legacy list leg, ported apps, docs
 Plan: §M4 acceptance · Phone: new leg `legacylist` · Depends: S35
-- [ ] `legacylist` leg in the Diagnostics runner, added to `matrix.sh`
+- [x] `legacylist` leg in the Diagnostics runner, added to `matrix.sh`
 - [ ] ported apps that use `ListView` checked (`docs/app-test-campaign.md`)
-- [ ] `porting-existing-apps.md`, `silica-parity.md:46` updated
+- [x] `porting-existing-apps.md`, `silica-parity.md:46` updated
 
 Done when: `legacylist` green; full matrix green.
 
 Notes:
--
+- 2026-10-08:
+  - New leg `legacylist` (`MAUI_SAILFISH_QT_HOST_LEGACYLIST_DIAG`, own `DiagChecks`), with the S32–S34 steps moved out of the `collection` leg; added to `matrix.sh` and `tools.md`, 6/6.
+  - Full matrix: `tools/sf matrix` (all legs) 34/34 PASS, f4 and skia included.
+  - Porting guide: the legacy ListView bullet (supported cells, taps, selection, grouping, refresh; what is not supported). silica-parity: the `SilicaListView` row already names `ListView`.
+- Ported apps not checked: the campaign's scratch copies (`$SCRATCH/cand`, `$SCRATCH/oss/maui-samples`) lived in an earlier session's scratchpad and are gone. This machine has no `gh` to search the samples repo. Re-cloning and porting the apps is a campaign round of its own.
 
 ## Phase G — navigation details, dialogs, drag & drop
 
 <a id="s37"></a>
 ### S37 · `animated:false`, `InsertPageBefore`, `RemovePage`
 Plan: §M27 steps 2–3 · Audit: navigation N6 · Phone: legs `nav navback shell` · Depends: —
-- [ ] `Animated` threaded into `NavOperation`; last level of a multi-level pop animated
-- [ ] insert/remove operate on the model page below the top
-- [ ] `NativeStackSyncTests` for both
+- [x] `Animated` threaded into `NavOperation`; last level of a multi-level pop animated (the flag yes; multi-level pops stay immediate, see Notes)
+- [ ] insert/remove operate on the model page below the top (they no longer slide; the top is still re-rendered, see Notes)
+- [x] `NativeStackSyncTests` for both
 
 Done when: `PushAsync(page, false)` shows no slide; `RemovePage` does not re-render the top page (recording).
 
 Notes:
--
+- 2026-10-08:
+  - `SailfishNavigationViewHandler.MapRequestNavigation` passes `NavigationRequest.Animated` to `NoteNavigationRequest(animated)`. `animated: false` sets `_nextNavImmediate`; the next `PushModelPages`/`PopModelPages` use `PageStackAction.Immediate` and clear it. `LastNativeNavStep` ("PUSH Animated", "POP Immediate") is exposed for tests and diagnostics.
+  - Probe before the change: `InsertPageBefore` pushed a new model page with a slide (the unchanged top slid in again), and `RemovePage` popped with a slide. MAUI sends both with `Animated=false`, so they now go at once.
+  - What is left: the top page is still re-rendered on the other model page, in one frame, without a slide. Silica's PageStack has no insert below the current page, and `replaceAbove` would rebuild the top QML page as well, so it stays this way. A multi-level pop stays immediate: each level pops the top, so animating the last one would slide a page that never showed.
+- Tests: `Renderer/NavStackEditTests.cs` (4): animated/unanimated push and pop (after a warm-up push: before activation settles every push goes at once); Insert/Remove without a slide with the top kept; every request finishing so the next push runs, through the NavigationPage and through the root page's own `Navigation`.
+- Phone: new leg `navdialog` (`MAUI_SAILFISH_QT_HOST_NAVDIALOG_DIAG`, `QtHostDiagnosticsRunner.NavDialog.cs`; in `matrix.sh` and `tools.md`):
+  - `PushAsync(page, false)` → PUSH Immediate with `pageStack.busy` false 120 ms later, against PUSH Animated with busy true for an animated push;
+  - InsertPageBefore → PUSH Immediate and RemovePage → POP Immediate, both with busy false and the top unchanged.
+- Found on the way, in the leg: its starting page was a pushed one ("Statistics"). Once PopToRoot removed it, its own `Navigation` proxy was empty, so later pushes went nowhere. The leg uses the NavigationPage's `Navigation`; a harness test pins that a root page's proxy keeps working.
+- Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s38"></a>
 ### S38 · Dialogs: queue, thread hop, RTL, keyboard; Detail swap
 Plan: §M27 steps 4–6 · Audit: navigation N5, N7, N8 · Phone: legs `popup containers` · Depends: —
-- [ ] dialog queue; navigation not held while a dialog is open
-- [ ] `QtThread.Run` hop in `QtHostAlertSubscription`; `FlowDirection`; Email/Url prompt keyboards
-- [ ] replaced `FlyoutPage.Detail` handlers disconnected; renderer comment fixed; page-cache difference documented
+- [x] dialog queue; navigation not held while a dialog is open (the queue yes; navigation still waits, see Notes)
+- [x] `QtThread.Run` hop in `QtHostAlertSubscription`; `FlowDirection`; Email/Url prompt keyboards
+- [x] replaced `FlyoutPage.Detail` handlers disconnected; renderer comment fixed; page-cache difference documented
 
 Done when: two chained alerts both show; an alert from a background thread shows.
 
 Notes:
--
+- 2026-10-08:
+  - Queue: `PushDialogCore` enqueues a dialog asked for while one is open; `CompleteDialog`/a failed open opens the next (`OpenNextDialog`). It used to complete at once with the negative result.
+  - Thread hop: `QtHostAlertSubscription.OnQt` runs the push through `QtThread.RunAsync` off the Qt thread.
+  - `mauiMirrored` (the page's effective FlowDirection) → `DialogPanel.qml` `LayoutMirroring`.
+  - Prompt keyboards: `Keyboard.Email`/`Url` → `mauiHints` (Qt::ImhEmailCharactersOnly / ImhUrlCharactersOnly) on the PromptDialog field.
+  - `SailfishFlyoutPageHandler` watches `Detail` PropertyChanging/Changed and calls `DisconnectHandlers()` on the replaced detail. The "MAUI core never fires appearing" comment was rewritten.
+  - Porting guide: the queue, any thread, RTL, keyboards, and the page cache (the four most recent pages keep their native views).
+- Navigation is still held while a dialog is open, a deliberate deviation from plan step 4: the dialog is a panel on its model page, so a push would cover it until the user came back to that page. Android keeps the dialog above the new page. Moving the panel to the new top page is the way to drop the gate.
+- Tests: `Renderer/DialogQueueTests.cs` (4): two alerts in order with their answers; mirrored on an RTL page; the email hint; a replaced Detail's handler gone. Suite 565 green.
+- Phone: `navdialog` leg:
+  - two `DisplayAlertAsync` calls back to back: the first shows, the second waits, both answer True after real taps on their accept buttons;
+  - an alert from `Task.Run` shows and answers.
+
+  Screenshots `navdialog-1/2/3` checked (the second alert after the first, over the Statistics page).
+- Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s39"></a>
 ### S39 · Drag & drop: router core and drag ghost
@@ -975,26 +1285,41 @@ Notes:
 <a id="s41"></a>
 ### S41 · Gradient backgrounds on every view
 Plan: §M10 · Audit: graphics G6 · Decision: D10 · Phone: legs `visual shapes controls` · Depends: —
-- [ ] gradient `Background` → gradient item under the host
-- [ ] gradient `Shadow.Brush` → average colour
-- [ ] sample page with a gradient background
+- [x] gradient `Background` → gradient item under the host
+- [x] gradient `Shadow.Brush` → average colour
+- [x] sample page with a gradient background
 
 Done when: screenshot of the gradient page.
 
 Notes:
--
+- 2026-10-08, D10 (a), GPU-drawn:
+  - `QtHostPaint.GradientSpec` gives linear `{x0,y0,x1,y1}` or radial `{x0,y0,r}` (MAUI's relative units) with sorted `[offset, colour]` stops. `QtHostVisualState` pushes it as the generic `mauiBackgroundGradient` for any element whose Background is (or was) set, except Border, shapes and BoxView, which paint the brush through their own fill spec.
+  - The shim (`host_handles.cpp` `apply_background_gradient`, `tools/sf native-build`) creates a lazy child from `qml/effects/GradientFill.qml`. That draws the stops into a 256 px Rectangle-gradient ramp and samples it in a `ShaderEffect` fragment shader (linear: projection on p0→p1; radial: distance over radius × the larger side, as Android). No per-frame repaint.
+  - The key is added to the shim-owned lists (`GenericNativeKeys`, `MauiModelPage.__createHost`).
+  - Shadow: `QtHostPaint.Average` gives a gradient brush's mean colour (iOS's behaviour); the shadow used to be dropped.
+- Tests: `Renderer/GradientBackgroundTests.cs` (2): a Grid's linear and a Label's radial spec, Border left to its own paint, back to solid clears it; a red→blue gradient shadow as #800080. Suite 563 green at the time.
+- Phone: `canvas` leg, second page, 5/5. A Grid (linear, three stops, a diagonal), a Label (radial) and a Button (horizontal linear) each carry a visible `mauiBackgroundGradient` child. Screenshot `canvas-2-gradients` checked.
+  - The linear isolines run corner to corner, as iOS draws relative points; Android works in pixel space, so on a wide view its band is steeper.
+- Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s42"></a>
 ### S42 · FormattedText spans: properties and gestures
 Plan: §M11 (spans), §M17 step 6 · Audit: graphics G7, input I3 · Phone: legs `text controls` · Depends: —
-- [ ] span `BackgroundColor`, `CharacterSpacing`, `LineHeight`, `TextTransform`
-- [ ] span gestures via `<a href="span:N">` + `linkAt` → adapter event → span recognizers
-- [ ] span HTML tests
+- [x] span `BackgroundColor`, `CharacterSpacing`, `LineHeight`, `TextTransform` (LineHeight per span not possible, see Notes)
+- [x] span gestures via `<a href="span:N">` + `linkAt` → adapter event → span recognizers
+- [x] span HTML tests
 
 Done when: a span tap fires on the phone.
 
 Notes:
--
+- 2026-10-08:
+  - `AdapterSnapshots.BuildSpanHtml` adds `background-color`, `letter-spacing` (CharacterSpacing × density px) and the span's TextTransform. Per-span LineHeight cannot be done: Qt's rich text spaces whole lines; the label's LineHeight applies.
+  - A span with a TapGestureRecognizer is wrapped in `<a href="span:N">` (N = its index in Spans), and its inner span sets `text-decoration:none`. `mauiSpanLinks` makes Label.qml bind `linkColor` to the label's colour (an HTML label's own links keep Qt's link colour).
+  - `onLinkActivated` → `span-tapped {id,index}` → `AdapterEventRouter.ApplySpanTapped` → each TapGestureRecognizer's `SendTapped(label)` (Tapped and Command).
+- Tests: `Renderer/SpanTests.cs` (2): the new styles and an uppercased span, no link; a tappable span's `<a href="span:1">`, `mauiSpanLinks`, and `span-tapped` firing Tapped (sender = the label) and Command.
+- Phone: `navdialog` leg, `SpanTap`. `Text.linkAt` finds "span:1" at 262,198 and a real tap there fires the recognizer once. Screenshot `navdialog-4-span` checked (the orange underlined span in the sentence).
+  - The first tries failed in the leg, not in the backend: the page push went nowhere (see S37), and the scan started at half height while the label fills the page with its text at the top.
+- Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s43"></a>
 ### S43 · Mixed-font measure and `FontAutoScalingEnabled`
@@ -1023,14 +1348,20 @@ Notes:
 <a id="s45"></a>
 ### S45 · Upstream-seam workarounds: `SailfishKeyboard`, `Loaded`
 Plan: §M12 step 3, §M25 · Audit: lifecycle L4, L6 · Phone: leg `input` · Depends: —
-- [ ] `SailfishKeyboard.Hide()/Show(view)/IsShowing`; docs say `SoftInputExtensions` throw on this TFM
-- [ ] root page handler attached before the window parents it; container handlers attach on `ChildAdded`
-- [ ] upstream issues filed (soft-input seam, `IsLoaded` in the Standard partial) and linked in the plan
+- [x] `SailfishKeyboard.Hide()/Show(view)/IsShowing`; docs say `SoftInputExtensions` throw on this TFM
+- [ ] root page handler attached before the window parents it; container handlers attach on `ChildAdded` (not possible from the backend, see Notes)
+- [ ] upstream issues filed (soft-input seam, `IsLoaded` in the Standard partial) and linked in the plan (needs the owner: an outward action)
 
 Done when: root page `Loaded` sees a handler (test); both issue links in the plan.
 
 Notes:
--
+- 2026-10-08:
+  - `Platform/SailfishKeyboard.cs` (public): `Show(view)` focuses the view and calls `Qt.inputMethod.show()`; `Hide()` unfocuses any focused InputView of the window's page and calls `Qt.inputMethod.hide()`; `IsShowing` reads `Qt.inputMethod.visible`. All run on the Qt thread.
+  - Checked against the decompiled MAUI 11 Core: on `net11.0` `SoftInputExtensions` reach `platformView.Show/HideSoftInput/IsSoftInputShowing`, which throw `NotSupportedException`.
+  - Phone: the last `navdialog` step passes. Show(entry) focuses the entry and Maliit opens (`Qt.inputMethod.visible`); Hide closes it and unfocuses the entry. Screenshot `navdialog-5-keyboard` checked.
+- `Loaded` on a root page, probed in the harness: `Loaded` fires with no handler on the page or its child. In MAUI's plain-net build `IsLoaded => Window != null`, so `Loaded` fires the moment the app's `new Window(page)` parents the page. The app creates both objects, so the backend cannot attach a handler earlier, and re-raising `Loaded` would mean a fake `Unloaded` through reflection. This stays an upstream seam, documented in the porting guide (use `OnAppearing`/`HandlerChanged`). Pages pushed later already get their handlers first (`NativeStackSyncTests.A_shell_route_page_has_its_handlers_when_Loaded_fires`).
+- Upstream issues: not filed — opening issues on dotnet/maui is for the owner to decide. The texts are ready: the soft-input partials throw on the plain TFM, and `IsLoaded` raises `Loaded` before a handler can exist.
+- Regression 2026-10-08: `tools/sf matrix popup nav navback shell containers navdialog visual shapes controls canvas features text input` 13/13 PASS.
 
 <a id="s46"></a>
 ### S46 · Theme from the first frame, highlight colour, RTL locale
@@ -1047,21 +1378,27 @@ Notes:
 <a id="s47"></a>
 ### S47 · `On<SailfishOS>()` platform configuration
 Plan: §M14 step 6 · Audit: essentials E7 · Decision: D13 · Phone: — · Depends: —
-- [ ] `SailfishOS` marker + `SailfishOSSpecific.Page.AllowedOrientations` extensions
-- [ ] `SailfishPage.AllowedOrientations` as an `[Obsolete]` forwarder; `PublicSurface.txt`; `sailfish-apis.md`
+- [x] `SailfishOS` marker + `SailfishOSSpecific.Page.AllowedOrientations` extensions
+- [x] `SailfishPage.AllowedOrientations` as an `[Obsolete]` forwarder; `PublicSurface.txt`; `sailfish-apis.md`
 
 Done when: `page.On<SailfishOS>().SetAllowedOrientations(...)` compiles in `PublicApiGuard` and has a test.
 
 Notes:
--
+- 2026-10-08:
+  - `PlatformConfiguration/SailfishOS.cs` (`IConfigPlatform`). `PlatformConfiguration/SailfishOSSpecific/Page.cs` owns `AllowedOrientationsProperty` with static get/set and the `IPlatformElementConfiguration<SailfishOS, Page>` extensions; the renderer's `Effective` moved there.
+  - `SailfishPage` is `[Obsolete]` and forwards to the same property (XAML `sf:SailfishPage.AllowedOrientations` keeps working).
+  - `SailfishOSSpecific.VisualElement` (S60's KeepsDrag) got `On<SailfishOS>()` extensions too. The interface is covariant, so `button.On<SailfishOS>().SetKeepsDrag(…)` works on controls that have `On<T>()`; any view takes the static setter.
+- Guard: `PublicApiGuard/App.cs` calls `page.On<SailfishOS>().SetAllowedOrientations(…)` and `button.On<SailfishOS>().SetKeepsDrag(false)`, and compiles. It also found that a bare `SailfishOS` inside a `…SailfishOS…` namespace resolves to the namespace; the guard's own namespace needs the qualified name, an app's normally does not.
+- Test: `SampleAppRegressionTests` (allowedOrientations reach the model page) now sets the page through `page.On<SailfishOS>()` and containers through the static setter. In-repo users moved off `SailfishPage` (diagnostics, tests). PublicSurface regenerated. Suite 565 green.
+- Docs: `sailfish-apis.md` section rewritten around `On<SailfishOS>()` (namespaces, the `Page` name clash as with AndroidSpecific, the XAML namespace, the obsolete spelling).
 
 <a id="s48"></a>
 ### S48 · `HybridWebView`
 Plan: §M15 step 7 · Audit: handlers H1 · Decision: D5 · Phone: leg `features` (if built) · Depends: —
-- [ ] (D5 a) handler on the Gecko adapter with the JS bridge and three commands — split into S48a/S48b if it does not fit
-- [ ] (D5 b) one warning + porting guide entry next to BlazorWebView, `Maps.Map`, `MediaElement`
+- [ ] (D5 a, chosen) handler on the Gecko adapter with the JS bridge and three commands — split into S48a/S48b if it does not fit
+- [x] ~~(D5 b) one warning + porting guide entry~~ — not chosen
 
-Done when: per the chosen option.
+Done when: a `HybridWebView` page loads its `HybridRoot`, and JS → .NET (`RawMessageReceived`) and .NET → JS messages work on the phone.
 
 Notes:
 -
@@ -1107,14 +1444,22 @@ Notes:
 <a id="s52"></a>
 ### S52 · TFM side effects, library projects, MSBuild tests
 Plan: §M19 steps 2–4 · Audit: build-sdk B2 · Phone: — · Depends: —
-- [ ] `SAILFISH1_0*` defines, `SupportedPlatform`, `SupportedOSPlatform` attribute
-- [ ] manifest RID/`SelfContained` only for non-library projects; nested restore → error with the command
-- [ ] `BuildTargetsTests` (evaluate a temp csproj); clean-machine workload note
+- [x] `SAILFISH1_0*` defines, `SupportedPlatform`, `SupportedOSPlatform` attribute
+- [x] manifest RID/`SelfContained` only for non-library projects; nested restore → error with the command
+- [x] `BuildTargetsTests` (evaluate a temp csproj); clean-machine workload note
 
 Done when: a class library with the TFM builds without a RID; tests green.
 
 Notes:
--
+- Defines and attributes: `_SailfishDefuseMauiFrameworkConversion` still clears the TPI before `ProcessFrameworkReferences`. The new `_SailfishRestorePlatformIdentifier` (AfterTargets `ProcessFrameworkReferences`) puts `sailfish` back, so the SDK's own targets now produce `SAILFISH1_0`, `SAILFISH1_0_OR_GREATER`, `[TargetPlatform("sailfish1.0")]` and `[SupportedOSPlatform("sailfish1.0")]`. Before this, SailfishKitchen's AssemblyInfo had none of them. `<SupportedPlatform Include="sailfish" />` is added for CA1416. MAUI's platform-folder pruning (`_MauiCollectPlatformSpecificCompileItems`) runs after the restore, so its path (B) now sees `sailfish`; the sailfish head has no `SingleProject`, so nothing changes there. Not tried: the plan's binlog experiment (`UseMauiCore`-style properties instead of clearing the TPI). Keeping the clear-and-restore pair is enough for the effects listed above.
+- Library vs app: `_SailfishIsApp` (`OutputType` `Exe`/`WinExe`). Only an app gets the RID, `SelfContained`, `CreateSailfishRpm` and the generated `Main` plus its trimmer descriptor, in both the manifest and the package targets. A library previously got all four, and the generated Main failed to compile without a MAUI reference. Removed the dead `<OutputType Condition="''">Exe</OutputType>`: the SDK props already default it to Library.
+- Bug fixed on the way: the manifest set `RuntimeIdentifier=linux-arm64` before the package targets read `SailfishRuntimeIdentifier`, so `sf deploy` to a 32-bit phone (`SF_RID=linux-arm`) restored and built arm64. The manifest now reads `SailfishRuntimeIdentifier` first (test `SailfishRuntimeIdentifier_picks_the_heads_rid`).
+- Nested restore: `_SailfishRefreshRestoreForRid`, which ran `dotnet restore` from inside the build, became `_SailfishCheckRestoreHasRid` (error `SAILFISH0001`, before `ResolvePackageAssets`, apps only). It prints the restore command, using `-p:SailfishRuntimeIdentifier` so other heads are left alone, and the manifest install command. Checked by restoring with `linux-arm` and then building with `--no-restore`: SAILFISH0001 instead of NETSDK1047.
+- `BuildTargetsTests` (4 tests): a temp csproj imports the in-repo `WorkloadManifest.targets.in` (CustomBefore) and package targets (CustomAfter), with `MSBuildEnableWorkloadResolver=false` so an older installed manifest cannot interfere. Covered: app head defaults, library defaults, `SailfishRuntimeIdentifier`, and a library build that fails on `#error` without the three defines and checks the attributes in AssemblyInfo.
+- Clean-machine note: already in `add-sailfish-to-existing-app.md` §1 (`dotnet workload install sailfish` only works after the tool installs the manifest; option (a) stands). That doc now lists the new symbols and attribute and how a class library behaves.
+- Refreshed the local feed (`tools/sf pack-local`) and the SDK manifest (`tools/sf workload-install`). A scratch `dotnet new maui-sailfish` app with a `net11.0-sailfish` class library (code under `#if SAILFISH1_0_OR_GREATER`) builds: the library has no RID folder and carries the attributes.
+- Phone: the first `sf deploy` of that app failed with NETSDK1152, because the library also wrote `obj/maui-appmeta.json` as Content at `qml/maui-appmeta.json`. Fixed: `_SailfishWriteAppMeta` and the `images/maui-resized.txt` Content are now heads only, and a library's images still reach the app. The build test asserts that the library writes no app meta. After the fix, `deploy --run --screenshot` verified (D4–D6). Screenshot `artifacts/screenshots/deploy-20261008-140145.png` shows the button text "S52 lib: SAILFISH1_0_OR_GREATER", coming from the library.
+- `PublicSurface.txt` was stale (the full suite failed on it): added the deliberate APIs of earlier sessions, namely the PlatformConfiguration `SailfishOS`/`SailfishOSSpecific.Page`/`VisualElement` (S47/S60), `SailfishLegacyListViewHandler` (S32), `SailfishToolbarHandler`, `SailfishExceptions` + `SailfishUnhandledExceptionEventArgs` (D11) and `SailfishKeyboard` (S45). Suite 571/571.
 
 <a id="s53"></a>
 ### S53 · Trimming profile and feature switches
@@ -1130,16 +1475,21 @@ Notes:
 <a id="s54"></a>
 ### S54 · `dotnet run`, env switch table
 Plan: §M21 steps 1, 4 · Audit: build-sdk B5 · Phone: template app · Depends: —
-- [ ] `RunCommand`/`RunArguments` → deploy + run + log stream, Ctrl+C kills
-- [ ] `MAUI_SAILFISH_*` table in `tools.md` generated/checked by a test
+- [x] `RunCommand`/`RunArguments` → deploy + run + log stream, Ctrl+C kills
+- [x] `MAUI_SAILFISH_*` table in `tools.md` generated/checked by a test
 
 Done when: `dotnet run -f net11.0-sailfish` starts the template app on the phone and Ctrl+C stops it.
 
 Notes:
--
+- The SDK's device protocol, as Android uses it (`Microsoft.Android.Sdk.Application.targets`): after the build the CLI calls `DeployToDevice` if the target exists, then `ComputeRunArguments`, then runs `RunCommand`. New `buildTransitive/Microsoft.Maui.Platforms.SailfishOS.Run.targets` holds `DeployToDevice` → `_SailfishDeployToDevice` (`sf setup --if-needed` + `sf deploy`, with `SF_PKG/SF_BIN/SF_TFM/SF_CONFIGURATION/SF_RID` from the project) and `_SailfishComputeRunArguments` (`/usr/bin/env SF_… bash sf run --follow`). It is imported for the sailfish app head only, because a `DeployToDevice` on every leg would replace the Android/iOS one when a multi-head app references the package there too. No `ComputeAvailableDevices`: with one paired phone there is nothing to choose, and `--device` would need a list `sf` doesn't keep.
+- `sf run --follow` (new): launch, then `tail -f /tmp/sf_run.log` until the process is gone (expect timeout off), returning the app's logged exit code. Ctrl+C stops the app. Trapping INT wasn't enough: under expect the ssh lives in its own session, and bash skips the trap when the foreground child exits on its own. So when the stream ends while the app still runs, the stream was cut and the app gets stopped.
+- Found on the phone: on a fresh clone (no `obj/`) the CLI checks for `DeployToDevice` **before restore**, where the package targets aren't imported yet, so it skipped the deploy and ran the old install. It also calls the target on that same pre-restore evaluation (with a plain `DependsOnTargets` on the package target: MSB4057). Fix: the workload manifest gets a third file, `WorkloadManifest.Run.targets`, imported for sailfish app heads. Its `DeployToDevice` calls `<MSBuild Projects="$(MSBuildProjectFullPath)" Targets="_SailfishDeployToDevice">` with an extra global property, so the project is evaluated again (restored by then) and not taken from the cache. The file ships in the manifest nupkg (`data/`), is embedded in the `sailfish-workload` tool (`ManifestFiles`) and copied by `tools/sf workload-install`. With an older manifest, the package's own `DeployToDevice` still covers every run after the first restore.
+- Checked with a fake `sf` (prints its arguments): fresh clone, second run, `-v:n`, `-p:`, all `setup --if-needed` → `deploy` → `run --follow`. Phone, scratch template app plus S52 library, fresh `obj/`, package tools: `dotnet run -f net11.0-sailfish` → VERIFY PASSED → launched → "streaming the app log", screenshot `s54-running.png` shows the app. SIGINT to the process group (as a terminal's Ctrl+C) → "stopping harbour-s52app on the device", exit 130, `pgrep` on the phone: NOT-RUNNING.
+- Env switches: the tools.md tables listed 37 of the 89 names the sources read. Added the missing 52: every diagnostics leg by name, the runtime/A-B knobs, and a new "Developer aids" table (`TAPS`, `SHOT_*`, `BACK_AFTER`, `PULL_GESTURE`, `OPEN_PULLEY`, `NAVBACK_FILM`, `DIAG_CRASH`). Removed the stale `…_BRIDGE` (now `…_BRIDGE_DIAG`). `EnvSwitchTableTests` checks both directions over `src/**/*.{cs,cpp,h,qml,js}` (bin/obj excluded), and understands the `…_X` shorthand for `MAUI_SAILFISH_QT_HOST_X`. I chose checked over generated: the descriptions need prose a generator could not write.
+- `BuildTargetsTests` +2: run arguments on an app head; no `DeployToDevice` on a library. Docs: README, `add-sailfish-to-existing-app.md` §4 and `sailfishos-packaging.md` lead with `dotnet run`; `SailfishRun` remains for "back after the launch window". Suite 575/575.
 
 <a id="s55"></a>
-### S55 · Hot reload over SSH
+### S55 · Hot reload over SSH — deferred by D7 (b)
 Plan: §M21 step 2 · Audit: lifecycle L8 · Decision: D7 · Phone: yes · Depends: S54
 - [ ] (D7 b) `EnableMauiIncrementalHotReload=false` on the head, documented
 - [ ] (D7 a) startup hook + SSH-forwarded delta channel + `MauiHotReloadHelper` — expect S55a/b/c
@@ -1152,9 +1502,12 @@ Notes:
 <a id="s56"></a>
 ### S56 · Device tools out of the NuGet package
 Plan: §M22 · Audit: build-sdk B5 · Decision: D8 · Phone: — · Depends: S07
-- [ ] per D8 (nothing now, a `*.Tools` package, or a dotnet tool)
+- [ ] D8 (b): what a package user needs from `tools/sf` (setup, deploy, run, screenshot, logs) as a C# dotnet tool (works on Windows
+  too); the repo's own matrix/shots tooling may stay bash
+- [ ] the package no longer ships the bash scripts; the `SailfishRun`/`SailfishSetup` targets call the tool
+- [ ] docs: `tools.md`, `connecting-your-phone.md`, README
 
-Done when: per the chosen option.
+Done when: a template app is set up, deployed and run on the phone from Windows (or a clean macOS) with only the dotnet tool.
 
 Notes:
 -

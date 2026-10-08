@@ -79,7 +79,7 @@ internal static class QtHostLayout
 		// A collection's item views (its logical children) get their handlers as their rows are measured.
 		if (element is IVisualTreeElement visualTreeElement && element is not Microsoft.Maui.Controls.ItemsView)
 		{
-			foreach (var child in visualTreeElement.GetVisualChildren())
+			foreach (var child in QtHostVisualChildren.Of(visualTreeElement))
 			{
 				if (child is IElement childElement)
 					AttachHandlersCore(childElement, context);
@@ -113,6 +113,13 @@ internal static class QtHostLayout
 			contentView.Measure(inner.Width, inner.Height);
 			contentView.Arrange(inner);
 		}
+	}
+
+	/// <summary>Lays out a view that sits outside the page content (a TitleView) in <paramref name="rectDp"/>.</summary>
+	internal static void MeasureAndArrangeIn(IView view, Rect rectDp)
+	{
+		view.Measure(rectDp.Width, rectDp.Height);
+		view.Arrange(rectDp);
 	}
 
 	/// <summary>

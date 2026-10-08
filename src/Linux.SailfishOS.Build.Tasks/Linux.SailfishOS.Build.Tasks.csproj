@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The MSBuild tasks of buildTransitive/Microsoft.Maui.SailfishOS.targets (they were inline RoslynCodeTaskFactory
+  <!-- The MSBuild tasks of buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets (they were inline RoslynCodeTaskFactory
        tasks, compiled on every build). netstandard2.0 runs in every MSBuild; the targets load it out of process
        (TaskHostFactory), so a rebuild of this project is never blocked by a node holding the dll. -->
   <PropertyGroup>

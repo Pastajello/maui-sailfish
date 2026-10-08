@@ -197,6 +197,7 @@ internal sealed class QtHostCollectionBridge
 		public double NaturalCrossDp;                  // a horizontal list's item height when nothing bounds it
 		public EventHandler? MeasureHandler;           // the cells' MeasureInvalidated (null = not watched)
 		public bool Remeasure;                         // a cell asked for a measure since the last pass
+		public bool LazyCells;                         // MeasureFirstItem: cells templated when the row materializes
 	}
 
 	internal sealed class DgState
@@ -257,11 +258,23 @@ internal sealed class QtHostCollectionBridge
 	}
 
 	/// <summary>A looping horizontal CarouselView uses the PathView adapter (a ListView cannot wrap); both
-	/// share the bridge contract. A Loop change swaps it (RegisterList).</summary>
-	internal static string AdapterUriFor(IView? view) =>
-		view is CarouselView { Loop: true } carousel && (carousel.ItemsLayout?.Orientation ?? ItemsLayoutOrientation.Horizontal) == ItemsLayoutOrientation.Horizontal
-			? "carousel-view"
-			: "list-view";
+	/// share the bridge contract. A Loop change swaps it (RegisterList). A vertical one does not loop (tracker S29: the
+	/// PathView path is horizontal), with one warning.</summary>
+	internal static string AdapterUriFor(IView? view)
+	{
+		if (view is not CarouselView { Loop: true } carousel)
+			return "list-view";
+		if ((carousel.ItemsLayout?.Orientation ?? ItemsLayoutOrientation.Horizontal) == ItemsLayoutOrientation.Horizontal)
+			return "carousel-view";
+		if (!VerticalLoopWarned.TryGetValue(carousel, out _))
+		{
+			VerticalLoopWarned.Add(carousel, VerticalLoopWarned);
+			QtHostDiag.Warn(QtHostDiagChannel.QmlObject, "a vertical CarouselView with Loop=true does not wrap on Sailfish (only horizontal carousels loop): it stops at its ends");
+		}
+		return "list-view";
+	}
+
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CarouselView, object> VerticalLoopWarned = new();
 
 
 	/// <summary>True when a hosted list owns this RefreshView, so the page-level arm stays out.</summary>
@@ -711,6 +724,9 @@ internal sealed class QtHostCollectionBridge
 		nameof(ItemsView.EmptyView), nameof(ItemsView.ItemTemplate), nameof(GroupableItemsView.IsGrouped),
 		nameof(GroupableItemsView.GroupHeaderTemplate), nameof(GroupableItemsView.GroupFooterTemplate),
 		nameof(ItemsView.VerticalScrollBarVisibility), nameof(ItemsView.HorizontalScrollBarVisibility),
+		nameof(ItemsView.ItemsUpdatingScrollMode), nameof(CarouselView.IsScrollAnimated),
+		nameof(StructuredItemsView.ItemSizingStrategy), nameof(StructuredItemsView.HeaderTemplate),
+		nameof(StructuredItemsView.FooterTemplate), nameof(ItemsView.EmptyViewTemplate),
 	};
 
 

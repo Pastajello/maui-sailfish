@@ -25,7 +25,7 @@ internal sealed partial class QtHostPageRenderer
 		WatchToolbarItems(page);
 		var pull = new List<ToolbarItem>();
 		var push = new List<ToolbarItem>();
-		foreach (var item in page.ToolbarItems)
+		foreach (var item in ToolbarItemsOf(page))
 			(item.Order == ToolbarItemOrder.Secondary ? push : pull).Add(item);
 		// Pull-down menu = Shell flyout entries (top) + primary ToolbarItems (nearest the content).
 		_pullEntries.Clear();
@@ -66,7 +66,7 @@ internal sealed partial class QtHostPageRenderer
 			props[_pushHost] = new Dictionary<string, object?> { ["mauiItems"] = MenuItemsJson(push) };
 			desired.Add(_pushHost);
 		}
-		if (_contextFlyouts.Count > 0)
+		if (_contextFlyouts.Count > 0 || ShellFlyoutWantsMenu)
 		{
 			if (_ctxMenuHost is null) allocated.Add("context-menu");
 			_ctxMenuHost ??= new NativeElementHost(SyntheticPrefix + "ctxmenu", "context-menu", page);
@@ -105,9 +105,42 @@ internal sealed partial class QtHostPageRenderer
 			_toolbarPage = page;
 			((System.Collections.Specialized.INotifyCollectionChanged)page.ToolbarItems).CollectionChanged += OnToolbarItemsChanged;
 		}
-		foreach (var item in page.ToolbarItems)
+		foreach (var item in ToolbarItemsOf(page))
 			if (_toolbarWatched.Add(item))
 				item.PropertyChanged += OnToolbarItemChanged;
+	}
+
+	/// <summary>
+	/// The rendered page's ToolbarItems as the platforms' app bars show them (tracker S19): MAUI's toolbar computes
+	/// them (sorted by Priority, with the Shell's and a flyout's items) when it describes this page, the top of the
+	/// root stack; otherwise (a modal page, no toolbar, a toolbar that has not followed a navigation yet) the page's own,
+	/// sorted the same way.
+	/// </summary>
+	internal IReadOnlyList<ToolbarItem> ToolbarItemsOf(Page page)
+	{
+		var own = page.ToolbarItems;
+		if (ToolbarOf(page) is { ToolbarItems: { } fromToolbar })
+		{
+			var items = fromToolbar.ToList();
+			// A toolbar still describing the previous page lacks this page's items: not used until it follows.
+			if (own.All(items.Contains))
+				return items;
+		}
+		return own.Count < 2 ? own.ToList() : own.OrderBy(i => i.Priority).ToList();   // stable: equal priorities keep order
+	}
+
+	/// <summary>MAUI's toolbar when it describes <paramref name="page"/> (the root stack's top, no modal over it).</summary>
+	private Toolbar? ToolbarOf(Page page)
+	{
+		// A NavigationPage under the window puts it on the window; a Shell (and a NavigationPage under a page) on that page.
+		if (((_window as IToolbarElement).Toolbar ?? (RootPage() as IToolbarElement)?.Toolbar) is not Toolbar toolbar ||
+		    ResolveModalStack() is { Count: > 0 })
+			return null;
+		// The window handler attaches it (MapToolbar); a window without one (a test host) gets it here.
+		if (toolbar.Handler is null)
+			Handlers.SailfishHandlersFactory.AttachToolbarHandler(toolbar, _mauiContext);
+		var stack = ResolveRootStack().Pages;
+		return stack.Count > 0 && ReferenceEquals(stack[^1], page) ? toolbar : null;
 	}
 
 	private void OnToolbarItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
@@ -225,6 +258,10 @@ internal sealed partial class QtHostPageRenderer
 		var shown = HasTabAt(dxDp < 0 ? 1 : -1) ? dxDp : dxDp / 3;
 		CallPage(null, "mauiSetTabDrag", BridgeValue.Number(QtHostUnits.ToQtUnits(shown)));
 	}
+
+	/// <summary>A view's captured drag (tracker S60): while held, the page's back swipe and its flickable (the pulley)
+	/// leave the drag to the view. Qt thread.</summary>
+	internal void HoldPageDrag(bool on) => CallPage(null, "mauiHoldDrag", on ? "true" : "false");
 
 	/// <summary>Ends a tab swipe: slides on to the tab <paramref name="delta"/> away ("tab-swipe-commit" switches it
 	/// once the page is out), or back when 0 or no tab lies there.</summary>
@@ -385,6 +422,7 @@ internal sealed partial class QtHostPageRenderer
 	{
 		_openFlyout = flyout;
 		_openFlyoutRows = ContextEntries(flyout);
+		_shellFlyoutRows = null;
 		var rc = QtHostRuntime.Eval(
 			$"{TopModelPageJs}.__openContextMenu('{hostId}',{BridgeValue.Quote(ContextItemsJson(_openFlyoutRows))})");
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"long-press → Silica ContextMenu open rc={rc} " +
@@ -392,12 +430,14 @@ internal sealed partial class QtHostPageRenderer
 	}
 
 	/// <summary>A ContextMenu is open: native stack steps wait until it closes.</summary>
-	internal bool ContextMenuOpen => _openFlyout is not null;
+	internal bool ContextMenuOpen => AnyMenuOpen;
 
 	/// <summary>The ContextMenu closed (picked or dismissed): navigation, held while it was open, may follow the native
 	/// stack again. The rows stay for the pick, which Silica may deliver after the menu closed.</summary>
 	internal void ApplyContextClosed()
 	{
+		if (CloseShellFlyoutMenu())
+			return;
 		if (_openFlyout is null)
 			return;
 		_openFlyout = null;
@@ -410,6 +450,8 @@ internal sealed partial class QtHostPageRenderer
 	{
 		using var doc = JsonDocument.Parse(payload);
 		var index = BridgeJson.Int(doc.RootElement, "index");
+		if (ActivateShellFlyoutRow(index))
+			return;
 		var rows = _openFlyoutRows;
 		if (rows is null || index < 0 || index >= rows.Count)
 		{
@@ -444,7 +486,7 @@ internal sealed partial class QtHostPageRenderer
 			_pullEntries[index].Activate();
 			return;
 		}
-		var items = page.ToolbarItems
+		var items = ToolbarItemsOf(page)
 			.Where(t => t.Order == ToolbarItemOrder.Secondary)
 			.ToList();
 		if (index < 0 || index >= items.Count)
@@ -477,7 +519,7 @@ internal sealed partial class QtHostPageRenderer
 	/// <summary>DisplayPromptAsync: opens the PromptDialog adapter (Silica TextField; Maliit follows focus).
 	/// Returns the entered text, or null when dismissed.</summary>
 	public async Task<string?> PushPromptAsync(string title, string message, string accept, string cancel,
-		string placeholder, string initialValue, int maxLength, bool numeric) =>
+		string placeholder, string initialValue, int maxLength, bool numeric, int hints = 0) =>
 		(string?)await PushDialogCore("prompt-dialog", new Dictionary<string, object?>
 		{
 			["mauiId"] = "dialog",
@@ -489,6 +531,7 @@ internal sealed partial class QtHostPageRenderer
 			["mauiInitial"] = initialValue,
 			["mauiMaxLength"] = maxLength,
 			["mauiNumeric"] = numeric,
+			["mauiHints"] = hints,
 		}, "Prompt");
 
 	/// <summary>DisplayActionSheetAsync: opens the ActionSheet adapter. Returns the picked entry text, or the
@@ -508,16 +551,34 @@ internal sealed partial class QtHostPageRenderer
 		return result ?? _sheetCancel;
 	}
 
-	/// <summary>Shared dialog open: one dialog at a time (the busy gate and navigation sync wait while one is
-	/// pending). Push failures complete with null.</summary>
-	private Task<object?> PushDialogCore(string uri, object props, string label)
+	private readonly Queue<(string Uri, Dictionary<string, object?> Props, string Label, TaskCompletionSource<object?> Tcs)> _dialogQueue = new();
+
+	/// <summary>Shared dialog open: one dialog at a time; a dialog asked for while one is open waits its turn and opens
+	/// when it closes, as the platforms stack them (tracker S38; it used to complete at once with the negative result).
+	/// The navigation sync waits while one is open. Push failures complete with null.</summary>
+	private Task<object?> PushDialogCore(string uri, Dictionary<string, object?> props, string label)
 	{
 		var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+		// RTL pages mirror the dialog's buttons and text, as the platforms' dialogs follow the layout direction.
+		props["mauiMirrored"] = QtHostVisualState.IsRightToLeft(ResolveCurrentPage());
+		if (_dialogTcs is not null)
+		{
+			_dialogQueue.Enqueue((uri, props, label, tcs));
+			QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"{label} dialog queued behind the open one ({_dialogQueue.Count} waiting)");
+			return tcs.Task;
+		}
+		OpenDialog(uri, props, label, tcs);
+		return tcs.Task;
+	}
+
+	private void OpenDialog(string uri, Dictionary<string, object?> props, string label, TaskCompletionSource<object?> tcs)
+	{
 		if (!QtHostAdapters.TryGetSrc(uri, out var src))
 		{
 			QtHostDiag.Error(QtHostDiagChannel.QmlLoad, $"adapter '{uri}' missing — {label} dialog cancelled");
 			tcs.SetResult(null);
-			return tcs.Task;
+			OpenNextDialog();
+			return;
 		}
 		_dialogTcs = tcs;
 		DialogPushes++;
@@ -528,8 +589,14 @@ internal sealed partial class QtHostPageRenderer
 		{
 			_dialogTcs = null;
 			tcs.SetResult(null);
+			OpenNextDialog();
 		}
-		return tcs.Task;
+	}
+
+	private void OpenNextDialog()
+	{
+		if (_dialogTcs is null && _dialogQueue.TryDequeue(out var next))
+			OpenDialog(next.Uri, next.Props, next.Label, next.Tcs);
 	}
 
 	internal void CompleteDialog(object? result)
@@ -539,6 +606,7 @@ internal sealed partial class QtHostPageRenderer
 		DialogResults++;
 		QtHostDiag.Trace(QtHostDiagChannel.QmlSignal, $"Dialog result={result?.ToString() ?? "<null>"}");
 		tcs?.TrySetResult(result);
+		OpenNextDialog();   // the closed panel already left the page (its event comes after __dialog was cleared)
 	}
 
 	/// <summary>Extracts "text" from a dialog payload; missing text becomes "".</summary>

@@ -51,6 +51,9 @@ public class HandlerParityTests
 		(typeof(SwipeView), "Microsoft.Maui.Handlers.SwipeViewHandler"),
 		(typeof(IndicatorView), "Microsoft.Maui.Handlers.IndicatorViewHandler"),
 		(typeof(WebView), "Microsoft.Maui.Handlers.WebViewHandler"),
+		// The items handlers (tracker S29): the list adapter follows these keys through SailfishListViewHandler.
+		(typeof(CollectionView), "Microsoft.Maui.Controls.Handlers.Items.CollectionViewHandler"),
+		(typeof(CarouselView), "Microsoft.Maui.Controls.Handlers.Items.CarouselViewHandler"),
 		// The Controls shape handlers add their geometry keys on top of ShapeViewHandler (tracker S13).
 		(typeof(Microsoft.Maui.Controls.Shapes.Line), "Microsoft.Maui.Controls.Handlers.LineHandler"),
 		(typeof(Microsoft.Maui.Controls.Shapes.Path), "Microsoft.Maui.Controls.Handlers.PathHandler"),
@@ -61,7 +64,11 @@ public class HandlerParityTests
 	};
 
 	/// <summary>Pinned gaps; delete an entry in the same change that closes it.</summary>
-	private static readonly Dictionary<Type, string> KnownGaps = new();
+	private static readonly Dictionary<Type, string> KnownGaps = new()
+	{
+		// Drag to reorder: Silica lists have no reorder gesture; not built yet.
+		[typeof(CollectionView)] = "CanReorderItems",
+	};
 
 	// Creating the first control makes MAUI Controls remap the handler mappers (semantics, background…); a
 	// running app is always remapped, so parity is measured against the remapped keys, whatever ran first.

@@ -41,6 +41,7 @@ internal sealed partial class QtHostListAdapter
 			Span > 1
 				? sc.Row.ToString(CultureInfo.InvariantCulture) + ":" + sc.Cell.ToString(CultureInfo.InvariantCulture)
 				: sc.Row.ToString(CultureInfo.InvariantCulture)));
+		ApplySelectionStates();   // rebuilt rows bring new views even when the selected rows stay the same
 		if (json == LastSelJson)
 			return;
 		LastSelJson = json;
@@ -49,25 +50,27 @@ internal sealed partial class QtHostListAdapter
 
 	/// <summary>Whether a cell's template carries a TapGestureRecognizer: the delegate then reports taps on an
 	/// unselectable list too (the ListView consumes the press, so the input router never sees the row's content).</summary>
-	private static bool RowHasTap(Row row)
+	private bool RowHasTap(Row row)
 	{
+		if (row.LazyCells)
+			return _lazyHasTap;   // not templated yet: the same template as the first item's
 		foreach (var view in row.CellViews)
-			if (view is not null && HasTap(view))
+			if (view is not null && RowHasTapView(view))
 				return true;
 		return false;
+	}
 
-		static bool HasTap(View view)
-		{
-			foreach (var recognizer in view.GestureRecognizers)
-				if (recognizer is TapGestureRecognizer)
-					return true;
-			if (view is ItemsView)
-				return false;
-			foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
-				if (child is View v && HasTap(v))
-					return true;
+	private static bool RowHasTapView(View view)
+	{
+		foreach (var recognizer in view.GestureRecognizers)
+			if (recognizer is TapGestureRecognizer)
+				return true;
+		if (view is ItemsView)
 			return false;
-		}
+		foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
+			if (child is View v && RowHasTapView(v))
+				return true;
+		return false;
 	}
 
 	/// <summary>
@@ -126,25 +129,27 @@ internal sealed partial class QtHostListAdapter
 
 	/// <summary>Whether a cell's template carries recognizers other than Tap (Pan, Swipe, LongPress, Pointer, Pinch):
 	/// the delegate then reports its presses ("list-item-pressed") so the input router can capture them.</summary>
-	private static bool RowHasGestures(Row row)
+	private bool RowHasGestures(Row row)
 	{
+		if (row.LazyCells)
+			return _lazyHasGestures;
 		foreach (var view in row.CellViews)
-			if (view is not null && HasGestures(view))
+			if (view is not null && RowHasGesturesView(view))
 				return true;
 		return false;
+	}
 
-		static bool HasGestures(View view)
-		{
-			foreach (var recognizer in view.GestureRecognizers)
-				if (recognizer is not TapGestureRecognizer)
-					return true;
-			if (view is ItemsView)
-				return false;
-			foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
-				if (child is View v && HasGestures(v))
-					return true;
+	private static bool RowHasGesturesView(View view)
+	{
+		foreach (var recognizer in view.GestureRecognizers)
+			if (recognizer is not TapGestureRecognizer)
+				return true;
+		if (view is ItemsView)
 			return false;
-		}
+		foreach (var child in ((IVisualTreeElement)view).GetVisualChildren())
+			if (child is View v && RowHasGesturesView(v))
+				return true;
+		return false;
 	}
 
 	/// <summary>A press on a row with template gestures: the element under the finger hands the sequence to the input

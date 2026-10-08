@@ -72,7 +72,7 @@ fi
 sf_info "[2/8] native Qt/Silica shim"
 if [ ! -f "$SHIM" ]; then
 	if [ "$IN_CHECKOUT" = 0 ]; then
-		fail "the package has no native shim: $SHIM (a broken Microsoft.Maui.SailfishOS package; restore it again)"
+		fail "the package has no native shim: $SHIM (a broken Microsoft.Maui.Platforms.SailfishOS package; restore it again)"
 	elif [ "$DO_FIX" = 1 ] && [ -d "$SYSROOT/usr/include/qt5/QtCore" ]; then
 		sf_note "missing - cross-building with zig"
 		if "$SCRIPT_DIR/native-build.sh" >/dev/null; then

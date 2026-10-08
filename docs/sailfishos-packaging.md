@@ -1,14 +1,14 @@
 # Sailfish OS Packaging (harbour RPM)
 
 This document describes how to build and package a .NET MAUI app for
-Sailfish OS as a harbour-compliant RPM, using the `Microsoft.Maui.SailfishOS` package (project
+Sailfish OS as a harbour-compliant RPM, using the `Microsoft.Maui.Platforms.SailfishOS` package (project
 `src/Linux.SailfishOS`) and its MSBuild packaging targets.
 
 ## Overview
 
 Sailfish OS apps distributed through the Jolla Store / OpenRepos must follow
 the [harbour validation rules](https://harbour.jolla.com/faq). The packaging
-targets in `src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets`
+targets in `src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets`
 produce an RPM that follows those conventions:
 
 | Item | Location |
@@ -209,8 +209,10 @@ RID to RPM architecture mapping:
 
 ## Installing on a device
 
-From an app (template or package consumer): `dotnet build -f net11.0-sailfish
--t:SailfishRun` publishes, installs and launches. The first run asks for the
+From an app (template or package consumer): `dotnet run -f net11.0-sailfish`
+publishes, installs and launches, then streams the app log until it exits (Ctrl+C
+stops the app); `dotnet build -f net11.0-sailfish -t:SailfishRun` returns after
+the launch window instead. The first run asks for the
 phone (address, SSH user, developer-mode password — Settings > Developer tools >
 Remote connection) through `tools/sf setup`, stores it in
 `~/.config/maui-sailfish/connect.info` (0600; `known_hosts` next to it) and

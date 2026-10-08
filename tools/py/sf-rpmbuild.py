@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """rpmbuild -bb fallback for build hosts without the rpm toolchain.
 
-Microsoft.Maui.SailfishOS.targets packages the published sample with
+Microsoft.Maui.Platforms.SailfishOS.targets packages the published sample with
 
     rpmbuild -bb --target <triple> --buildroot <dir> \\
              --define '_topdir <dir>' --define '_rpmdir <dir>' \\

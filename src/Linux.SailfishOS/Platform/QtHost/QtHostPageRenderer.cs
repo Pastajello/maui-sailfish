@@ -96,6 +96,8 @@ internal sealed partial class QtHostPageRenderer
 	}
 	private Page? _rendered;
 	private string _renderedTitle = string.Empty;
+	private string _renderedHeader = string.Empty;         // header shown + title text shown, last pushed
+	private View? _titleView;                              // the rendered page's TitleView (NavigationPage/Shell), walked last
 	private string _renderedBusy = string.Empty;           // Page.IsBusy + pulley presence last pushed
 	private string _renderedBack = string.Empty;           // back navigation allowed, last pushed
 	private string _renderedOrientations = string.Empty;   // SailfishPage.AllowedOrientations, last pushed
@@ -107,7 +109,8 @@ internal sealed partial class QtHostPageRenderer
 	private bool _layoutDirty = true;                  // relayout needed before the next geometry push
 	private Size _windowDp;                            // full window in dp (root space extent)
 	private Rect _contentRectDp;                       // window minus the Silica insets (ROOT coordinate space)
-	private double _lastPageW, _lastPageH, _lastHeader = -1, _lastStatus = -1, _lastDpr = -1;
+	private Rect _titleRectDp;                         // the PageHeader's band, where a TitleView is arranged
+	private double _lastPageW, _lastPageH, _lastHeader = -1, _lastStatus = -1, _lastTitleH = -1, _lastDpr = -1;
 	private string _lastOrientation = string.Empty;
 	private readonly List<(NativeElementHost Host, NativeGeometry Geo, bool Visible, bool Local)> _geometryBatch = new();
 
@@ -290,7 +293,20 @@ internal sealed partial class QtHostPageRenderer
 	private readonly RenderScheduler _scheduler;
 
 	/// <summary>The navigation handler saw a MAUI push/pop request (any thread).</summary>
-	internal void NoteNavigationRequest() => _scheduler.NoteNavigationRequest();
+	/// <summary>A NavigationPage navigation: the timeline starts, and its native push/pop animates only when MAUI asked
+	/// for it (PushAsync(page, false), InsertPageBefore and RemovePage do not; tracker S37).</summary>
+	internal void NoteNavigationRequest(bool animated = true)
+	{
+		if (!animated)
+			_nextNavImmediate = true;
+		_scheduler.NoteNavigationRequest();
+	}
+
+	/// <summary>The pending native navigation goes without a slide (MAUI's animated flag was false).</summary>
+	private bool _nextNavImmediate;
+
+	/// <summary>"PUSH Animated", "POP Immediate"…: the last native stack step (tests, diagnostics).</summary>
+	internal string LastNativeNavStep { get; private set; } = string.Empty;
 
 	/// <summary>Runs the navigation sync + reconcile on the next loop turn instead of at the next heartbeat; repeated
 	/// requests before it runs collapse into one (any thread).</summary>
@@ -409,6 +425,9 @@ internal sealed partial class QtHostPageRenderer
 
 	/// <summary>Depth-sync pushes suppressed because a native→MAUI pop was still in flight (the pop-vs-push race).</summary>
 	public long NativePopRacesBlocked => _stack.NativePopRacesBlocked;
+
+	/// <summary>Native back gestures the app vetoed; the page came back at once (tracker S08).</summary>
+	public long FollowVetoes => _stack.FollowVetoes;
 
 	/// <summary>Navigation operations the native stack confirmed.</summary>
 	public long NavOpsCompleted => _stack.NavOpsCompleted;
@@ -882,6 +901,14 @@ internal sealed partial class QtHostPageRenderer
 		var awaitedBefore = _awaitingArrange.Count == 0 ? null : new HashSet<Element>(_awaitingArrange);
 		_awaitingArrange.Clear();
 		Walk(page, desired, props);
+		// A TitleView is no child of the page's content: it sits on the page canvas, laid out in the header.
+		_titleView = TitleViewOf(page);
+		if (_titleView is not null)
+			WalkChild(_titleView, desired, props, parentHost: null);
+		// The search results sit over the content, walked last so they paint above it.
+		_searchResultsView = SearchResultsViewOf(page);
+		if (_searchResultsView is not null)
+			WalkChild(_searchResultsView, desired, props, parentHost: null);
 		AddSyntheticHosts(page, desired, props);   // page-level surfaces
 		foreach (var host in desired)
 		{
@@ -929,8 +956,9 @@ internal sealed partial class QtHostPageRenderer
 		{
 			_fullResetsDone = 0;   // the rebuild cap is per page
 			ReArmPageChrome();
-			// MAUI core never fires appearing/disappearing; the backend owns them. Disappearing fires before the new
-			// hosts exist, Appearing after the create batch + layout.
+			// The backend sends Appearing/Disappearing when the shown page switches, as the platforms' page handlers do
+			// (MAUI 11 raises them itself for some container changes; Page ignores a repeat). Disappearing fires before
+			// the new hosts exist, Appearing after the create batch + layout.
 			if (previousPage is not null)
 			{
 				((IPageController)previousPage).SendDisappearing();
@@ -981,6 +1009,15 @@ internal sealed partial class QtHostPageRenderer
 			_renderedTitle = title;
 			ops.Add(BridgeOps.Title(title));
 		}
+		// HasNavigationBar/NavBarIsVisible false collapse the header; a TitleView replaces its title text.
+		var headerShown = HeaderShownOf(page);
+		var header = (headerShown ? "1" : "0") + (_titleView is null ? "t" : "");
+		if (header != _renderedHeader)
+		{
+			_renderedHeader = header;
+			ops.Add(BridgeOps.Header(headerShown, _titleView is null));
+		}
+		AddSearchOps(page, ops);
 		// Silica shows a busy page as a pulsing pulley bar when it has a pull-down menu, else a PageBusyIndicator.
 		// A RefreshView whose gesture the pulley owns refreshes from its pulley entry and pulses the same bar.
 		var isBusy = page.IsBusy || _pulleyRefresh is { IsRefreshing: true };
@@ -1004,7 +1041,7 @@ internal sealed partial class QtHostPageRenderer
 			_renderedBack = back;
 			ops.Add(BridgeOps.Back(back == "1"));
 		}
-		var orientations = (int)SailfishPage.Effective(page);
+		var orientations = (int)Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.Effective(page);
 		var orientationsKey = orientations.ToString(System.Globalization.CultureInfo.InvariantCulture);
 		if (orientationsKey != _renderedOrientations)
 		{
@@ -1202,6 +1239,7 @@ internal sealed partial class QtHostPageRenderer
 	private void FinishPass(Page page)
 	{
 		RunLayoutPass(page);   // MAUI layout + SetGeometry batch
+		SyncShellFlyoutMenu(page);   // Shell.FlyoutIsPresented, once the menu host exists
 		if (_tlStart != 0 && _tlLayout == 0 && (_tlHosts != 0 || _tlKind != "push"))
 			_tlLayout = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -1272,6 +1310,43 @@ internal sealed partial class QtHostPageRenderer
 	/// bare `new Window(new MainPage())` would show. The header stays: Canvas-painted shapes on a page without a
 	/// rendered PageHeader never reached the screen on the device (Jolla Phone, SFOS 5.2).</summary>
 	internal static string HeaderTitleOf(Page page) => ExplicitTitleOf(page) ?? AppTitle.Value;
+
+	/// <summary>Whether the page shows its header. NavigationPage.HasNavigationBar false (on the page or a page that holds
+	/// it, as a TabbedPage in a NavigationPage) and Shell.NavBarIsVisible false hide the navigation bar elsewhere (an
+	/// onboarding page); here the PageHeader collapses to 0 height and stays alive.</summary>
+	internal static bool HeaderShownOf(Page page)
+	{
+		for (Element? e = page; e is Page p and not NavigationPage and not Shell; e = e.Parent)
+			if (!NavigationPage.GetHasNavigationBar(p))
+				return false;
+		return ShellValue(page, Shell.NavBarIsVisibleProperty, true);
+	}
+
+	/// <summary>The view shown in the header instead of the title: NavigationPage.TitleView (on the page or a page that
+	/// holds it), else Shell.TitleView; null when the header is hidden.</summary>
+	internal static View? TitleViewOf(Page page)
+	{
+		if (!HeaderShownOf(page))
+			return null;
+		for (Element? e = page; e is Page p and not NavigationPage and not Shell; e = e.Parent)
+			if (NavigationPage.GetTitleView(p) is View navTitle)
+				return navTitle;
+		return ShellValue<View?>(page, Shell.TitleViewProperty, null);
+	}
+
+	/// <summary>A Shell attached value as Shell reads it: the nearest of the page, its ShellContent, section, item and
+	/// the Shell that sets it.</summary>
+	internal static T ShellValue<T>(Element element, BindableProperty property, T fallback)
+	{
+		for (Element? e = element; e is not null; e = e.Parent)
+		{
+			if (e.IsSet(property))
+				return (T)e.GetValue(property);
+			if (e is Shell)
+				break;
+		}
+		return fallback;
+	}
 
 	/// <summary>Whether the Silica back gesture and indicator stay on: Shell's BackButtonBehavior IsVisible/IsEnabled
 	/// false and NavigationPage.HasBackButton false remove the toolbar back button elsewhere, and Silica's back
@@ -1363,7 +1438,7 @@ internal sealed partial class QtHostPageRenderer
 	private static readonly bool ImageTrace = SailfishEnv.Flag("MAUI_SAILFISH_IMAGE_TRACE");
 
 	private static readonly string[] GenericNativeKeys =
-		{ "mauiBackgroundFill", "mauiAccessibleName", "mauiAccessibleDescription", "mauiAutomationId", "mauiLayerShadow", "mauiLayerClip",
+		{ "mauiBackgroundFill", "mauiBackgroundGradient", "mauiAccessibleName", "mauiAccessibleDescription", "mauiAutomationId", "mauiLayerShadow", "mauiLayerClip",
 		  "mauiAccessibleRole", "mauiAccessibleIgnored", "mauiMirrored" };
 
 	// Animated pop: the popped page's hosts leave the managed mirror at once, but their native objects are released

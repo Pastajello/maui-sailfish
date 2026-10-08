@@ -57,7 +57,7 @@ public class SailfishNavigationViewHandler : SailfishPageHandler, ISailfishPageC
 		if (args is not NavigationRequest request)
 			return;
 		var session = SailfishHandlerCore.SessionOf(handler);
-		session?.NoteNavigationRequest();   // navigation timeline start
+		session?.NoteNavigationRequest(request.Animated);   // navigation timeline start; animated or not
 		void Finish() => view.NavigationFinished(request.NavigationStack);
 		if (session is not null)
 			session.WhenNavigationSettled(Finish);

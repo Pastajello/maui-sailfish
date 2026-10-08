@@ -118,7 +118,7 @@ public class ToolsPackagingTests
 	{
 		var packed = Packed();
 		var commands = Commands();
-		var targets = File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets"));
+		var targets = File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets"));
 		foreach (Match m in Regex.Matches(targets, @"\$\(MSBuildThisFileDirectory\)tools/([A-Za-z0-9_./-]+)"))
 			Assert.Contains(m.Groups[1].Value, packed);
 		foreach (Match m in Regex.Matches(targets, @"\$\(MSBuildThisFileDirectory\)\.\./\.\./\.\./tools/([A-Za-z0-9_./-]+)"))

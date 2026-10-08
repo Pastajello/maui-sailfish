@@ -70,6 +70,7 @@ public class SailfishWindowHandler : ElementHandler<IWindow, object>
 		[nameof(IWindow.Content)] = MapContent,
 		[nameof(IWindow.Title)] = MapTitle,
 		[nameof(IWindow.FlowDirection)] = MapFlowDirection,
+		[nameof(IToolbarElement.Toolbar)] = MapToolbar,
 	};
 
 	public static readonly CommandMapper<IWindow, SailfishWindowHandler> CommandMapper = new(ElementCommandMapper)
@@ -109,6 +110,15 @@ public class SailfishWindowHandler : ElementHandler<IWindow, object>
 		var session = SailfishHandlerCore.SessionOf(handler);
 		session?.RequestLayout();
 		session?.RequestPoll();
+	}
+
+	/// <summary>As WindowHandler.MapToolbar on the platforms: MAUI's toolbar (set by a NavigationPage or a Shell)
+	/// gets its handler, which drives the page chrome (tracker S19).</summary>
+	public static void MapToolbar(SailfishWindowHandler handler, IWindow window)
+	{
+		if (window is IToolbarElement { Toolbar: { Handler: null } toolbar } && handler.MauiContext is { } context)
+			SailfishHandlersFactory.AttachToolbarHandler(toolbar, context);
+		SailfishHandlerCore.SessionOf(handler)?.RequestPoll();
 	}
 
 	protected override object CreatePlatformElement() => new object();

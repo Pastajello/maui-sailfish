@@ -728,25 +728,11 @@ Depends on M17.5 for drag sources inside rows.
 
 ## 5. Decisions for the owner
 
-| # | Decision | Options | Recommendation |
-| --- | --- | --- | --- |
-| D1 | NuGet id prefix (M7) | (a) `Sailfish.Maui.*`; (b) `MauiSailfish.*`; (c) keep `Microsoft.Maui.*` and never publish to nuget.org | (a) |
-| D2 | Legacy `ListView`/`TableView` scope (M4) | (a) full (all cells, grouping, context actions, TableView); (b) minimal (TextCell/ImageCell/ViewCell, tap, grouping, pull) + documented limits; (c) document as unsupported | (b), then (a) if a ported app needs it |
-| D3 | Swipe-back veto (M2) | (a) `SailfishPage.BackNavigation` attached property, app shows its own confirm; (b) accept the iOS-like limitation, document only | (a) |
-| D4 | Selected-row highlight (M8.3) | (a) drive VSM `Selected` only; (b) also raise the native highlight above content | (a) + screenshot before (b) |
-| D5 | `HybridWebView` (M15) | (a) Gecko-backed handler with the JS bridge; (b) documented unsupported | (b) until an app asks |
-| D6 | `IImage` backing (M18) | (a) QImage through the shim; (b) Skia-backed in the SkiaSharp package only; (c) none, document | (a): every app gets `DrawImage` and `View.CaptureAsync` |
-| D7 | Hot reload investment (M21.2) | (a) build the SSH delta agent; (b) `dotnet run` only, hot reload off | (b) now, (a) when the VS Code extension work resumes |
-| D8 | Tools inside the package (M22) | (a) separate `*.Tools` package; (b) dotnet tool in C#; (c) keep as is (Unix hosts only) | (c) now, (b) before a public release |
-| D9 | Template `Styles.xaml` vs Silica theming (M24) | (a) keep the official colours; (b) `OnPlatform` wrap so Silica's palette shows | (b) for Button/Entry/Label colours only |
-| D10 | Gradient `Background` implementation (M10) | (a) shader rectangle under the host; (b) Canvas | (a) |
-| D11 | Dispatch-error policy (L7) | (a) keep log-and-continue; (b) `MAUI_SAILFISH_CRASH_ON_DISPATCH_ERROR=1` for fail-fast in the matrix | (b) as an opt-in |
-| D12 | Device `dotnet test` runner (M21.3) | (a) build a Microsoft.Testing.Platform runner into the RPM; (b) matrix stays | (b) |
-| D13 | Platform-specific API namespace (M14.6) | (a) `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific` (what GTK/WPF/Tizen backends did, consistent with the repo's `Microsoft.Maui.*` namespaces); (b) `Sailfish.Maui.PlatformConfiguration` | (a) unless D1 renames namespaces too |
-| D14 | `Shell.SearchHandler` (M16.4) | (a) Silica `SearchField` under the header with a results list; (b) warn once, document unsupported | (a): search is the whole point of some Shell apps |
-| D15 | `Shell.FlyoutIsPresented` from code (M16.6) | (a) open a Silica context menu with the flyout entries; (b) warn once | (a) |
-| D16 | `Toolbar` handler scope (M16) | (a) full `IToolbar` handler replacing the direct `Page` reads; (b) patch the renderer for `HasNavigationBar`/`TitleView`/Priority only | (a): one place for all chrome, matches MAUI 11 |
-| D17 | Gesture capture at the Qt level (M17.10) | (a) `preventStealing` MouseArea on gesture-owner hosts (changes Silica behaviour under MAUI gestures); (b) keep observe-only, document the conflicts | (a) behind a per-view opt-out |
+The seventeen decisions (D1–D17) are kept in one place, the [Decisions table of the tracker](maui11-tracker.md#decisions):
+each is a question with its options (a, b, c, …), the suggested option, the sessions it blocks, and an `Answer` column
+for the owner. The packages above name the decision they wait for (for example "owner decision D2"). All seventeen
+were answered on 2026-10-07; D11 and D17 got sessions of their own (S59, S60), and D1 chose the maui-labs naming
+(`Microsoft.Maui.Platforms.SailfishOS*`), not a new prefix.
 
 ## 6. Ground rules and verification (unchanged from the handoff)
 

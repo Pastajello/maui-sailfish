@@ -141,9 +141,49 @@ internal sealed partial class QtHostDiagnosticsRunner
 		var sectionDepth = shell.CurrentItem?.CurrentItem?.Navigation.NavigationStack.Count ?? -1;
 		_qtShellChecks.Check($"leg C native pop: section stack {sectionDepth}==1, '{(renderer.CurrentPage as ContentPage)?.Title}'=='Shell Alpha' rendered again, native depth {renderer.NativePageIds.Count}==1",
 			sectionDepth == 1 && PageShows(renderer, "Shell Alpha", "alpha body") && renderer.NativePageIds.Count == 1);
-		Console.Error.WriteLine("[Sailfish] Qt shell diag: leg D — Shell.CurrentItem → Beta");
-		shell.CurrentItem = shell.Items[1];
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegD(renderer, shell));
+		RunShellVetoLeg(renderer, dispatcher, shell, () =>
+		{
+			Console.Error.WriteLine("[Sailfish] Qt shell diag: leg D — Shell.CurrentItem → Beta");
+			shell.CurrentItem = shell.Items[1];
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegD(renderer, shell));
+		});
+	}
+
+	/// <summary>Leg C2 (tracker S08): the app cancels the back the user did natively (Shell.Navigating). MAUI keeps the
+	/// page, and it is back on screen within a second, not when the follow operation's 3 s deadline runs out.</summary>
+	private void RunShellVetoLeg(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Shell shell, Action next)
+	{
+		Console.Error.WriteLine($"[Sailfish] Qt shell diag: leg C2 — GoToAsync('{ShellDetailRoute}') again, then a vetoed native back");
+		_ = shell.GoToAsync(ShellDetailRoute);
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () =>
+		{
+			var vetoes0 = renderer.FollowVetoes;
+			var resyncs0 = renderer.NavResyncs;
+			void Veto(object? sender, ShellNavigatingEventArgs e)
+			{
+				if (e.Source is ShellNavigationSource.Pop or ShellNavigationSource.PopToRoot)
+					e.Cancel();
+			}
+			shell.Navigating += Veto;
+			QtHost.QtHostRuntime.PopPage(immediate: true);
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1000), () =>
+			{
+				var sectionDepth = shell.CurrentItem?.CurrentItem?.Navigation.NavigationStack.Count ?? -1;
+				_qtShellChecks.Check($"leg C2 vetoed native back: section stack {sectionDepth}==2, 'Shell Detail' back on screen (native depth {renderer.NativePageIds.Count}==2) " +
+					$"within 1 s, follow vetoes +{renderer.FollowVetoes - vetoes0}==1, resyncs +{renderer.NavResyncs - resyncs0}==0",
+					sectionDepth == 2 && renderer.NativePageIds.Count == 2 && PageShows(renderer, "Shell Detail", "shell detail body") &&
+					renderer.FollowVetoes - vetoes0 == 1 && renderer.NavResyncs == resyncs0);
+				shell.Navigating -= Veto;
+				QtHost.QtHostRuntime.PopPage(immediate: true);
+				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () =>
+				{
+					var depth = shell.CurrentItem?.CurrentItem?.Navigation.NavigationStack.Count ?? -1;
+					_qtShellChecks.Check($"leg C2 back allowed again: section stack {depth}==1, native depth {renderer.NativePageIds.Count}==1",
+						depth == 1 && renderer.NativePageIds.Count == 1);
+					next();
+				});
+			});
+		});
 	}
 
 	private void VerifyShellLegD(QtHost.QtHostPageRenderer renderer, Shell shell)
@@ -169,9 +209,31 @@ internal sealed partial class QtHostDiagnosticsRunner
 				var removed = PulleyTexts(renderer);
 				_qtShellChecks.Check($"leg E2 removed again: pulley [{string.Join(",", removed ?? new())}] without 'Gamma' 500 ms after Items.Remove",
 					removed is not null && !removed.Contains("Gamma"));
-				Console.Error.WriteLine("[Sailfish] Qt shell diag: leg E — pulley pick 'Alpha' (toolbar-activated index 0)");
-				renderer.HandleNativeEvent("toolbar-activated", "{\"menu\":\"pull\",\"index\":0}");
-				_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegE(renderer, shell));
+				// Leg E3 (tracker S19): the pulley's ToolbarItems come from MAUI's ShellToolbar: the Shell's own item shows on
+				// its pages, and items follow Priority (lower first), not the order they were added.
+				var page = renderer.CurrentPage;
+				var late = new ToolbarItem { Text = "SH late", Priority = 5 };
+				var early = new ToolbarItem { Text = "SH early", Priority = 1 };
+				var global = new ToolbarItem { Text = "SH global", Priority = 3 };
+				page?.ToolbarItems.Add(late);
+				page?.ToolbarItems.Add(early);
+				shell.ToolbarItems.Add(global);
+				_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+				{
+					var withItems = PulleyTexts(renderer) ?? new();
+					var order = withItems.Where(t => t.StartsWith("SH ", StringComparison.Ordinal)).ToList();
+					_qtShellChecks.Check($"leg E3 toolbar: pulley [{string.Join(",", withItems)}] has the Shell's item and Priority order [{string.Join(",", order)}]==[SH early,SH global,SH late]",
+						order.SequenceEqual(new[] { "SH early", "SH global", "SH late" }));
+					page?.ToolbarItems.Remove(late);
+					page?.ToolbarItems.Remove(early);
+					shell.ToolbarItems.Remove(global);
+					_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+					{
+						Console.Error.WriteLine("[Sailfish] Qt shell diag: leg E — pulley pick 'Alpha' (toolbar-activated index 0)");
+						renderer.HandleNativeEvent("toolbar-activated", "{\"menu\":\"pull\",\"index\":0}");
+						_context.Dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () => VerifyShellLegE(renderer, shell));
+					});
+				});
 			});
 		});
 	}

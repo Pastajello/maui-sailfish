@@ -95,7 +95,7 @@
 	</PropertyGroup>
 
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
-		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
+		<PackageReference Include="Microsoft.Maui.Platforms.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
 	</ItemGroup>
 
 </Project>

@@ -4,12 +4,12 @@
     "sailfish": {
       "description": ".NET MAUI on Sailfish OS (Qt/Silica host, linux-arm64)",
       "packs": [
-        "microsoft.maui.sailfishos"
+        "microsoft.maui.platforms.sailfishos"
       ]
     }
   },
   "packs": {
-    "microsoft.maui.sailfishos": {
+    "microsoft.maui.platforms.sailfishos": {
       "kind": "library",
       "version": "@SAILFISH_VERSION@"
     }

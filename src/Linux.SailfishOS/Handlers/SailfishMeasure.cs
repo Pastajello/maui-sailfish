@@ -357,6 +357,7 @@ internal static class SailfishMeasure
 			var height = IsFinite(hc) ? (IsFinite(wc) ? 0 : hc) : adapter.CrossExtentDp;
 			return Constrain(width, height, wc, hc);
 		}
+		adapter.SetUnbounded(!IsFinite(hc) && !adapter.Carousel);
 		if (IsFinite(hc))
 			return Constrain(0, 0, wc, hc);
 		return new Size(IsFinite(wc) ? wc : 0, adapter.ContentExtentDp);

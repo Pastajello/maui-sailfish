@@ -77,6 +77,10 @@ internal sealed partial class QtHostListAdapter
 			case "carousel-position":
 				OnCarouselPosition((int)BridgeJson.Num(root, "index", -1));
 				break;
+			case "carousel-motion":
+				OnCarouselMotion(root.TryGetProperty("dragging", out var d) && d.ValueKind == JsonValueKind.True,
+					root.TryGetProperty("moving", out var m) && m.ValueKind == JsonValueKind.True);
+				break;
 			case "list-scroll":
 				OnListScroll(BridgeJson.Num(root, "y", -1), (int)BridgeJson.Num(root, "first", -1), (int)BridgeJson.Num(root, "last", -1));
 				break;

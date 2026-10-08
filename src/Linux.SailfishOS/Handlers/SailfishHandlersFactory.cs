@@ -66,6 +66,11 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		// The official menu handlers throw here (no platform menu layer), so menus get the no-op handler.
 		if (typeof(BaseMenuItem).IsAssignableFrom(type) || typeof(MenuFlyout).IsAssignableFrom(type))
 			return (null, NullElementRow);
+		// MAUI's toolbar (NavigationPageToolbar, ShellToolbar): this TFM registers no handler for it; an app's own
+		// registration still wins below.
+		if (typeof(IToolbar).IsAssignableFrom(type) && (Registered(type) is not { } toolbarRegistration ||
+		                                                IsStock(DescriptorType(toolbarRegistration))))
+			return (null, ToolbarRow);
 		for (var t = type; t is not null; t = t.BaseType)
 		{
 			if (Registered(t) is { } descriptor && !IsStock(DescriptorType(descriptor)))
@@ -191,6 +196,24 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		handler.SetVirtualView(root);
 		return handler;
 	}
+	/// <summary>Gives MAUI's toolbar its handler (the app's registration, else <see cref="SailfishToolbarHandler"/>).</summary>
+	internal static IElementHandler AttachToolbarHandler(IToolbar toolbar, IMauiContext context)
+	{
+		IElementHandler? handler = null;
+		try
+		{
+			handler = context.Handlers.GetHandler(toolbar.GetType());
+		}
+		catch (InvalidOperationException)
+		{
+			// no factory in this context
+		}
+		handler ??= ToolbarRow.Create();
+		handler.SetMauiContext(context);
+		handler.SetVirtualView(toolbar);
+		return handler;
+	}
+
 	private static readonly HandlerRow LayoutRow = Row<ILayout, SailfishLayoutHandler>();
 	private static readonly HandlerRow ContainerRow = Row<IView, SailfishContainerHandler>();
 
@@ -202,6 +225,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 	private static readonly HandlerRow NullElementRow = Row<IElement, NullElementHandler>();
 	private static readonly HandlerRow ApplicationRow = Row<IApplication, SailfishApplicationHandler>();
 	private static readonly HandlerRow WindowRow = Row<IWindow, SailfishWindowHandler>();
+	private static readonly HandlerRow ToolbarRow = Row<IToolbar, SailfishToolbarHandler>();
 
 	private static HandlerRow? ExactRow(Type type)
 	{
@@ -244,6 +268,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		Row<FlyoutPage, SailfishFlyoutPageHandler>(),
 		Row<ScrollView, SailfishScrollViewHandler>(),
 		Row<ItemsView, SailfishListViewHandler>(),
+		Row<ListView, SailfishLegacyListViewHandler>(),   // the legacy list (ItemsView<Cell>, not an ItemsView)
 		Row<IndicatorView, SailfishIndicatorViewHandler>(),
 		Row<WebView, SailfishWebViewHandler>(),
 		Row<SwipeView, SailfishSwipeViewHandler>(),

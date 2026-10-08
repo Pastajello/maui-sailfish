@@ -40,7 +40,16 @@ Canvas {
     renderTarget: Canvas.FramebufferObject
 
     onMauiWantHashChanged: requestPaint()
-    onMauiCommandsChanged: requestPaint()
+    onMauiCommandsChanged: {
+        antialiasing = !__aaOff(mauiCommands);
+        requestPaint();
+    }
+    function __aaOff(cmds) {
+        for (var i = 0; cmds && i < cmds.length; ++i)
+            if (cmds[i][0] === "aa" && cmds[i][1] === 0)
+                return true;
+        return false;
+    }
     onMauiScaleChanged: requestPaint()
     onMauiBackgroundChanged: requestPaint()
     onMauiFontFamilyChanged: requestPaint()
@@ -93,7 +102,8 @@ Canvas {
             case "sv": stateSave(st); ctx.save(); st.executed++; break;
             case "rs": ctx.restore(); stateRestore(st); st.executed++; break;
             case "reset": PathOps.resetContext(ctx); st.executed++; break;   // ICanvas.ResetState()
-            case "aa": st.antialias = c[1] !== 0; st.executed++; break;   /* Qt antialiases in the scene graph */
+            /* Context2D has no per-op antialias: Antialias=false anywhere turns the canvas's off (__aaOff). */
+            case "aa": st.antialias = c[1] !== 0; st.executed++; break;
             case "al": ctx.globalAlpha = c[1]; st.executed++; break;
             case "bm": ctx.globalCompositeOperation = blendName(c[1]); st.executed++; break;
             /* --- stroke / fill / font state --- */
@@ -141,7 +151,10 @@ Canvas {
                 break;
             case "clipp":
                 PathOps.buildPath(ctx, c[1]);
-                try { ctx.clip(c[2] === 1 ? "evenodd" : "nonzero"); } catch (e) { ctx.clip(); }
+                /* Qt 5.6's Context2D ignores clip()/fill()'s rule argument: the rule is ctx.fillRule. */
+                ctx.fillRule = c[2] === 1 ? Qt.OddEvenFill : Qt.WindingFill;
+                ctx.clip();
+                ctx.fillRule = Qt.WindingFill;
                 st.executed++;
                 break;
             case "subclipr":
@@ -199,7 +212,9 @@ Canvas {
                 fillSetup(ctx, st);
                 if (st.hasFill) {
                     PathOps.buildPath(ctx, c[1]);
-                    try { ctx.fill(c[2] === 1 ? "evenodd" : "nonzero"); } catch (e) { ctx.fill(); }
+                    ctx.fillRule = c[2] === 1 ? Qt.OddEvenFill : Qt.WindingFill;
+                    ctx.fill();
+                    ctx.fillRule = Qt.WindingFill;
                 }
                 st.executed++;
                 break;
@@ -359,13 +374,13 @@ Canvas {
         }
     }
 
-    /* DrawString(value, x, y, ha): the point is the top-left of the text box, as in
-     * MAUI's Skia backend. ha: 0 Left, 1 Center, 2 Right, 3 Justify. */
+    /* DrawString(value, x, y, ha): y is the text's baseline, as on Android (Canvas.drawText) and in MAUI's Skia
+     * backend (tracker S30; it was the top of the text box). ha: 0 Left, 1 Center, 2 Right, 3 Justify. */
     function drawTextPoint(ctx, st, text, x, y, ha) {
         applyFont(ctx, st);
         var w = measure(ctx, text, st);
         var dx = ha === 1 ? x - w / 2 : (ha === 2 ? x - w : x);
-        ctx.textBaseline = "top";
+        ctx.textBaseline = "alphabetic";
         ctx.textAlign = "left";
         ctx.fillText(text, dx, y);
     }

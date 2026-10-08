@@ -31,6 +31,15 @@ public class SailfishPageHandler : NullViewHandler
 		[nameof(FlyoutPage.IsPresented)] = MapModelPage,
 		// The Shell flyout is the pulley: turning it off or on changes the menu.
 		[nameof(Shell.FlyoutBehavior)] = MapModelPage,
+		// Presenting the flyout from code opens its entries as a context menu (tracker S23).
+		[nameof(Shell.FlyoutIsPresented)] = MapModelPage,
+		// The header and tab rows (tracker S20): attached properties report their change on the page.
+		[NavigationPage.HasNavigationBarProperty.PropertyName] = MapModelPage,
+		[NavigationPage.TitleViewProperty.PropertyName] = MapModelPage,
+		[Shell.NavBarIsVisibleProperty.PropertyName] = MapModelPage,
+		[Shell.TabBarIsVisibleProperty.PropertyName] = MapModelPage,
+		// A Shell's (or a nested NavigationPage's) MAUI toolbar lives on the page: it gets its handler (tracker S19).
+		[nameof(IToolbarElement.Toolbar)] = MapToolbar,
 	};
 
 	public static readonly CommandMapper<IView, SailfishPageHandler> CommandMapper = new(SailfishViewMapper.CommandMapper);
@@ -42,6 +51,14 @@ public class SailfishPageHandler : NullViewHandler
 	public SailfishPageHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
 		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
 	{
+	}
+
+	/// <summary>The page's MAUI toolbar gets its handler, which drives the chrome.</summary>
+	public static void MapToolbar(IViewHandler handler, IView view)
+	{
+		if (view is IToolbarElement { Toolbar: { Handler: null } toolbar } && handler.MauiContext is { } context)
+			SailfishHandlersFactory.AttachToolbarHandler(toolbar, context);
+		SailfishHandlerCore.SessionOf(handler)?.RequestPoll();
 	}
 
 	/// <summary>Asks the renderer to re-sync the model page and its content.</summary>
