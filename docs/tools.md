@@ -96,7 +96,9 @@ output.
 
 `tools/ci/host-ci.sh [style] [build] [test] [pack] [template]` is the host-only CI. It needs no phone and no native
 toolchain, and `.github/workflows/host-ci.yml` runs the same script: a Linux job that gates, and a Windows job under
-Git Bash that does not gate yet. With no arguments it runs every stage:
+Git Bash that does not gate yet. Every stage but `style` first installs the workload manifest into
+`artifacts/ci/manifests` (`sailfish-workload install --manifest-root`) and sets `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`,
+so a runner whose SDK has never seen it knows `net11.0-sailfish`. With no arguments it runs every stage:
 
 | Stage | What |
 |---|---|

@@ -1622,6 +1622,11 @@ Notes:
 - Two real bugs this found on the first fresh-copy runs:
   1. The `sailfish-workload` tool (S54) never had `WorkloadManifest.Run.targets`: MSBuild read `.Run.` as the culture "run" and put the file in a `Run/` satellite assembly, so `install` failed. Fixed with `WithCulture="false"`; test `Every_manifest_file_is_embedded_in_the_tool_itself`.
   2. A Release `dotnet publish` of a package-based app on a clean NuGet cache failed with NETSDK1094. NuGet evaluates with `ExcludeRestorePackageImports`, so the package's ReadyToRun/trim settings never reached the restore and crossgen2 was not downloaded; it only worked where the packs were already cached. The workload manifest now sets `PublishReadyToRun`/`PublishTrimmed` during restore only, unless `SailfishReadyToRun`/`SailfishTrim=false`. Test `The_restore_brings_the_ready_to_run_and_trimming_packs_…`.
+- 2026-10-09, first GitHub runs (owner): both jobs failed in `build` with NETSDK1139 (`sailfish` not recognized) for SailfishKitchen and SkiaSharpProbe, which target `net11.0-sailfish`. The local runs had passed only because this Mac's SDK has the manifest installed; the "fresh copy" did not reproduce a fresh SDK.
+  - Fix: `ensure_manifest` before every stage but style. It runs the repo's workload tool `install --manifest-root artifacts/ci/manifests` and exports `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`; the template stage uses the same.
+  - On Windows (Git Bash) the env vars and the generated `nuget.config` get `cygpath -w` paths, since only arguments are translated there.
+  - Reproduced the runner here: the SDK's installed manifest moved aside, a fresh copy, and `host-ci.sh` passed every stage (641 tests, smoke RPM). Counter-check in the same state without the variable: SkiaSharpProbe fails with the runner's NETSDK1139. The manifest was restored afterwards.
+  - Not yet seen: the next GitHub run, in particular Windows.
 - Verified: a fresh copy of the working tree (tracked + untracked files, no artifacts/bin/obj) runs `tools/ci/host-ci.sh` end to end on this Mac: style 591 files clean, build, 637 tests, 8 packages, template RPM 16.7 MB. Not run on GitHub: the user commits and pushes. Open: "passes on a branch" and the first Windows result.
 
 <a id="s58"></a>
