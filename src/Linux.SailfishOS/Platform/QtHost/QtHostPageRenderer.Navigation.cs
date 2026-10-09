@@ -245,7 +245,9 @@ internal sealed partial class QtHostPageRenderer : INativeStackOwner
 		"ver:(window.mauiStackVersion||0)," +
 		"busy:!!pageStack.busy," +
 		"topModel:!!(pageStack.currentPage&&pageStack.currentPage.mauiPageId!==undefined)," +
-		"active:!!window.active," +
+		// Qt.application.active, not window.active: `window` is Silica's ApplicationWindow, whose `active` is undefined,
+		// so Window.Activated/Deactivated never fired on the phone (tracker S03). One window: the same signal.
+		"active:!!(typeof Qt!=='undefined'&&Qt.application&&Qt.application.active)," +
 		"appState:(typeof Qt!=='undefined'&&Qt.application?Qt.application.state:-1)}):'{}')";
 
 	private void SyncNativeNavigation()

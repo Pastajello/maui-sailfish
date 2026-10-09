@@ -175,7 +175,9 @@ ApplicationWindow {
         pageStack.find(function(p) { if (p && p.mauiPageId !== undefined) ids.unshift(String(p.mauiPageId)); return false; });
         return JSON.stringify({ ids: ids, ver: window.mauiStackVersion || 0, busy: !!pageStack.busy,
                                 topModel: !!(pageStack.currentPage && pageStack.currentPage.mauiPageId !== undefined),
-                                active: !!window.active,
+                                // Qt.application.active: Silica's ApplicationWindow has no `active` (undefined), so
+                                // Window.Activated/Deactivated never fired (tracker S03). One window: the same signal.
+                                active: !!(Qt.application && Qt.application.active),
                                 appState: Qt.application ? Qt.application.state : -1 });
     }
     // What C# calls on the shell itself (sailfish_host_invoke): findChild finds this object, not the window.

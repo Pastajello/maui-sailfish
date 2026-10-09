@@ -35,7 +35,7 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 **Phase A — blockers that need no decision**
 - [x] [S01](#s01) `DataTemplateSelector` on the list path · 📱
 - [x] [S02](#s02) `RefreshView` on pages with a pulley · 📱
-- [ ] [S03](#s03) Lifecycle: `Stopped`/`Resumed` pairing (OnSleep on minimize) · 📱
+- [x] [S03](#s03) Lifecycle: `Stopped`/`Resumed` pairing (OnSleep on minimize) · 📱
 - [x] [S04](#s04) Lifecycle: quit sequence, `Created` order, `ActivateWindow` · 📱
 - [x] [S05](#s05) Back through `IWindow.BackButtonClicked()` · 📱
 - [x] [S06](#s06) Packaging hygiene (launcher path, symbols, versioning)
@@ -48,7 +48,7 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 - [x] [S09](#s09) `AppInfo` identity and `VersionTracking` · 📱
 - [x] [S10](#s10) Essentials defects, managed part · 📱
 - [x] [S11](#s11) `IViewScreenshot`, JPEG, clipboard and refresh rate (shim) · 📱
-- [ ] [S12](#s12) Permissions mapping, `Early` services, dead code · 📱
+- [x] [S12](#s12) Permissions mapping, `Early` services, dead code · 📱
 - [x] [S13](#s13) Handler fixes: SwipeItem colours, Window title/RTL, mapper conventions · 📱
 - [x] [S14](#s14) TabbedPage badges, tab icons, scrolling tab row · 📱
 - [x] [S15](#s15) Change notifications, context menu entries, `HideSoftInputOnTapped` · 📱
@@ -201,7 +201,7 @@ Notes:
 <a id="s03"></a>
 ### S03 · Lifecycle: `Stopped`/`Resumed` pairing
 Plan: §M1 steps 1–2 · Audit: lifecycle L1 (rows 3, 4) · Phone: legs `page nav features f4` + manual cover round-trip · Depends: —
-- [ ] device check: record `TRACE appState=` for cover, cover→app, screen off/lock, system dialog, home close; write the table into `add-sailfish-to-existing-app.md` (lifecycle section)
+- [x] device check: record `TRACE appState=` for cover, cover→app, screen off/lock, system dialog, home close; write the table into `add-sailfish-to-existing-app.md` (lifecycle section)
 - [x] `ActivationGate`: `Stopped()` on Active→{Inactive, Hidden, Suspended}; `Resumed()` only after a `Stopped`; no startup `Resumed`; first `-1` treated as unknown
 - [x] new `ActivationGateTests` (Active→Inactive→Active, Active→Suspended, startup `-1`, no startup Resumed)
 
@@ -220,6 +220,19 @@ Notes:
   and the caveat that a system dialog is also Inactive, so it raises OnSleep/OnResume where Android raises onPause only.
 - Left: the manual cover round trip on the phone (and the trace of real states for the other cases), done together
   with S04's home-screen close.
+- 2026-10-09, manual run by the owner: the sample started with `MAUI_SAILFISH_QT_HOST_DIAG=1`, then cover, back, screen off/lock + unlock, Top Menu, close from the home screen. `[LIFECYCLE]` lines in `/tmp/sf_run.log`:
+  - cover: `Stopped (appState 4→2)`; back: `Resumed (2→4)`, once each (done-when met);
+  - screen off/lock: `Stopped (4→2)`, the screen state Inactive and not Suspended in this run; unlock: `Resumed (2→4)`;
+  - Top Menu: no state change, the app stays Active;
+  - going home before the close: `Stopped (4→2)`; the close: `Destroying (quit)` and `event loop exited rc=0` (S04's done-when), with no second Stopped.
+- Bug found by the same log: no `Activated`/`Deactivated` ever. The navigation snapshot read `window.active` in `MauiShell.qml` `mauiNavState()` and in the C# fallback JS. Logged on the phone: `window.active` is undefined on Silica's ApplicationWindow, while `Qt.application.active` is `true`. So `Window.Activated`/`Deactivated` never fired, and the legs' "SSH launch is never granted activation" branch hid it. Both snapshot sources now read `Qt.application.active`.
+- After the fix:
+  - leg D: Deactivated +1 then Stopped +1 on Inactive, Resumed +1 then Activated +1 on Active, the Android order;
+  - nav: `Activated 1 (active=True)` at startup, no startup Resumed/Stopped;
+  - `nav stress page features f4` 5/5 PASS;
+  - the legs' comments are corrected and leg D logs `Qt.application.active`/`window.active`;
+  - test `The_navigation_snapshot_takes_activation_from_the_application`, suite 641/641.
+- Table in `add-sailfish-to-existing-app.md` §3 rewritten from these measurements, including the start with the screen off, lock, Top Menu and home close. Not measured: a real system dialog such as "USB cable connected"; the table keeps it with the cover as Inactive.
 <a id="s04"></a>
 ### S04 · Lifecycle: quit sequence, `Created` order, `ActivateWindow`
 Plan: §M1 steps 3–6 · Audit: lifecycle L2, L7 · Phone: legs `page features f4` · Depends: S03
@@ -487,7 +500,10 @@ Notes:
     1. Harbour build (`SF_PUBLISH_PROPS=-p:SailfishHarbour=true`, permissions Internet only): it ran inside Sailjail, 42/46. The 4 failures are the sandbox working as designed: Contacts → `PermissionException` naming `Contacts`; Flashlight unsupported (no Sailjail permission reaches the torch); accelerometer no readings (no `Sensors`); Geolocation `PermissionException` (no `Location`).
     2. The f4 flashlight check now expects "unsupported" when `SailfishPermissions.IsSandboxed`.
     3. A sandboxed build with `Contacts;Location;Sensors` (`-p:SailfishSandboxing=true -p:SailfishPermissions=Contacts%3BLocation%3BSensors`): no output, gone after ~80 s. sailjaild `GetLaunchAllowed(100000, harbour-sample)` = 0 (undecided): new permissions need the user's consent once (app-grid launch → allow), and a launch over SSH waits for it.
-  - Left: the user approves the permissions on the phone (the sandboxed build is installed), then `SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1" tools/sf matrix f4`. Not granted from here through sailjaild's `SetLaunchAllowed`/`SetGrantedPermissions`: that is the owner's security setting.
+  - Not granted from here through sailjaild's `SetLaunchAllowed`/`SetGrantedPermissions`: that is the owner's security setting.
+- 2026-10-09, after the owner approved the permissions on the phone (`GetLaunchAllowed` = 1):
+  - Sandboxed: `SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1" tools/sf matrix f4` → 46/46 inside Sailjail. Contacts 0 (non-privileged store), Flashlight unsupported as expected in a sandbox, accelerometer 37 readings in 1.5 s at |a| 1.00 G, Geolocation OK.
+  - Unsandboxed: the normal sample redeployed (verify passed), `f4` 46/46, Flashlight supported as expected. Done.
 
 <a id="s13"></a>
 ### S13 · Handler fixes: SwipeItem colours, Window title/RTL, mapper conventions

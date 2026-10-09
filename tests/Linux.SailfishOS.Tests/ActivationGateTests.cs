@@ -121,4 +121,17 @@ public sealed class ActivationGateTests
 		r.Gate.Quit();
 		Assert.Empty(r.Events);
 	}
+
+	// Tracker S03: the snapshot read `window.active`, which Silica's ApplicationWindow does not have (undefined → false),
+	// so Window.Activated/Deactivated never fired on the phone. Both snapshot sources read the application's state.
+	[Fact]
+	public void The_navigation_snapshot_takes_activation_from_the_application()
+	{
+		var shell = File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS/Platform/QtHost/qml/MauiShell.qml"));
+		var fallback = File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS/Platform/QtHost/QtHostPageRenderer.Navigation.cs"));
+
+		Assert.Contains("active: !!(Qt.application && Qt.application.active)", shell);
+		Assert.Contains("active:!!(typeof Qt!=='undefined'&&Qt.application&&Qt.application.active)", fallback);
+		Assert.DoesNotContain("!!window.active", shell + fallback);
+	}
 }

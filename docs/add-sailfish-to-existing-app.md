@@ -113,18 +113,23 @@ Platforms/SailfishOS/
 ```
 
 MAUI's window lifecycle (and with it `Application.OnStart/OnSleep/OnResume`) follows Android's order, driven by
-`Qt.application.state` and the window's focus:
+`Qt.application.state` and `Qt.application.active`. Measured on a phone (SFOS 5.2):
 
 | What happens on the phone | `Qt.application.state` | MAUI events | `Application` |
 |---|---|---|---|
-| App starts | Active | `Created` (MAUI), `Activated` | `OnStart` |
-| Minimized to its cover, or a system dialog in front | Active → Inactive | `Deactivated`, `Stopped` | `OnSleep` |
+| App starts in front | Active | `Created` (MAUI), `Activated` | `OnStart` |
+| App starts with the screen off or locked | Inactive | `Created`; `Activated` once it is shown | `OnStart` |
+| Minimized to its cover (swipe to the home screen) | Active → Inactive | `Deactivated`, `Stopped` | `OnSleep` |
+| Back from the cover (tap it) | Inactive → Active | `Resumed`, `Activated` | `OnResume` |
+| Screen turned off / locked, then unlocked | Active → Inactive → Active | as minimize, then as back | `OnSleep`, `OnResume` |
+| Top Menu pulled down over the app | stays Active | none | — |
 | Further to Hidden/Suspended while stopped | Inactive → Hidden/Suspended | none (already stopped) | — |
-| Back from the cover | → Active | `Resumed`, `Activated` | `OnResume` |
+| Closed from the home screen (the cover's ✕) | already Inactive | `Destroying`; nothing owed again | `OnSleep` was raised when it went to the cover |
 
-Sailfish reports the cover and a system dialog both as Inactive, so a system dialog (e.g. "USB cable connected")
-also raises `OnSleep`/`OnResume`, where Android raises only `onPause`. An app that must tell them apart reads
-`OnCoverStatusChanged` (only when it has a cover) or `OnApplicationStateChanged`.
+Each cover round trip raises `OnSleep` and `OnResume` once. Sailfish reports the cover, a locked screen and a system
+dialog in front of the app (e.g. "USB cable connected") as Inactive, so all of them raise `OnSleep`/`OnResume`, where
+Android raises only `onPause` for a dialog. An app that must tell them apart reads `OnCoverStatusChanged` (only when it
+has a cover) or `OnApplicationStateChanged`.
 
 The overrides are the native Sailfish/Qt events, with the platform's own values:
 

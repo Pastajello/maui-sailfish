@@ -2665,8 +2665,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var mauiDepth = nav.Navigation.NavigationStack.Count + nav.Navigation.ModalStack.Count;
 		_qtNavChecks.Check($"baseline: native model pages [{string.Join(",", renderer.NativePageIds)}] mirror the MAUI depth (native={_qtNavBaseDepth} maui={mauiDepth}) — the startup push already mapped",
 			_qtNavBaseDepth == mauiDepth && _qtNavBaseDepth >= 2);
-		// Created comes from MAUI and startup raises no Resumed (Android: Created → Activated); Activated needs the
-		// compositor to grant the window, which an SSH launch does not always get.
+		// Created comes from MAUI and startup raises no Resumed (Android: Created → Activated); Activated follows
+		// Qt.application.active, false when the run starts with the screen off or locked.
 		_qtNavChecks.Check($"activation bridge: Activated {renderer.ActivatedSent} matches the window (active={renderer.LastWindowActive?.ToString() ?? "?"}), no Resumed/Stopped at startup ({renderer.ResumedSent}/{renderer.StoppedSent})",
 			(renderer.LastWindowActive == true ? renderer.ActivatedSent >= 1 : renderer.ActivatedSent == 0) &&
 			renderer.ResumedSent == 0 && renderer.StoppedSent == 0);
@@ -3320,8 +3320,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private void RunStressLegD(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav)
 	{
 		// Leg D: background → suspend → resume, injected at the QPA boundary (the channel lipstick drives in production). The app-state part
-		// is deterministic; window activation needs the compositor to grant it, which an SSH-launched run never gets, so without an active
-		// window the checks require no spurious activation events instead.
+		// is deterministic. Activation follows Qt.application.active (tracker S03: window.active of Silica's ApplicationWindow is undefined,
+		// which made every run look "not granted"); a run that starts with the screen off or locked is not active, and then the checks
+		// require no spurious activation events instead.
 		var activeAtStart = renderer.LastWindowActive == true;
 		var deact0 = renderer.DeactivatedSent;
 		var stop0 = renderer.StoppedSent;
@@ -3351,6 +3352,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(700), () =>
 				{
 					var stateQml2 = QtHost.QtHostRuntime.Eval("(typeof Qt!=='undefined'&&Qt.application?Qt.application.state:-1)");
+					var activeQml2 = QtHost.QtHostRuntime.Eval("(typeof Qt!=='undefined'&&Qt.application?String(Qt.application.active):'?')");
+					Console.Error.WriteLine($"[Sailfish] Qt stress diag: leg D resume — Qt.application.active='{activeQml2}' state='{stateQml2}' window.active='{QtHost.QtHostRuntime.Eval("String(window.active)")}'");
 					if (activeAtStart)
 						_qtStressChecks.Check($"leg D resume: Activated +{renderer.ActivatedSent - act0}>=1 AND Resumed (OnResume) +{renderer.ResumedSent - res0}==1 (window.active mirror={renderer.LastWindowActive?.ToString() ?? "?"}==True, Qt.application.state='{stateQml2}'=='4')",
 							renderer.ActivatedSent > act0 && renderer.ResumedSent - res0 == 1 &&

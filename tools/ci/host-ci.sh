@@ -60,7 +60,7 @@ stage_template() {
 	local smoke="$CI_OUT/smoke" hive="$CI_OUT/template-hive" manifests="$CI_OUT/manifests"
 	rm -rf "$smoke" "$hive" "$manifests" "$CI_OUT/packages"
 	mkdir -p "$smoke"
-	# Only what the packages carry: a NuGet cache of its own (no 0.1.0 from an earlier local pack), the manifest from
+	# Only what the packages carry: a NuGet cache of its own (no package of the same version from an earlier local pack), the manifest from
 	# the packed workload tool's files, the template from the packed template package.
 	export NUGET_PACKAGES="$CI_OUT/packages"
 	dotnet run --project "$ROOT/src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" -c Release --no-build -- \
