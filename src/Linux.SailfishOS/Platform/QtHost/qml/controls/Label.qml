@@ -65,6 +65,14 @@ Text {
     }
 
     textFormat: mauiTextFormat
+    // A tappable FormattedText span is a "span:N" link: its TapGestureRecognizers fire (AdapterEventRouter). Such
+    // links keep the label's colour; an HTML label's own links keep Qt's link colour.
+    property bool mauiSpanLinks: false
+    Binding { target: root; property: "linkColor"; value: root.color; when: root.mauiSpanLinks }
+    onLinkActivated: {
+        if (link.indexOf("span:") === 0)
+            mauiEvent("span-tapped", JSON.stringify({ id: mauiId, index: parseInt(link.substring(5), 10) }));
+    }
     wrapMode: mauiWrap
     elide: mauiElide
     horizontalAlignment: mauiHAlign

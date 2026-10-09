@@ -17,9 +17,16 @@ public class SailfishApplicationHandler : ElementHandler<IApplication, object>
 		["Terminate"] = MapTerminate,   // ApplicationHandler.TerminateCommandKey (internal): Application.Quit()
 		["OpenWindow"] = MapOpenWindow,
 		["CloseWindow"] = MapCloseWindow,
+		["ActivateWindow"] = MapActivateWindow,
 	};
 
-	public SailfishApplicationHandler() : base(Mapper, CommandMapper)
+	public SailfishApplicationHandler() : this(null)
+	{
+	}
+
+	/// <summary>For a subclass that brings its own mappers, as MAUI's ApplicationHandler(mapper, commandMapper).</summary>
+	public SailfishApplicationHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
 	{
 	}
 
@@ -35,6 +42,15 @@ public class SailfishApplicationHandler : ElementHandler<IApplication, object>
 	public static void MapOpenWindow(SailfishApplicationHandler handler, IApplication application, object? args) =>
 		QtHostDiag.Warn(QtHostDiagChannel.Navigation,
 			"Application.OpenWindow: a Sailfish OS app has a single window; the new window is not opened");
+
+	/// <summary>Application.ActivateWindow: the one window comes to the front (Silica ApplicationWindow.activate(), as
+	/// lipstick does from the cover); a window this app does not show is ignored.</summary>
+	public static void MapActivateWindow(SailfishApplicationHandler handler, IApplication application, object? args)
+	{
+		if (args is IWindow window && !ReferenceEquals(window, application.Windows.FirstOrDefault()))
+			return;
+		QtThread.Later(() => QtHostRuntime.Eval("(typeof window!=='undefined'&&window&&window.activate)?(window.activate(),'ok'):'no window'"));
+	}
 
 	/// <summary>Closing the app's window ends the app, as finishing the last activity does on Android.</summary>
 	public static void MapCloseWindow(SailfishApplicationHandler handler, IApplication application, object? args)
@@ -52,6 +68,9 @@ public class SailfishWindowHandler : ElementHandler<IWindow, object>
 	public static readonly PropertyMapper<IWindow, SailfishWindowHandler> Mapper = new(ElementMapper)
 	{
 		[nameof(IWindow.Content)] = MapContent,
+		[nameof(IWindow.Title)] = MapTitle,
+		[nameof(IWindow.FlowDirection)] = MapFlowDirection,
+		[nameof(IToolbarElement.Toolbar)] = MapToolbar,
 	};
 
 	public static readonly CommandMapper<IWindow, SailfishWindowHandler> CommandMapper = new(ElementCommandMapper)
@@ -63,8 +82,43 @@ public class SailfishWindowHandler : ElementHandler<IWindow, object>
 		},
 	};
 
-	public SailfishWindowHandler() : base(Mapper, CommandMapper)
+	public SailfishWindowHandler() : this(null)
 	{
+	}
+
+	/// <summary>For a subclass that brings its own mappers, as MAUI's WindowHandler(mapper, commandMapper).</summary>
+	public SailfishWindowHandler(IPropertyMapper? mapper, CommandMapper? commandMapper = null)
+		: base(mapper ?? Mapper, commandMapper ?? CommandMapper)
+	{
+	}
+
+	/// <summary>Window.Title is the app's name on its home-screen cover (the cover's placeholder title), as it names
+	/// the window on desktop heads; an empty title keeps the one baked from ApplicationTitle (tracker S13).</summary>
+	public static void MapTitle(SailfishWindowHandler handler, IWindow window)
+	{
+		if (string.IsNullOrEmpty(window.Title))
+			return;
+		var title = BridgeValue.Quote(window.Title);
+		QtThread.Later(() => QtHostRuntime.Eval(
+			"(typeof window!=='undefined'&&window)?(window.mauiCoverTitle=" + title + ",'ok'):'no window'"));
+	}
+
+	/// <summary>Window.FlowDirection mirrors every page (QtHostVisualState.IsRightToLeft reads the window as the root):
+	/// the hosts' mirror state and positions are pushed again.</summary>
+	public static void MapFlowDirection(SailfishWindowHandler handler, IWindow window)
+	{
+		var session = SailfishHandlerCore.SessionOf(handler);
+		session?.RequestLayout();
+		session?.RequestPoll();
+	}
+
+	/// <summary>As WindowHandler.MapToolbar on the platforms: MAUI's toolbar (set by a NavigationPage or a Shell)
+	/// gets its handler, which drives the page chrome (tracker S19).</summary>
+	public static void MapToolbar(SailfishWindowHandler handler, IWindow window)
+	{
+		if (window is IToolbarElement { Toolbar: { Handler: null } toolbar } && handler.MauiContext is { } context)
+			SailfishHandlersFactory.AttachToolbarHandler(toolbar, context);
+		SailfishHandlerCore.SessionOf(handler)?.RequestPoll();
 	}
 
 	protected override object CreatePlatformElement() => new object();

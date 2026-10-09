@@ -66,8 +66,12 @@ internal sealed class RendererHarness : IDisposable
 
 	/// <summary>Restores the process-wide state and fails the test when the renderer sent an eval the fake does not
 	/// model (<see cref="FakeShim.Strict"/>).</summary>
+	/// <summary>Runs first on <see cref="Dispose"/>: a test's own teardown (an attached input router).</summary>
+	public event Action? Disposing;
+
 	public void Dispose()
 	{
+		Disposing?.Invoke();
 		_statics.Dispose();
 		if (Shim.Strict && Shim.UnhandledEvals.Count > 0)
 			throw new Xunit.Sdk.XunitException(
@@ -510,5 +514,26 @@ public class RendererFeatureTests
 		using var h = new RendererHarness(Page(label));
 		// 6 chars × 16.5 = 99 dp; a fractional advance must never truncate below the text width.
 		Assert.True(label.Width >= 99 - 0.01, $"Label width {label.Width}");
+	}
+}
+
+/// <summary>Tracker S04: quitting raises the window lifecycle MAUI expects before the process ends.</summary>
+[Collection("renderer")]
+public sealed class QuitLifecycleTests
+{
+	[Fact]
+	// The harness window has no Application, so MAUI sends no Appearing/Disappearing here; the device leg checks those.
+	public void Quit_destroys_the_window_once_after_stopping_it()
+	{
+		var page = new ContentPage { Title = "T", Content = new Label { Text = "x" } };
+		using var h = new RendererHarness(page);
+		var destroying = 0;
+		h.Window.Destroying += (_, _) => destroying++;
+
+		h.Renderer.RaiseQuitLifecycle();
+		h.Renderer.RaiseQuitLifecycle();   // a second quit path must not throw (Window.Destroying throws twice)
+
+		Assert.Equal(1, destroying);
+		Assert.Equal(1, h.Renderer.DestroyingSent);
 	}
 }

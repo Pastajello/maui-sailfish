@@ -25,8 +25,8 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="$(SkiaVersion)" />
 		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaVersion)" />
-		<PackageReference Include="Microsoft.Maui.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
-		<PackageReference Include="Microsoft.Maui.SailfishOS.SkiaSharp" Version="$(PlatformMauiSailfishVersion)" />
+		<PackageReference Include="Microsoft.Maui.Platforms.SailfishOS" Version="$(PlatformMauiSailfishVersion)" />
+		<PackageReference Include="Microsoft.Maui.Platforms.SailfishOS.SkiaSharp" Version="$(PlatformMauiSailfishVersion)" />
 	</ItemGroup>
 
 </Project>

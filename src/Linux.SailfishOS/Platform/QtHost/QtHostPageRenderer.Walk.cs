@@ -84,26 +84,52 @@ internal sealed partial class QtHostPageRenderer
 	                  Dictionary<NativeElementHost, Dictionary<string, object?>> props,
 	                  NativeElementHost? parentHost = null, bool nest = true)
 	{
-		foreach (var child in element.GetVisualChildren())
+		foreach (var child in QtHostVisualChildren.Of(element))
 		{
-			// ContextFlyout registry (an attached property on FlyoutBase in .NET 11).
-			if (child is View flyoutView &&
-			    FlyoutBase.GetContextFlyout(flyoutView) is MenuFlyout flyout && flyout.Count > 0)
-				_contextFlyouts[flyoutView] = flyout;
-
-			var before = desired.Count;
-			var walkChildren = child is not Element childElement || MapElement(childElement, desired, props);
-			// The child's own host is the first one added for it; list/row bridges may append more.
-			var childHost = desired.Count > before && ReferenceEquals(desired[before].Element, child)
-				? desired[before]
-				: null;
-			if (nest && childHost is not null)
-				childHost.Parent = parentHost;
-			if (!walkChildren)
-				continue;   // the collection bridge owns the subtree
-
-			Walk(child, desired, props, childHost ?? parentHost, nest);
+			// MAUI parents a TitleView to its page: the page walk reaches it last, in the header (WalkPage).
+			if (element is Page owner && child is View titleView && IsTitleViewOf(owner, titleView))
+				continue;
+			WalkChild(child, desired, props, parentHost, nest);
 		}
+	}
+
+#pragma warning disable CS0618
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TableView, object> TableViewWarned = new();
+#pragma warning restore CS0618
+
+	private static bool IsTitleViewOf(Page page, View view) =>
+		ReferenceEquals(NavigationPage.GetTitleView(page), view) || ReferenceEquals(Shell.GetTitleView(page), view);
+
+	/// <summary>One element of the walk and its subtree: its host (under <paramref name="parentHost"/>, null = page
+	/// canvas), then its children.</summary>
+	private void WalkChild(IVisualTreeElement child, List<NativeElementHost> desired,
+	                       Dictionary<NativeElementHost, Dictionary<string, object?>> props,
+	                       NativeElementHost? parentHost, bool nest = true)
+	{
+		// ContextFlyout registry (an attached property on FlyoutBase in .NET 11).
+		if (child is View flyoutView &&
+		    FlyoutBase.GetContextFlyout(flyoutView) is MenuFlyout flyout && flyout.Count > 0)
+			_contextFlyouts[flyoutView] = flyout;
+
+		// TableView is not rendered (D2 b, tracker S35): said once instead of an empty area without a word.
+#pragma warning disable CS0618   // TableView is obsolete in MAUI 11; apps still ship it
+		if (child is TableView table && TableViewWarned.TryAdd(table, TableViewWarned))
+			QtHostDiag.Warn(QtHostDiagChannel.QtHost,
+				"TableView is not supported on Sailfish and renders nothing; use a CollectionView or a ListView with TextCell/ViewCell rows");
+#pragma warning restore CS0618
+
+		var before = desired.Count;
+		var walkChildren = child is not Element childElement || MapElement(childElement, desired, props);
+		// The child's own host is the first one added for it; list/row bridges may append more.
+		var childHost = desired.Count > before && ReferenceEquals(desired[before].Element, child)
+			? desired[before]
+			: null;
+		if (nest && childHost is not null)
+			childHost.Parent = parentHost;
+		if (!walkChildren)
+			return;   // the collection bridge owns the subtree
+
+		Walk(child, desired, props, childHost ?? parentHost, nest);
 	}
 
 	/// <summary>

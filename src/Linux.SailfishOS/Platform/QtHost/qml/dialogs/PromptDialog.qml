@@ -18,6 +18,8 @@ DialogPanel {
     property string mauiInitial: ""
     property int mauiMaxLength: -1
     property bool mauiNumeric: false
+    // Keyboard.Email / Keyboard.Url: Qt input method hints (Maliit's address layouts).
+    property int mauiHints: 0
 
     acceptText: mauiAccept
     cancelText: mauiCancel
@@ -36,6 +38,8 @@ DialogPanel {
                 maximumLength = root.mauiMaxLength
             if (root.mauiNumeric)
                 inputMethodHints = Qt.ImhDigitsOnly
+            else if (root.mauiHints !== 0)
+                inputMethodHints = root.mauiHints
             forceActiveFocus()
         }
     }

@@ -42,7 +42,14 @@
     </Content>
   </ItemGroup>
 
+  <!-- The HybridWebView page of the F3 diagnostics leg: HybridRoot "hybridroot" under the app root. -->
+  <ItemGroup>
+    <Content Include="Resources\Raw\hybridroot\**" CopyToOutputDirectory="PreserveNewest" Link="hybridroot\%(RecursiveDir)%(Filename)%(Extension)">
+      <TargetPath>hybridroot/%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
   <!-- Import the Sailfish OS RPM packaging targets -->
-  <Import Project="../../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.SailfishOS.targets" />
+  <Import Project="../../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets" />
 
 </Project>

@@ -87,8 +87,8 @@ internal sealed partial class QtHostListAdapter
 		// Slot views are measured later by MaterializeSlots; placeholders may not exist yet.
 		if (view is StructuredItemsView siv && !_slotsBuiltWhileHeld)
 		{
-			HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate);
-			FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate);
+			HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate, siv);
+			FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate, siv);
 			InheritOwnerContext(siv, HeaderView);
 			InheritOwnerContext(siv, FooterView);
 		}
@@ -96,7 +96,7 @@ internal sealed partial class QtHostListAdapter
 		// A plain-text EmptyView on a vertical list is Silica's ViewPlaceholder (the native empty-state text);
 		// views, templates and other layouts keep the MAUI content in the empty slot.
 		var placeholder = view.EmptyView is string text && view.EmptyViewTemplate is null && !Horizontal && !Carousel ? text : null;
-		EmptySlotView = placeholder is null ? CreateSlotView(view.EmptyView, view.EmptyViewTemplate) : null;
+		EmptySlotView = placeholder is null ? CreateSlotView(view.EmptyView, view.EmptyViewTemplate, view) : null;
 		InheritOwnerContext(view, EmptySlotView);
 		Push("mauiPlaceholderText", placeholder ?? string.Empty);
 
@@ -109,6 +109,9 @@ internal sealed partial class QtHostListAdapter
 		PushRows();
 		RecomputeSelection();
 		PushSelection();
+		_carouselStates.Clear();   // new rows, new views
+		if (View is CarouselView carousel)
+			ApplyCarouselStates(carousel.Position);
 		SlotsDirty = true;
 		// A list measured without a bound along its scroll axis (in a StackLayout or ScrollView) sizes to its rows,
 		// as RecyclerView/UICollectionView do; its first measure ran before the rows existed.
@@ -139,7 +142,7 @@ internal sealed partial class QtHostListAdapter
 		((Microsoft.Maui.IView)View).InvalidateMeasure();
 	}
 
-	/// <summary>What decides how a row is built: the templates, the layout and its axis. Rows built under another
+	/// <summary>What decides how a row is built: the templates, the layout and its axis, lazy templating. Rows built under another
 	/// signature are not reused.</summary>
 	private string BuildSignature()
 	{
@@ -150,7 +153,7 @@ internal sealed partial class QtHostListAdapter
 			grouped?.IsGrouped == true,
 			System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(grouped?.GroupHeaderTemplate ?? (object)string.Empty),
 			System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(grouped?.GroupFooterTemplate ?? (object)string.Empty),
-			Horizontal, Carousel, Math.Max(1, Span));
+			Horizontal, Carousel, Math.Max(1, Span), MeasureFirstOnly);
 	}
 
 	internal void AddItemRows(IEnumerable items, int groupIndex)
@@ -184,6 +187,13 @@ internal sealed partial class QtHostListAdapter
 				kept.ItemIndex = itemIndex;
 				kept.FirstItemOrdinal = ordinal;
 				Rows.Add(kept);
+				// A kept templated row measures the build's first item as well as a new one would.
+				if (MeasureFirstOnly && double.IsNaN(_firstItemExtentDp) && !kept.LazyCells && kept.CellViews.FirstOrDefault() is { } keptView)
+				{
+					_firstItemExtentDp = kept.HeightDp;
+					_lazyHasTap = RowHasTapView(keptView);
+					_lazyHasGestures = RowHasGesturesView(keptView);
+				}
 				row = null;
 				itemIndex += kept.CellItems.Count;
 				ordinal += kept.CellItems.Count;
@@ -198,10 +208,29 @@ internal sealed partial class QtHostListAdapter
 				row.CellWidthDp = cellWidth;
 				cell = 0;
 			}
-			var itemView = CreateItemView(item);
-			if (itemView is not null && Horizontal && !Carousel && span == 1)
-				row.NaturalCrossDp = Math.Max(row.NaturalCrossDp, NaturalHeight(itemView));
-			var height = itemView is null ? 0 : MeasureItemExtent(itemView, cellWidth);
+			View? itemView;
+			double height;
+			if (MeasureFirstOnly && !double.IsNaN(_firstItemExtentDp))
+			{
+				// ItemSizingStrategy.MeasureFirstItem: every item takes the first one's extent, so this row needs no
+				// view until it shows (TemplateLazyCells), as RecyclerView binds only what it lays out.
+				itemView = null;
+				height = _firstItemExtentDp;
+				row.LazyCells = true;
+			}
+			else
+			{
+				itemView = CreateItemView(item);
+				if (itemView is not null && Horizontal && !Carousel && span == 1)
+					row.NaturalCrossDp = Math.Max(row.NaturalCrossDp, NaturalHeight(itemView));
+				height = itemView is null ? 0 : MeasureItemExtent(itemView, cellWidth);
+				if (MeasureFirstOnly && itemView is not null)
+				{
+					_firstItemExtentDp = height;
+					_lazyHasTap = RowHasTapView(itemView);
+					_lazyHasGestures = RowHasGesturesView(itemView);
+				}
+			}
 			WatchRow(row, itemView);
 			row.CellViews.Add(itemView);
 			row.CellItems.Add(item);
@@ -241,7 +270,7 @@ internal sealed partial class QtHostListAdapter
 		if (template is null)
 			return;
 		var row = NewRow(kind, groupIndex, -1);
-		var view = AdoptRowView(CreateFromTemplate(template, context));
+		var view = AdoptRowView(CreateFromTemplate(template, context, View));
 		var height = view is null ? 0 : _bridge.MeasureItemView(view, widthDp);
 		WatchRow(row, view);
 		row.CellViews.Add(view);
@@ -329,13 +358,14 @@ internal sealed partial class QtHostListAdapter
 	{
 		var template = View.ItemTemplate;
 		if (template is not null)
-			return AdoptRowView(CreateFromTemplate(template, item));
+			return AdoptRowView(CreateFromTemplate(template, item, View));
 		// No template: MAUI shows ToString() — mirror that with a plain label.
 		return item is null ? null : AdoptRowView(new Label { Text = item.ToString() ?? string.Empty });
 	}
 
 	private void BuildRows(IEnumerable? items, GroupableItemsView? grouped, double widthDp)
 	{
+		_firstItemExtentDp = double.NaN;   // MeasureFirstItem measures the first item of every build
 		if (items is not null)
 		{
 			if (grouped is not null)

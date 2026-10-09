@@ -1,0 +1,18 @@
+{
+  "solution": {
+    "path": "../../Linux.Sailfish.slnx",
+    "projects": [
+      "samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj",
+      "src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj",
+      "src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj",
+      "src/Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj",
+      "src/Linux.SailfishOS.Build.Tasks/Linux.SailfishOS.Build.Tasks.csproj",
+      "src/Linux.SailfishOS/Linux.SailfishOS.csproj",
+      "src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj",
+      "src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj",
+      "templates/sailfishos/SailfishOS.Templates.csproj",
+      "tests/Linux.SailfishOS.PublicApiGuard/Linux.SailfishOS.PublicApiGuard.csproj",
+      "tests/Linux.SailfishOS.Tests/Linux.SailfishOS.Tests.csproj"
+    ]
+  }
+}

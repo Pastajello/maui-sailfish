@@ -127,7 +127,7 @@ if printf '%s' "$IDENTITY" | grep -qi 'sailfish'; then
 	printf 'OK %s %s %s\n' "$FOUND" "${name:-Sailfish OS}" "${arch:-unknown-arch}"
 
 	# A RID/arch mismatch would only fail at exec time on the device; mapping matches
-	# Microsoft.Maui.SailfishOS.targets.
+	# Microsoft.Maui.Platforms.SailfishOS.targets.
 	case "$SF_RID" in
 		linux-arm64) expect_arch="aarch64" ;;
 		linux-x64)   expect_arch="x86_64" ;;

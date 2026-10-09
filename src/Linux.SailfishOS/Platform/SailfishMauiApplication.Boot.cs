@@ -19,6 +19,8 @@ public abstract partial class SailfishMauiApplication
 		_arguments = args ?? Array.Empty<string>();
 		EnsureOnDevice();
 		Console.Error.WriteLine("[Sailfish] Run() entered");
+		// The ambience's light/dark before anything reads RequestedTheme (the app's constructor, CreateWindow).
+		SailfishTheme.Seed();
 		// Unhandled exceptions, unobserved tasks and the exit leave a trace on the device (stderr + trace file).
 		SailfishCrashTrace.Install();
 		IPlatformApplication.Current = this;
@@ -47,6 +49,7 @@ public abstract partial class SailfishMauiApplication
 			: null;
 		if (renderer is null)
 			Console.Error.WriteLine("[Sailfish] Qt render: window is not a Controls Window — page rendering disabled");
+		_renderer = renderer;
 
 		ApplyAppMetaToShell();
 		SubscribeNativeEvents();
@@ -95,6 +98,11 @@ public abstract partial class SailfishMauiApplication
 			SailfishMainThread.Install(action => loopDispatcher.Dispatch(action));
 			SailfishDevTaps.Schedule(loopDispatcher);   // MAUI_SAILFISH_TAPS only
 		}
+		else
+		{
+			// MainThread.IsMainThread/BeginInvokeOnMainThread would throw on plain net; say why (tracker S12).
+			Console.Error.WriteLine("[Sailfish] MainThread: no dispatcher on the loop thread — MainThread is not hooked");
+		}
 		// Essentials statics must be installed before the app object and its pages exist.
 		SailfishEssentials.Install(Services);
 		// Device.GetNamedSize (FontSize="Large") asks DependencyService, which has no Sailfish entry otherwise.
@@ -122,7 +130,6 @@ public abstract partial class SailfishMauiApplication
 		_windowScope = SailfishWindowScope.Create(Services);
 		_windowContext = _windowScope.Context;
 		var window = _mauiApp.CreateWindow(new ActivationState(_windowContext));
-		window.Created();
 		_mauiWindow = window;
 		Console.Error.WriteLine("[Sailfish] Window created");
 
@@ -144,6 +151,9 @@ public abstract partial class SailfishMauiApplication
 			Handlers.SailfishHandlersFactory.AttachRootHandler(rootPage, _windowContext);
 			Console.Error.WriteLine($"[Sailfish] Root page handler attached ({rootPage.GetType().Name}) — alert-manager subscription armed");
 		}
+		// Created (Application.OnStart) once the window and its root page have handlers, as Android's OnPostCreate
+		// sends it after CreatePlatformWindow (M1, tracker S04).
+		window.Created();
 		return window;
 	}
 
@@ -191,7 +201,7 @@ public abstract partial class SailfishMauiApplication
 			// still reach Qt's focus item.
 			if (kind != 0 || (key != QtHostRuntime.QtKeyBack && key != QtHostRuntime.QtKeyEscape))
 				return;
-			dispatcher.Dispatch(() => renderer?.TryPop());
+			dispatcher.Dispatch(() => renderer?.HandleBack());
 		};
 
 		// Pointer events reach Silica first; the router forwards gestures to MAUI targets and leaves native adapters'

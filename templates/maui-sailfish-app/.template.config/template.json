@@ -5,7 +5,7 @@
   "identity": "Microsoft.Maui.Platforms.SailfishOS.App",
   "name": ".NET MAUI App (with Sailfish OS)",
   "shortName": "maui-sailfish",
-  "description": "The .NET MAUI app template (XAML, Shell, Resources, Platforms) with a Sailfish OS head: the same project builds for Android, iOS, Mac Catalyst, Windows and Sailfish OS (Qt/Silica host, harbour RPM). The Sailfish backend comes from the Microsoft.Maui.SailfishOS NuGet package. One-time machine setup: add a NuGet source for the package feed and install the workload manifest (dnx Microsoft.Maui.SailfishOS.Workload install). Use --sailfish-only on a machine without the MAUI workloads.",
+  "description": "The .NET MAUI app template (XAML, Shell, Resources, Platforms) with a Sailfish OS head: the same project builds for Android, iOS, Mac Catalyst, Windows and Sailfish OS (Qt/Silica host, harbour RPM). The Sailfish backend comes from the Microsoft.Maui.Platforms.SailfishOS NuGet package. One-time machine setup: add a NuGet source for the package feed and install the workload manifest (dnx Microsoft.Maui.Platforms.SailfishOS.Workload install). Use --sailfish-only on a machine without the MAUI workloads.",
   "tags": {
     "language": "C#",
     "type": "project"
@@ -20,10 +20,84 @@
       "displayName": "Sailfish OS only",
       "description": "Only the Sailfish OS head (net11.0-sailfish) — no Android/iOS/Mac Catalyst/Windows heads, so no MAUI workloads are needed."
     },
+    "applicationId": {
+      "type": "parameter",
+      "description": "Overrides the $(ApplicationId) in the project (Sailfish: the RPM is harbour-<last segment>)",
+      "datatype": "string"
+    },
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project.",
+      "datatype": "choice",
+      "choices": [
+        {
+          "choice": "net11.0",
+          "description": "Target net11.0"
+        }
+      ],
+      "replaces": "net11.0",
+      "defaultValue": "net11.0"
+    },
+    "HostIdentifier": {
+      "type": "bind",
+      "binding": "HostIdentifier"
+    },
+    "PhoneProductId": {
+      "type": "generated",
+      "generator": "guid",
+      "replaces": "1FB9328B-D3B3-4B65-A945-A88FBC4D811D"
+    },
+    "nameToLower": {
+      "type": "generated",
+      "generator": "casing",
+      "parameters": {
+        "source": "name",
+        "toLower": true
+      }
+    },
+    "nameToAppId": {
+      "type": "generated",
+      "generator": "regex",
+      "dataType": "string",
+      "parameters": {
+        "source": "nameToLower",
+        "steps": [
+          {
+            "regex": "[^a-z0-9_\\.]",
+            "replacement": ""
+          }
+        ]
+      }
+    },
+    "defaultAppId": {
+      "type": "generated",
+      "generator": "join",
+      "parameters": {
+        "symbols": [
+          {
+            "type": "const",
+            "value": "com.companyname."
+          },
+          {
+            "type": "ref",
+            "value": "nameToAppId"
+          }
+        ]
+      }
+    },
+    "finalAppId": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "applicationId",
+        "fallbackVariableName": "defaultAppId"
+      },
+      "replaces": "com.companyname.mauisailfishapp"
+    },
     "SailfishPackageVersion": {
       "type": "parameter",
       "datatype": "string",
-      "description": "Microsoft.Maui.SailfishOS package version to reference.",
+      "description": "Microsoft.Maui.Platforms.SailfishOS package version to reference.",
       "defaultValue": "@SAILFISH_VERSION@",
       "replaces": "SAILFISH_PACKAGE_VERSION"
     }

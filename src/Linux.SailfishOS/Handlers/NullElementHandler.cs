@@ -42,6 +42,10 @@ public class NullViewHandler : ViewHandler<IView, object>
 	/// <summary>The virtual view, or null once disconnected (the typed <c>VirtualView</c> throws then).</summary>
 	protected IView? ConnectedView => ((IElementHandler)this).VirtualView as IView;
 
+	/// <summary>No platform container: clip and shadow ride the host's own layer effect, so HasContainer stays false
+	/// instead of reporting a container that never exists (ContainerView stays null, tracker S13).</summary>
+	public override bool NeedsContainer => false;
+
 	protected override object CreatePlatformView() => new object();
 
 	public override void UpdateValue(string property)

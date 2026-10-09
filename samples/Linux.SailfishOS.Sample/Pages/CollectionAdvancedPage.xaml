@@ -41,12 +41,26 @@
             </CollectionView.GroupHeaderTemplate>
 
             <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="x:String">
-                    <Border Stroke="#2E6BB0" StrokeThickness="2" StrokeShape="RoundRectangle 10,10,10,10"
-                            BackgroundColor="#1C1C28" Padding="10" HeightRequest="84">
-                        <Label Text="{Binding .}" TextColor="White" FontSize="18" VerticalOptions="Center" />
-                    </Border>
-                </DataTemplate>
+                <!-- A DataTemplateSelector: items 0 and 5 of each group take the highlighted card. -->
+                <pages:ItemCardSelector>
+                    <pages:ItemCardSelector.Plain>
+                        <DataTemplate x:DataType="x:String">
+                            <Border Stroke="#2E6BB0" StrokeThickness="2" StrokeShape="RoundRectangle 10,10,10,10"
+                                    BackgroundColor="#1C1C28" Padding="10" HeightRequest="84">
+                                <Label Text="{Binding .}" TextColor="White" FontSize="18" VerticalOptions="Center" />
+                            </Border>
+                        </DataTemplate>
+                    </pages:ItemCardSelector.Plain>
+                    <pages:ItemCardSelector.Highlight>
+                        <DataTemplate x:DataType="x:String">
+                            <Border Stroke="#FFAB40" StrokeThickness="3" StrokeShape="RoundRectangle 10,10,10,10"
+                                    BackgroundColor="#3A2A10" Padding="10" HeightRequest="84">
+                                <Label Text="{Binding .}" TextColor="#FFAB40" FontSize="18" FontAttributes="Bold"
+                                       VerticalOptions="Center" />
+                            </Border>
+                        </DataTemplate>
+                    </pages:ItemCardSelector.Highlight>
+                </pages:ItemCardSelector>
             </CollectionView.ItemTemplate>
         </CollectionView>
 

@@ -1,11 +1,12 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import QtGraphicalEffects 1.0
 
 // Adapter: MAUI SwipeView -> horizontal Flickable with [left items | content | right items].
 // The flickable only takes the drag past its threshold, so taps inside the content still work;
-// release snaps open or closed. Items are JSON [{text, icon, bg, fg}]; "execute" mode invokes the
+// release snaps open or closed. Items are JSON [{text, icon, bg, fg, iconColor}]; "execute" mode invokes the
 // first item past mauiThreshold (Qt units, 0 = half the panel). mauiCommand {"name":"open","side"} is managed
-// Open/Close. Events: "swipe-item-invoked", "swipe-state".
+// Open/Close. Events: "swipe-item-invoked", "swipe-state", "swipe-changing" {id,offset} while a finger drags.
 Flickable {
     id: root
 
@@ -35,6 +36,21 @@ Flickable {
     property var __left: []
     property var __right: []
     property string __openSide: ""
+    // A finger drag reports its offset (Qt units, > 0 revealing the left items) as swipe-changing; the drag then
+    // ends with a swipe-state even when it settles where it started.
+    property real __lastOffset: 0
+    property bool __swiped: false
+    onDraggingChanged: if (dragging) __lastOffset = 0
+    onContentXChanged: {
+        if (!dragging || mauiApplying)
+            return;
+        var offset = __closedX - contentX;
+        if (Math.abs(offset - __lastOffset) < 4)
+            return;
+        __lastOffset = offset;
+        __swiped = true;
+        mauiEvent("swipe-changing", JSON.stringify({ id: mauiId, offset: offset }));
+    }
 
     function __parse(json) { try { return JSON.parse(json); } catch (e) { return []; } }
     onMauiLeftItemsChanged: __left = __parse(mauiLeftItems)
@@ -62,8 +78,13 @@ Flickable {
         snap.stop();
         snap.to = __xFor(side);
         snap.start();
-        if (side === __openSide)
+        var swiped = __swiped;
+        __swiped = false;
+        if (side === __openSide) {
+            if (swiped && !mauiApplying)
+                mauiEvent("swipe-state", JSON.stringify({ id: mauiId, side: side, open: side !== "" }));
             return;
+        }
         __openSide = side;
         if (!mauiApplying)
             mauiEvent("swipe-state", JSON.stringify({ id: mauiId, side: side, open: side !== "" }));
@@ -187,6 +208,9 @@ Flickable {
                     height: Theme.iconSizeMedium
                     sourceSize.width: width
                     sourceSize.height: height
+                    // SwipeItem.IconColor (MAUI 11): the icon tinted, else drawn in its own colours.
+                    layer.enabled: !!modelData.iconColor
+                    layer.effect: ColorOverlay { color: modelData.iconColor || "transparent" }
                 }
                 // QtQuick Text, not Label: the sibling Label.qml adapter shadows the Silica type (as RadioButton.qml).
                 Text {

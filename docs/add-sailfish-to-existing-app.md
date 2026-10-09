@@ -7,10 +7,10 @@ Android or iOS heads: one more target framework and, optionally, a `Platforms/Sa
 
 ```bash
 dotnet nuget add source <feed> --name maui-sailfish   # where Microsoft.Maui.SailfishOS is published
-dnx Microsoft.Maui.SailfishOS.Workload install        # teaches the SDK the net11.0-sailfish TFM
+dnx Microsoft.Maui.Platforms.SailfishOS.Workload install        # teaches the SDK the net11.0-sailfish TFM
 ```
 
-`dnx` runs the `sailfish-workload` tool without installing it (`dotnet tool install -g Microsoft.Maui.SailfishOS.Workload`
+`dnx` runs the `sailfish-workload` tool without installing it (`dotnet tool install -g Microsoft.Maui.Platforms.SailfishOS.Workload`
 keeps it). It copies the workload manifest into the SDK that `dotnet --version` selects in the current directory, so
 run it where `global.json` applies; the tool refuses an SDK band it has no manifest for. `status` shows what is
 installed, `uninstall` removes it. For an SDK you cannot write to (`/usr/share/dotnet`), use `sudo`, or
@@ -23,7 +23,7 @@ Optionally, once the manifest is installed, the SDK's own workload command works
 dotnet workload install sailfish --source <feed> --source https://api.nuget.org/v3/index.json
 ```
 
-It puts the `Microsoft.Maui.SailfishOS` package into the SDK's `library-packs`, so restore finds it without the
+It puts the `Microsoft.Maui.Platforms.SailfishOS` package into the SDK's `library-packs`, so restore finds it without the
 NuGet source from above, and `dotnet workload list` shows `sailfish` (`dotnet workload uninstall sailfish` removes
 the package; the tool's `uninstall` removes the manifest). On an SDK in workload-set mode (the default) the command
 also brings the SDK's other workloads up to Microsoft's latest workload set for the band, as any
@@ -41,11 +41,16 @@ In the `.csproj`, after the other `TargetFrameworks` lines:
 
 That is all a build needs. The TFM brings the rest, the way an in-box workload brings its packs:
 
-- the `Microsoft.Maui.SailfishOS` package (version `$(SailfishPackageVersion)`, default `0.1.0`; an explicit
+- the `Microsoft.Maui.Platforms.SailfishOS` package (version `$(SailfishPackageVersion)`, default `0.1.0`; an explicit
   `PackageReference` wins, `SailfishImplicitPackageReference=false` turns it off),
-- `RuntimeIdentifier=linux-arm64` (set `linux-arm` for 32-bit phones),
-- a self-contained, trimmed ReadyToRun payload and the harbour RPM on `dotnet publish -f net11.0-sailfish`,
-- the `SAILFISH` compilation symbol for `#if SAILFISH` in shared code.
+- on the app head (`OutputType` `Exe`): `RuntimeIdentifier=linux-arm64` (`SailfishRuntimeIdentifier=linux-arm` for
+  32-bit phones, which unlike `-r` leaves the other heads alone), and a self-contained, trimmed ReadyToRun payload
+  and the harbour RPM on `dotnet publish -f net11.0-sailfish`,
+- the `SAILFISH`, `SAILFISH1_0` and `SAILFISH1_0_OR_GREATER` compilation symbols, `[SupportedOSPlatform("sailfish1.0")]`
+  on the assembly and `sailfish` as a CA1416 platform, as the in-box platforms have.
+
+A class library can target `net11.0-sailfish` too (for `#if SAILFISH` code or Sailfish-only APIs): it gets the
+package and the symbols, but stays RID-neutral and framework-dependent, with no RPM and no generated `Main`.
 
 `MauiProgram.cs` stays as it is, unless it registers platform-only plugins (step 5). `UseMaui=true` can stay too; the template turns it off on the Sailfish head
 only so that head builds on machines without the MAUI workloads (then pin `MauiVersion`, or restore fails
@@ -107,8 +112,26 @@ Platforms/SailfishOS/
   SailfishApplication.cs  : SailfishMauiApplication — CreateMauiApp() and the native event overrides
 ```
 
-MAUI's `Window.Activated/Deactivated/Resumed/Stopped` fire as on the other platforms. The overrides are the
-native Sailfish/Qt events, with the platform's own values:
+MAUI's window lifecycle (and with it `Application.OnStart/OnSleep/OnResume`) follows Android's order, driven by
+`Qt.application.state` and `Qt.application.active`. Measured on a phone (SFOS 5.2):
+
+| What happens on the phone | `Qt.application.state` | MAUI events | `Application` |
+|---|---|---|---|
+| App starts in front | Active | `Created` (MAUI), `Activated` | `OnStart` |
+| App starts with the screen off or locked | Inactive | `Created`; `Activated` once it is shown | `OnStart` |
+| Minimized to its cover (swipe to the home screen) | Active → Inactive | `Deactivated`, `Stopped` | `OnSleep` |
+| Back from the cover (tap it) | Inactive → Active | `Resumed`, `Activated` | `OnResume` |
+| Screen turned off / locked, then unlocked | Active → Inactive → Active | as minimize, then as back | `OnSleep`, `OnResume` |
+| Top Menu pulled down over the app | stays Active | none | — |
+| Further to Hidden/Suspended while stopped | Inactive → Hidden/Suspended | none (already stopped) | — |
+| Closed from the home screen (the cover's ✕) | already Inactive | `Destroying`; nothing owed again | `OnSleep` was raised when it went to the cover |
+
+Each cover round trip raises `OnSleep` and `OnResume` once. Sailfish reports the cover, a locked screen and a system
+dialog in front of the app (e.g. "USB cable connected") as Inactive, so all of them raise `OnSleep`/`OnResume`, where
+Android raises only `onPause` for a dialog. An app that must tell them apart reads `OnCoverStatusChanged` (only when it
+has a cover) or `OnApplicationStateChanged`.
+
+The overrides are the native Sailfish/Qt events, with the platform's own values:
 
 | Override | Native source | iOS / Android counterpart |
 |---|---|---|
@@ -149,8 +172,15 @@ reflection, and a trimmed publish keeps it only on a class whose name ends in `M
 ```bash
 dotnet build   -f net11.0-sailfish
 dotnet publish -f net11.0-sailfish                 # bin/SailfishRpm/harbour-<app>-<version>.aarch64.rpm
-dotnet build   -f net11.0-sailfish -t:SailfishRun  # deploy + launch on the phone
+dotnet run     -f net11.0-sailfish                 # deploy, launch, stream the log; Ctrl+C stops the app
+dotnet build   -f net11.0-sailfish -t:SailfishRun  # deploy + launch, back after the launch window
 ```
+
+`dotnet run` goes through the SDK's device protocol like the Android and iOS heads: it builds, runs `DeployToDevice`
+(`sailfish deploy`: publish the RPM, upload it with a sha256 check, install it) and then `sailfish run --follow`,
+which streams the app's log until it exits and returns its exit code; Ctrl+C stops the app on the phone. The
+`sailfish` tool ships in the package (C# over the system OpenSSH), so this works from Windows too.
+`-p:SailfishRuntimeIdentifier=linux-arm` targets a 32-bit phone.
 
 Packaging and store properties (`SailfishPermissions`, `SailfishHarbour`, `SailfishCover`, …) are listed in
 [sailfishos-packaging.md](sailfishos-packaging.md). For F5 in VS Code install the
@@ -197,5 +227,5 @@ to that MAUI version. The Sailfish head is just the first MAUI 11 head an older 
 - [porting-existing-apps.md](porting-existing-apps.md) lists what broke in real apps (net8/net9 heads, version
   caps, SkiaSharp, plugins, MAUI 10/11 changes) and how each was fixed.
 - Every machine that builds the project, CI included, needs the workload manifest from step 1 (on CI:
-  `dnx Microsoft.Maui.SailfishOS.Workload install --yes` before the build).
+  `dnx Microsoft.Maui.Platforms.SailfishOS.Workload install --yes` before the build).
   To keep the head opt-in, guard the TFM line: `Condition="'$(EnableSailfish)' == 'true'"`.

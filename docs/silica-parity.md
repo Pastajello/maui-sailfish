@@ -13,9 +13,12 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Silica | MAUI | Status | Leg |
 |---|---|---|---|
 | `Page` + `PageHeader` (title) | `Page.Title` | native | page, nav |
+| No `PageHeader`; a custom header item | `HasNavigationBar`/`Shell.NavBarIsVisible` false; `NavigationPage.TitleView`/`Shell.TitleView` | native (the header collapses to 0 height; the TitleView sits in its band) | header |
+| `SearchField` under the `PageHeader`, results in a list below | `Shell.SearchHandler` (`Query`, `Placeholder`, `Command`, `IsSearchEnabled`, `SearchBoxVisibility`, `ShowsResults`, `ItemsSource`, `ItemTemplate`, `DisplayMemberName`, `SelectedItem`) | native (the results are a list over the content) | header |
 | Header and tabs move with a pulley drag (`PageHeader` inside `SilicaFlickable`, `TabView` header) | automatic | native | tabpulley |
 | `PageStack` push/pop, back swipe from the left edge | `PushAsync`/`PopAsync`, `PopToRootAsync`, modals | native | nav, navback (real swipe), features |
 | Tab bar (`TabBar`/`TabView`), swipe between tabs | `Shell` tabs, `TabbedPage` | native | shell, containers, tabpulley |
+| Tab badges; a tab row wider than the page scrolls | `TabbedPage.BadgeText`, `BaseShellItem.BadgeText` (MAUI 11); more than four tabs | native look (Silica has no tab badge; a pill in the highlight colour, a `Flickable` row) | containers J |
 | Tab swipe animation with the neighbouring page visible (`SlideshowView`) | — | open ([`parity-plan.md`](parity-plan.md)) | — |
 | `PageBusyIndicator` | `Page.IsBusy` on a page without a pulley | native | silica C |
 | `PullDownMenu.busy` (pulsing pulley bar) | `Page.IsBusy` on a page with a pulley | native | silica C |
@@ -31,23 +34,30 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | `PullDownMenu` / `PushUpMenu` | `ToolbarItem` Primary / Secondary; Shell/FlyoutPage flyout as pull-down | native | controls, pulley, tabpulley, shell E/H |
 | Menu per tab (only the tabs that declare one) | `ToolbarItems` of each tab page | native | tabpulley |
 | `MenuItem` enabled/text updates in place | `ToolbarItem.IsEnabled`, `Text` | native | silica D |
-| `ContextMenu` (press and hold) | `FlyoutBase.ContextFlyout` + `MenuFlyoutItem` | native | controls |
+| `ContextMenu` opened from code | `Shell.FlyoutIsPresented = true` (the flyout entries; closing writes back `false`) | native | header |
+| `ContextMenu` (press and hold) | `FlyoutBase.ContextFlyout` + `MenuFlyoutItem`; `MenuFlyoutSubItem` as a `MenuLabel` row with its items inline | native | controls |
 | `RemorsePopup` (page-wide undo countdown) | — | Sailfish API `SailfishRemorse.ExecuteAsync(text, …)` | silica H1/H2 |
 | `RemorseItem` (undo countdown over a list row) | — | Sailfish API `SailfishRemorse.ExecuteAsync(view, text, …)` | silica H3/H4 |
 | `DockedPanel` | — | Sailfish API `SailfishBottomSheet` | controls H, popup D |
 | `Drawer` | — | internal interaction host only (no public API) | controls H |
+| `MouseArea { preventStealing: true }` (a drag the item keeps from the page) | `Pan`/`Swipe`/`PinchGestureRecognizer` on a view (default); `SailfishOSSpecific.VisualElement.KeepsDrag=false` opts out | native: back swipe and pulley wait for the drag | input |
+| Long-press drag of a list item or a view onto a target (`DragHandler`/`DropArea` in Qt Quick terms) | `DragGestureRecognizer` + `DropGestureRecognizer` (`DragStarting`, `DragOver`, `Drop`, `DropCompleted`), also from `CollectionView` rows | router + page ghost | input |
 | Pull to refresh | `RefreshView` (page without a pulley, or a list/ScrollView) | native gesture | collection, f3 L |
+| Refresh from the pulley | `RefreshView` on a page with `ToolbarItems` or a Shell/FlyoutPage flyout (the pulley owns the overscroll) | a **Refresh** `MenuItem` nearest the content sets `IsRefreshing`; the pulley bar pulses while it is true | pulley A2 |
 | `TapInteractionHint`, `InteractionHintLabel`, `FirstTimeUseCounter` | — | n/a (app-specific tutorials) | — |
 
 ## Lists and scrolling
 
 | Silica | MAUI | Status | Leg |
 |---|---|---|---|
+| `ShaderEffect` gradient (QtQuick has no linear/radial gradient item in 5.6) | `LinearGradientBrush`/`RadialGradientBrush` as any view's `Background` | GPU shader under the view | canvas |
+| `Text` rich text with links (`linkActivated`) | FormattedText spans: colours, background, letter spacing, a span `TapGestureRecognizer` | native rich text; span taps through its links | navdialog |
+| Context2D `Canvas` (`fillRule`, antialiasing, text on a baseline) | `GraphicsView` + `IDrawable` (EvenOdd, `Antialias`, `DrawString`); `Start/Drag/EndInteraction` | native Context2D replay of the recorded drawing | canvas, input |
 | `SilicaListView` (virtualized, flick physics, quick scroll) | `CollectionView`, `ListView`, vertical `CarouselView` | native | collection×4, perf, features |
 | `VerticalScrollDecorator` on lists | `ItemsView.VerticalScrollBarVisibility` (Default/Always/Never) | native | silica A |
 | Scroll decorators on flickables | `ScrollView.*ScrollBarVisibility` | native | f3 L |
 | `ViewPlaceholder` (empty-state text) | `ItemsView.EmptyView` as a string on a vertical list | native | silica B |
-| List item press/selection highlight | `SelectionMode`, `SelectedItem(s)` | native | collection |
+| List item press highlight; a selected item | `SelectionMode`, `SelectedItem(s)`; the template's `VisualStateManager` `Selected` state; a carousel's `CurrentItem`/`PreviousItem`/`NextItem`/`DefaultItem` states, `IsDragging`, `IsScrolling`, `VisibleViews`, `IsScrollAnimated` | native press feedback; selection drawn by the app's Selected state, as on Android/iOS | collection |
 | `SilicaGridView` | `GridItemsLayout` (rows of cells in a `SilicaListView`), vertical and horizontal | native look | collection, silica I, Kitchen |
 | `SectionHeader` | `GroupHeaderTemplate` (app content) | n/a — MAUI owns the header look | — |
 | `SlideshowView` | `CarouselView` `Loop=true` (`PathView`) | native | f3 G |

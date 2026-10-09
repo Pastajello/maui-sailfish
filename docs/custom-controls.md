@@ -235,8 +235,34 @@ The pixels are shown 1:1 from the host's top-left corner, so size the buffer fro
 pixels. When a library's plain-`net` handler is a stub, its Sailfish handler replaces it wherever the app registers
 it with `SailfishHandlersFactory.ReplaceLibraryHandler<TStub, TSailfish>()`. The package calls that from a
 registrar the app assembly names with `[assembly: AssemblyMetadata("Microsoft.Maui.SailfishOS.Extension",
-"Type, Assembly")]`, written by its buildTransitive targets (`SailfishExtensions`). Library image sources resolve
-through `QtHostImageSources.Register`.
+"Type, Assembly")]`, written by its buildTransitive targets (`SailfishExtensions`).
+
+## A library image source
+
+An `ImageSource` type of your own (a Gravatar, a generated chart, an asset from a store) gets its image through an
+image source service, as on the other platforms. The Sailfish form turns the source into a URL Qt loads (`file://`
+or `http(s)://`):
+
+```csharp
+public sealed class AvatarImageSourceService : ISailfishImageSourceService<AvatarImageSource>
+{
+    public async Task<IImageSourceServiceResult<string>?> GetUrlAsync(IImageSource source, CancellationToken ct = default)
+    {
+        var path = await AvatarCache.FetchAsync(((AvatarImageSource)source).User, ct);   // a file you wrote
+        return path is null ? null : new SailfishImageSourceServiceResult(new Uri(path).AbsoluteUri);
+    }
+}
+
+// MauiProgram.cs
+builder.ConfigureImageSources(s => s.AddService<AvatarImageSource, AvatarImageSourceService>());
+```
+
+The backend asks MAUI's `IImageSourceServiceProvider` for every source it shows (Image, ImageButton, Button and
+toolbar icons, page backgrounds) and uses a service that implements `ISailfishImageSourceService` before its own
+handling of the stock sources. A service registered for `IUriImageSource` (or another stock interface) therefore
+replaces the built-in loading. The URL is asked for once per source object, off the Qt thread; the element shows
+nothing until it arrives. `QtHostImageSources.Register(Func<ImageSource, string?>)` stays as the synchronous shortcut
+the SkiaSharp package uses (it is asked after the stock sources).
 
 ## Limits
 

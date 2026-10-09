@@ -1,4 +1,5 @@
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific;
 using Microsoft.Maui.Hosting;
 using Microsoft.Maui.LifecycleEvents;
 using Microsoft.Maui.SailfishOS.Hosting;
@@ -10,8 +11,16 @@ namespace Linux.SailfishOS.PublicApiGuard;
 
 public class App : Application
 {
-	protected override Window CreateWindow(IActivationState? activationState) =>
-		new(new ContentPage { Content = new RatingView { Value = 3 } });
+	protected override Window CreateWindow(IActivationState? activationState)
+	{
+		var button = new Button { Text = "drag me" };
+		var page = new ContentPage { Content = new VerticalStackLayout { new RatingView { Value = 3 }, button } };
+		// The platform-specific API (decision D13, tracker S47), as page.On<Android>() elsewhere. Qualified here only
+		// because this project's own namespace (Linux.SailfishOS.*) makes a bare SailfishOS the namespace.
+		page.On<Microsoft.Maui.Controls.PlatformConfiguration.SailfishOS>().SetAllowedOrientations(SailfishOrientations.LandscapeMask);
+		button.On<Microsoft.Maui.Controls.PlatformConfiguration.SailfishOS>().SetKeepsDrag(false);
+		return new(page);
+	}
 }
 
 public static class MauiProgram

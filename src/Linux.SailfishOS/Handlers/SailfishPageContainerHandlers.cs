@@ -15,11 +15,11 @@ internal interface ISailfishPageContainer
 	(IReadOnlyList<Page> Pages, Func<Task>? Pop) CurrentStack();
 
 	/// <summary>The tab bar shown with the stack's root page; null = none.</summary>
-	(List<string> Titles, int Index, Action<int> Select)? Tabs { get; }
+	SailfishTabRow? Tabs { get; }
 
 	/// <summary>A second row under <see cref="Tabs"/> (a Shell section's contents when the item has several sections);
 	/// null = none.</summary>
-	(List<string> Titles, int Index, Action<int> Select)? SubTabs => null;
+	SailfishTabRow? SubTabs => null;
 
 	/// <summary>Pulley entries that open the container's flyout from <paramref name="shown"/> (its stack root).</summary>
 	IEnumerable<(string Text, bool Enabled, Action Activate)> FlyoutMenu(Page shown);
@@ -27,6 +27,29 @@ internal interface ISailfishPageContainer
 	/// <summary>Whether <paramref name="page"/> is one of this container's pages (on a stack, a tab, the flyout, a
 	/// realized Shell content), directly or through a nested container: a page the app can still show.</summary>
 	bool Holds(Page page);
+}
+
+/// <summary>A tab row: the titles, the selected index, what a tap does, and per tab the badge (null = none).</summary>
+internal sealed record SailfishTabRow(List<string> Titles, int Index, Action<int> Select, List<SailfishTabBadge?>? Badges = null);
+
+/// <summary>A tab's badge (MAUI 11 <c>TabbedPage.BadgeText</c>, <c>BaseShellItem.BadgeText</c>): an empty text is a
+/// dot, as on Android and Windows; null colours keep the theme's.</summary>
+internal readonly record struct SailfishTabBadge(string Text, Color? Color, Color? TextColor)
+{
+	internal static SailfishTabBadge? Of(string? text, Color? color, Color? textColor) =>
+		text is null ? null : new SailfishTabBadge(text, color, textColor);
+
+	internal static SailfishTabBadge? Of(Page page) =>
+		Of(TabbedPage.GetBadgeText(page), TabbedPage.GetBadgeColor(page), TabbedPage.GetBadgeTextColor(page));
+
+	internal static SailfishTabBadge? Of(BaseShellItem item) => Of(item.BadgeText, item.BadgeColor, item.BadgeTextColor);
+
+	/// <summary>The badges of a row, or null when no tab has one (the row's JSON stays as before badges).</summary>
+	internal static List<SailfishTabBadge?>? Row(IEnumerable<SailfishTabBadge?> badges)
+	{
+		var list = badges.ToList();
+		return list.Any(b => b is not null) ? list : null;
+	}
 }
 
 /// <summary>Resolves containers through their handlers. Only the window's root page gets its handler from the window;
@@ -37,6 +60,27 @@ internal static class SailfishPageContainers
 	private static readonly IReadOnlyList<Page> NoPages = Array.Empty<Page>();
 
 	internal static bool IsContainer(Page? page) => page is NavigationPage or Shell or TabbedPage or FlyoutPage;
+
+	/// <summary>A tab's text. Silica tab rows are text only, so a tab that relies on its icon (no Title) shows its
+	/// NavigationPage root's title, its explicit route, or its page type rather than an empty slot.</summary>
+	internal static string TabTitle(BindableObject tab, string? title)
+	{
+		if (!string.IsNullOrEmpty(title))
+			return title;
+		if (tab is NavigationPage { RootPage.Title: { Length: > 0 } rootTitle })
+			return rootTitle;
+		var route = Routing.GetRoute(tab);
+		// Shell's generated routes ("IMPL_…", "D_FAULT_…") mean nothing to a user.
+		if (!string.IsNullOrEmpty(route) && !route.StartsWith("IMPL_", StringComparison.Ordinal) &&
+		    !route.StartsWith("D_FAULT_", StringComparison.Ordinal))
+			return route;
+		return tab switch
+		{
+			NavigationPage { RootPage: { } root } => root.GetType().Name,
+			Page page => page.GetType().Name,
+			_ => string.Empty,
+		};
+	}
 
 	/// <summary>The container handler of <paramref name="page"/>; null for a page, or a nested container no parent
 	/// presented yet (nothing of it is on screen).</summary>
@@ -105,15 +149,54 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 	// moved to another page kept listening to the old one, and Disconnect unsubscribed the new one it never joined).
 	private TabbedPage? _watched;
 
+	// The children whose PropertyChanged is subscribed: a title or badge change re-pushes the tab row.
+	private readonly List<Page> _watchedChildren = new();
+
 	private void Watch(TabbedPage? page)
 	{
 		if (ReferenceEquals(page, _watched))
 			return;
 		if (_watched is { } old)
+		{
 			old.CurrentPageChanged -= OnCurrentPageChanged;
+			old.PagesChanged -= OnPagesChanged;
+		}
 		_watched = page;
 		if (page is not null)
+		{
 			page.CurrentPageChanged += OnCurrentPageChanged;
+			page.PagesChanged += OnPagesChanged;
+		}
+		WatchChildren();
+	}
+
+	private void WatchChildren()
+	{
+		foreach (var child in _watchedChildren)
+			child.PropertyChanged -= OnChildPropertyChanged;
+		_watchedChildren.Clear();
+		if (_watched is null)
+			return;
+		foreach (var child in _watched.Children)
+		{
+			child.PropertyChanged += OnChildPropertyChanged;
+			_watchedChildren.Add(child);
+		}
+	}
+
+	// A tab added or removed shows now, not at the next heartbeat.
+	private void OnPagesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+	{
+		WatchChildren();
+		SailfishHandlerCore.SessionOf(this)?.RequestPoll();
+	}
+
+	private void OnChildPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName == Page.TitleProperty.PropertyName || e.PropertyName == TabbedPage.BadgeTextProperty.PropertyName ||
+		    e.PropertyName == TabbedPage.BadgeColorProperty.PropertyName ||
+		    e.PropertyName == TabbedPage.BadgeTextColorProperty.PropertyName)
+			SailfishHandlerCore.SessionOf(this)?.RequestPoll();
 	}
 
 	public override void SetVirtualView(IView view)
@@ -133,16 +216,17 @@ public class SailfishTabbedPageHandler : SailfishPageHandler, ISailfishPageConta
 			? tabbed.CurrentPage is { } child ? SailfishPageContainers.StackOf(child, MauiContext) : (new Page[] { tabbed }, null)
 			: (Array.Empty<Page>(), null);
 
-	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs
+	SailfishTabRow? ISailfishPageContainer.Tabs
 	{
 		get
 		{
 			if (Tabbed is not { } tabbed || tabbed.Children.Count < 2)
 				return null;
 			var children = tabbed.Children;
-			return (children.Select(c => c.Title ?? string.Empty).ToList(),
+			return new SailfishTabRow(children.Select(c => SailfishPageContainers.TabTitle(c, c.Title)).ToList(),
 				Math.Max(0, children.IndexOf(tabbed.CurrentPage)),
-				i => { if (i >= 0 && i < children.Count) tabbed.CurrentPage = children[i]; });
+				i => { if (i >= 0 && i < children.Count) tabbed.CurrentPage = children[i]; },
+				SailfishTabBadge.Row(children.Select(c => SailfishTabBadge.Of(c))));
 		}
 	}
 
@@ -182,10 +266,37 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 		if (ReferenceEquals(page, _watched))
 			return;
 		if (_watched is { } old)
+		{
 			old.IsPresentedChanged -= OnPresentedChanged;
+			old.PropertyChanging -= OnFlyoutPageChanging;
+			old.PropertyChanged -= OnFlyoutPageChanged;
+		}
 		_watched = page;
 		if (page is not null)
+		{
 			page.IsPresentedChanged += OnPresentedChanged;
+			page.PropertyChanging += OnFlyoutPageChanging;
+			page.PropertyChanged += OnFlyoutPageChanged;
+		}
+	}
+
+	private Page? _replacedDetail;
+
+	private void OnFlyoutPageChanging(object? sender, Microsoft.Maui.Controls.PropertyChangingEventArgs e)
+	{
+		if (e.PropertyName == nameof(FlyoutPage.Detail))
+			_replacedDetail = (sender as FlyoutPage)?.Detail;
+	}
+
+	/// <summary>A replaced Detail lets go of its handlers, as the platforms' FlyoutPage handlers disconnect the old
+	/// detail (tracker S38): its subscriptions no longer keep it, or follow it.</summary>
+	private void OnFlyoutPageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+	{
+		if (e.PropertyName != nameof(FlyoutPage.Detail) || _replacedDetail is not { } old)
+			return;
+		_replacedDetail = null;
+		if (!ReferenceEquals(old, (sender as FlyoutPage)?.Detail))
+			((IView)old).DisconnectHandlers();
 	}
 
 	public override void SetVirtualView(IView view)
@@ -211,7 +322,7 @@ public class SailfishFlyoutPageHandler : SailfishPageHandler, ISailfishPageConta
 		return (pages, () => { flyout.IsPresented = false; return Task.CompletedTask; });
 	}
 
-	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs =>
+	SailfishTabRow? ISailfishPageContainer.Tabs =>
 		Flyout is { IsPresented: false, Detail: { } detail } ? SailfishPageContainers.Of(detail)?.Tabs : null;
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown)
@@ -261,6 +372,10 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 			session.RoutePageNavigation = e.Source is ShellNavigationSource.Push or ShellNavigationSource.Insert;
 	}
 
+	// An item, section or content added or removed at runtime (the tab rows), or a flyout item (the pulley): shown
+	// now, not at the next heartbeat.
+	private void OnStructureChanged(object? sender, EventArgs e) => SailfishHandlerCore.SessionOf(this)?.RequestPoll();
+
 	private Shell? ShellView => ConnectedView as Shell;
 
 	private Shell? _watched;   // follows SetVirtualView, as SailfishTabbedPageHandler's
@@ -273,12 +388,16 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 		{
 			old.Navigating -= OnNavigating;
 			old.Navigated -= OnNavigated;
+			((IShellController)old).StructureChanged -= OnStructureChanged;
+			((IShellController)old).FlyoutItemsChanged -= OnStructureChanged;
 		}
 		_watched = shell;
 		if (shell is not null)
 		{
 			shell.Navigating += OnNavigating;
 			shell.Navigated += OnNavigated;
+			((IShellController)shell).StructureChanged += OnStructureChanged;
+			((IShellController)shell).FlyoutItemsChanged += OnStructureChanged;
 		}
 	}
 
@@ -316,7 +435,7 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 		return (pages, () => section.Navigation.PopAsync());
 	}
 
-	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.Tabs
+	SailfishTabRow? ISailfishPageContainer.Tabs
 	{
 		get
 		{
@@ -324,39 +443,45 @@ public class SailfishShellHandler : SailfishPageHandler, ISailfishPageContainer
 				return null;
 			// Bottom tabs: the item's sections; top tabs: a section's contents.
 			var sections = ((IShellItemController)item).GetItems();
-			if (sections.Count > 1)
-				return (sections.Select(sec => sec.Title ?? string.Empty).ToList(),
+			if (SectionTabsShown(item, sections))
+				return new SailfishTabRow(sections.Select(sec => SailfishPageContainers.TabTitle(sec, sec.Title)).ToList(),
 					Math.Max(0, IndexOf(sections, item.CurrentItem)),
 					// As the platform tab bars switch: ProposeSection runs Shell's navigation (Navigating/Navigated, the page's
 					// NavigatedTo) before setting CurrentItem; a bare assignment skipped the page events.
-					i => { if (i >= 0 && i < sections.Count) ((IShellItemController)item).ProposeSection(sections[i], true); });
-			if (item.CurrentItem is { } section)
-			{
-				var contents = ((IShellSectionController)section).GetItems();
-				if (contents.Count > 1)
-					return (contents.Select(c => c.Title ?? string.Empty).ToList(),
-						Math.Max(0, IndexOf(contents, section.CurrentItem)),
-						i => SelectContent(section, contents, i));
-			}
-			return null;
+					i => { if (i >= 0 && i < sections.Count) ((IShellItemController)item).ProposeSection(sections[i], true); },
+					SailfishTabBadge.Row(sections.Select(sec => SailfishTabBadge.Of(sec))));
+			return item.CurrentItem is { } section ? ContentTabs(section) : null;
 		}
 	}
 
-	(List<string> Titles, int Index, Action<int> Select)? ISailfishPageContainer.SubTabs
+	SailfishTabRow? ISailfishPageContainer.SubTabs
 	{
 		get
 		{
 			// Bottom tabs are the sections; a section's own contents are its top tabs (Profitocracy: All / Recurring).
-			if (ShellView?.CurrentItem is not { } item || ((IShellItemController)item).GetItems().Count < 2 ||
+			if (ShellView?.CurrentItem is not { } item || !SectionTabsShown(item, ((IShellItemController)item).GetItems()) ||
 			    item.CurrentItem is not { } section)
 				return null;
-			var contents = ((IShellSectionController)section).GetItems();
-			if (contents.Count < 2)
-				return null;
-			return (contents.Select(c => c.Title ?? string.Empty).ToList(),
-				Math.Max(0, IndexOf(contents, section.CurrentItem)),
-				i => SelectContent(section, contents, i));
+			return ContentTabs(section);
 		}
+	}
+
+	/// <summary>The item's sections show as tabs: two or more, and Shell.TabBarIsVisible (on the shown page, its content,
+	/// section, item or the Shell) not false. A hidden bar keeps the section's contents as the top tabs, as on Android.</summary>
+	private bool SectionTabsShown(ShellItem item, IReadOnlyList<ShellSection> sections) =>
+		sections.Count > 1 &&
+		QtHostPageRenderer.ShellValue((Element?)ShellView?.CurrentPage ?? item, Shell.TabBarIsVisibleProperty, true);
+
+	/// <summary>A section's contents as a tab row (null with fewer than two).</summary>
+	private SailfishTabRow? ContentTabs(ShellSection section)
+	{
+		var contents = ((IShellSectionController)section).GetItems();
+		if (contents.Count < 2)
+			return null;
+		return new SailfishTabRow(contents.Select(c => SailfishPageContainers.TabTitle(c, c.Title)).ToList(),
+			Math.Max(0, IndexOf(contents, section.CurrentItem)),
+			i => SelectContent(section, contents, i),
+			SailfishTabBadge.Row(contents.Select(c => SailfishTabBadge.Of(c))));
 	}
 
 	IEnumerable<(string Text, bool Enabled, Action Activate)> ISailfishPageContainer.FlyoutMenu(Page shown)

@@ -2,7 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../lib/silica.js" as SilicaWalk
 
-// Adapter: MAUI Slider -> Silica Slider. Events: value-changed {id,value}.
+// Adapter: MAUI Slider -> Silica Slider. Events: value-changed {id,value}, drag-changed {id,dragging}.
 // Contract: mauiId / mauiProbe / mauiEvent — see controls/Label.qml.
 Slider {
     id: root
@@ -58,6 +58,9 @@ Slider {
     // x/y/width/height come from the managed geometry pass.
     // No valueText: Silica adds top padding for the value label, pushing the groove
     // out of the managed 44dp slot.
+
+    // MAUI DragStarted/DragCompleted: Silica's down is the finger on the slider (a canceled drag ends it too).
+    onDownChanged: mauiEvent("drag-changed", JSON.stringify({ id: mauiId, dragging: down }))
 
     onValueChanged: {
         if (mauiApplying) { mauiSuppressedCount++; return; }

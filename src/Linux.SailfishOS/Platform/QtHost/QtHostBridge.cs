@@ -150,6 +150,16 @@ internal static class BridgeOps
 
 	public static Dictionary<string, object?> Title(string text) => new() { ["op"] = "title", ["text"] = text };
 
+	/// <summary>The PageHeader: shown or collapsed to 0 height (HasNavigationBar/NavBarIsVisible false), and whether it
+	/// draws the title text (not under a TitleView).</summary>
+	public static Dictionary<string, object?> Header(bool shown, bool titleShown) =>
+		new() { ["op"] = "header", ["on"] = shown, ["title"] = titleShown };
+
+	/// <summary>Shell.SearchHandler's field under the header: shown, placeholder, enabled, and the text to put in it (null
+	/// keeps what the field shows), and whether it gives up the focus (a picked result).</summary>
+	public static Dictionary<string, object?> Search(bool shown, string placeholder, bool enabled, string? text, bool blur = false) =>
+		new() { ["op"] = "search", ["on"] = shown, ["placeholder"] = placeholder, ["enabled"] = enabled, ["text"] = text, ["blur"] = blur };
+
 	/// <summary>Page.IsBusy: the pulley pulses when the page has a pull-down menu, else a PageBusyIndicator runs.</summary>
 	public static Dictionary<string, object?> Busy(bool on, bool onPulley) => new() { ["op"] = "busy", ["on"] = on, ["pulley"] = onPulley };
 

@@ -7,7 +7,7 @@ Reference it in the Sailfish head next to SkiaSharp and its Linux native library
 
 ```xml
 <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
-  <PackageReference Include="Microsoft.Maui.SailfishOS.SkiaSharp" Version="0.1.0" />
+  <PackageReference Include="Microsoft.Maui.Platforms.SailfishOS.SkiaSharp" Version="0.1.0" />
   <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />  <!-- = the app's SkiaSharp -->
 </ItemGroup>
 ```

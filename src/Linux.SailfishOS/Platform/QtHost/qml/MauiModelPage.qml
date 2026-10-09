@@ -1,4 +1,6 @@
 import QtQuick 2.6
+// Qualified: unqualified, its Screen would shadow Silica's (Screen.topCutout).
+import QtQuick.Window 2.2 as QtWindow
 import Sailfish.Silica 1.0
 import "lib/adapter.js" as Adapter
 
@@ -18,6 +20,13 @@ Page {
 
     // Given at creation (the renderer knows it), so the header never shows a placeholder.
     property string pageTitle: ""
+    // HasNavigationBar/NavBarIsVisible false collapse the header; a TitleView replaces the title text ("header" op).
+    property bool mauiHeaderShown: true
+    property bool mauiTitleShown: true
+    // Shell.SearchHandler's field under the header (op "search").
+    property bool mauiSearchShown: false
+    property string mauiSearchPlaceholder: ""
+    property bool mauiSearchEnabled: true
 
     // MAUI page background, painted behind the flickable: the colour, then Page.BackgroundImageSource
     // cropped to fill.
@@ -36,6 +45,83 @@ Page {
     // gesture and reports contentY back ("scroll-changed"). Managed pushes the authoritative
     // state via setMauiScroll(). contentH is in Qt scene units and includes the top inset.
     property bool mauiScrollEnabled: false
+    // A MAUI view's captured drag (Pan/Swipe/Pinch, tracker S60): the back swipe and the flickable (pulley) wait for it.
+    property bool mauiDragHeld: false
+    property bool __heldBack: true
+    // The back setting a held drag set aside goes back where it belongs then: to the page, or to a dialog that opened
+    // meanwhile (which restores it when it closes).
+    function mauiHoldDrag(arg) {
+        var on = arg === true || arg === "true";   // managed page calls pass a string
+        if (on === mauiDragHeld)
+            return;
+        if (on) {
+            if (__dialog) {
+                __heldBack = __dialogBack;
+            } else {
+                __heldBack = backNavigation;
+                backNavigation = false;
+            }
+            mauiDragHeld = true;
+        } else {
+            mauiDragHeld = false;
+            if (__dialog)
+                __dialogBack = __heldBack;
+            else
+                backNavigation = __heldBack;
+        }
+    }
+    // Drag & drop (tracker S39): the router shows a snapshot of the dragged host under the finger. json: {show, x, y
+    // (window px), allowed, id (the source host, on the first show)}. Dimmed while no drop target accepts it.
+    function mauiDragGhost(json) {
+        var o = {};
+        try { o = JSON.parse(json); } catch (e) { o = {}; }
+        if (!o.show) {
+            dragGhost.visible = false;
+            dragGhost.sourceItem = null;
+            return;
+        }
+        var p = page.mapFromItem(null, o.x, o.y);
+        if (o.id !== undefined || o.name !== undefined) {
+            var h;
+            if (o.id !== undefined) {
+                var rec = __hosts[o.id];   // the host record; its QML item is .item
+                h = rec !== undefined && rec.item ? rec.item : undefined;
+            } else {
+                var found = __findByName(page, o.name, 0);   // a list row's delegate (rows have no page host)
+                h = found !== null ? found : undefined;
+            }
+            dragGhost.sourceItem = h !== undefined ? h : null;
+            dragGhost.width = h !== undefined ? h.width : 0;
+            dragGhost.height = h !== undefined ? h.height : 0;
+            // Grabbed where the finger is: the ghost keeps that point under it.
+            var g = h !== undefined ? h.mapFromItem(null, o.x, o.y) : Qt.point(0, 0);
+            dragGhost.grabX = g.x;
+            dragGhost.grabY = g.y;
+            dragGhost.scheduleUpdate();
+        }
+        dragGhost.x = p.x - dragGhost.grabX;
+        dragGhost.y = p.y - dragGhost.grabY;
+        dragGhost.allowed = !!o.allowed;
+        dragGhost.visible = dragGhost.sourceItem !== null;
+    }
+    function __findByName(item, name, depth) {
+        if (!item || depth > 24)
+            return null;
+        if (item.objectName === name)
+            return item;
+        var kids = item.children;
+        for (var i = 0; kids && i < kids.length; i++) {
+            var hit = __findByName(kids[i], name, depth + 1);
+            if (hit !== null)
+                return hit;
+        }
+        if (item.contentItem && item.contentItem !== item && depth < 24) {
+            var inner = __findByName(item.contentItem, name, depth + 1);
+            if (inner !== null)
+                return inner;
+        }
+        return null;
+    }
     property double mauiContentHeight: 0
     // Diag (MAUI_SAILFISH_OPEN_PULLEY): freeze managed ScrollY writes so an opened pulley stays open.
     property bool mauiHoldScrollY: false
@@ -43,7 +129,7 @@ Page {
     property double __lastReportedY: 0
 
     // Top safe-area inset (status area + PageHeader + tab bar) in Qt scene units, as reported to managed.
-    property double topInset: ((page.statusHeight !== undefined) ? page.statusHeight : 0) + pageHeader.height + tabBar.height + subTabBar.height
+    property double topInset: ((page.statusHeight !== undefined) ? page.statusHeight : 0) + headerBox.height + searchBox.height + tabBar.height + subTabBar.height
 
     // Page.IsBusy: the pull-down menu pulses (PullDownMenu.busy) when the page has one, else a PageBusyIndicator runs.
     property bool mauiBusy: false
@@ -53,9 +139,12 @@ Page {
     // as header, so the MAUI content area shrinks with it.
     property var mauiTabs: []
     property int mauiTabIndex: 0
+    // Per tab {text, bg, fg} or null (MAUI 11 badges); empty when no tab has one.
+    property var mauiTabBadges: []
     // A Shell section's contents (Android's top tabs), under the section tabs.
     property var mauiSubTabs: []
     property int mauiSubTabIndex: 0
+    property var mauiSubTabBadges: []
     // Tab swipe: the canvas follows the finger (mauiTabDrag, px) with the neighbour tab's title beside it; a committed
     // swipe slides the page out, asks managed for the tab ("tab-swipe-commit"), and slides the new tab in from the side.
     property bool __ownOrientations: false   // SailfishPage.AllowedOrientations set allowedOrientations
@@ -111,7 +200,9 @@ Page {
         mauiTabIndex = index;
         if (changed)
             __slideInTab();
+        mauiTabBadges = o.badges || [];
         mauiSubTabs = (o.sub && o.sub.titles) || [];
+        mauiSubTabBadges = (o.sub && o.sub.badges) || [];
         mauiSubTabIndex = o.sub && o.sub.index !== undefined ? o.sub.index : 0;
     }
 
@@ -262,8 +353,23 @@ Page {
         for (var i = 0; i < ops.length; ++i) {
             var o = ops[i];
             if (o.op === "title") { pageTitle = o.text; continue; }
+            if (o.op === "header") { mauiHeaderShown = !!o.on; mauiTitleShown = !!o.title; continue; }
+            if (o.op === "search") {
+                mauiSearchShown = !!o.on;
+                mauiSearchPlaceholder = o.placeholder || "";
+                mauiSearchEnabled = o.enabled !== false;
+                // null keeps what the field shows (its own keystrokes); a string is the app's Query.
+                if (typeof o.text === "string" && searchField.text !== o.text) {
+                    searchField.__applying = true;
+                    searchField.text = o.text;
+                    searchField.__applying = false;
+                }
+                if (o.blur)
+                    searchField.focus = false;
+                continue;
+            }
             if (o.op === "busy") { mauiBusy = !!o.on; mauiBusyOnPulley = !!o.pulley; continue; }
-            if (o.op === "back") { if (__dialog) __dialogBack = !!o.on; else backNavigation = !!o.on; continue; }
+            if (o.op === "back") { if (mauiDragHeld) __heldBack = !!o.on; else if (__dialog) __dialogBack = !!o.on; else backNavigation = !!o.on; continue; }
             // SailfishPage.AllowedOrientations; 0 rebinds the page to the window's default (Silica's own binding), so it
             // keeps following a window that changes its orientations later.
             if (o.op === "orientations") {
@@ -449,7 +555,7 @@ Page {
         var init = {};
         // Generic view props are applied natively by the shim after create; adapters don't declare them.
         for (var k in props)
-            if (k !== "mauiBackgroundFill" && k !== "mauiAccessibleName" &&
+            if (k !== "mauiBackgroundFill" && k !== "mauiBackgroundGradient" && k !== "mauiAccessibleName" &&
                     k !== "mauiAccessibleDescription" && k !== "mauiAutomationId" &&
                     k !== "mauiLayerShadow" && k !== "mauiLayerClip" &&
                     k !== "mauiAccessibleRole" && k !== "mauiAccessibleIgnored" && k !== "mauiMirrored")
@@ -549,18 +655,84 @@ Page {
 
     // Reports page size and Silica insets (Qt units) to managed, which defines the root
     // coordinate space and relayouts. The only dp conversion happens in managed (QtHostUnits).
+    // Keyboard (tracker S44). Silica shrinks the page by the keyboard panel (ApplicationWindow: height − panelSize),
+    // which suits a field inside a scrolling container: the ScrollView or list gets shorter and Silica's
+    // VerticalAutoScroll scrolls it to the field (Android's adjustResize). A field in plain page content has nothing to
+    // scroll it, and MAUI laying the page out at the smaller height clipped it. There the page keeps its full height for
+    // MAUI (the keyboard is a bottom inset) and its own flickable pans the field into view (adjustPan), then back.
+    readonly property real __keyboardInset: (pageStack && pageStack.panelSize !== undefined && page.status === PageStatus.Active) ? pageStack.panelSize : 0
+    property bool __keyboardPan: false
+
+    function __focusInScrollingContainer() {
+        var item = QtWindow.Window.activeFocusItem;
+        for (var p = item ? item.parent : null; p && p !== page; p = p.parent) {
+            if (p === flick.contentItem)
+                return false;   // reached the page's own flickable: plain content
+            if (p.flickableDirection !== undefined)
+                return true;    // a ScrollView, CollectionView or other Flickable in between
+        }
+        return true;            // not on this page: leave Silica's behaviour alone
+    }
+
+    function __panToFocus() {
+        var item = QtWindow.Window.activeFocusItem;
+        if (!__keyboardPan || !item)
+            return;
+        // The focused item is the field's inner editor; the whole MAUI view (label, underline) is the nearest adapter
+        // above it (hosts nest: the item on the canvas can be a layout holding the whole form, tracker S44).
+        while (item && item !== canvas && item.mauiId === undefined)
+            item = item.parent;
+        if (!item || item === canvas)
+            return;
+        var bottom = item.mapToItem(flick.contentItem, 0, item.height).y + Theme.paddingMedium;
+        var top = item.mapToItem(flick.contentItem, 0, 0).y - Theme.paddingMedium;
+        var maxY = Math.max(0, flick.contentHeight - flick.height);
+        if (bottom > flick.contentY + flick.height)
+            flick.contentY = Math.min(maxY, bottom - flick.height);
+        else if (top < flick.contentY)
+            flick.contentY = Math.max(0, top);
+    }
+
+    on__KeyboardInsetChanged: {
+        if (__keyboardInset > 0 && !__keyboardPan && !__focusInScrollingContainer()) {
+            __keyboardPan = true;
+            reportWindowGeometry();
+        } else if (__keyboardInset === 0 && __keyboardPan) {
+            __keyboardPan = false;
+            reportWindowGeometry();
+            if (!page.mauiScrollEnabled)
+                flick.contentY = 0;   // the page does not scroll: put it back where it was
+            else
+                flick.contentY = Math.min(flick.contentY, Math.max(0, flick.contentHeight - flick.height));
+        }
+        if (__keyboardPan)
+            panTimer.restart();
+    }
+    // Pan once things settle: the keyboard panel animates (the inset changes every frame), the full-height layout lands
+    // after it (a managed pass), and Silica's VerticalAutoScroll, which only keeps the cursor line visible, scrolls the
+    // same flickable meanwhile. Afterwards the whole field (its underline and description too) is in view, so the
+    // cursor is as well and VerticalAutoScroll leaves it there.
+    onMauiContentHeightChanged: if (__keyboardPan) panTimer.restart()
+    Timer { id: panTimer; interval: 250; onTriggered: page.__panToFocus() }
+
     function reportWindowGeometry() {
         var status = (page.statusHeight !== undefined) ? page.statusHeight : 0;
         Adapter.pageEmit(page, "window-geometry", ({
             pageWidth: page.width,
-            pageHeight: page.height,
-            headerHeight: pageHeader.height + tabBar.height + subTabBar.height,
+            // While the keyboard pans the page, MAUI lays it out at the height it has without the keyboard.
+            pageHeight: page.height + (__keyboardPan ? __keyboardInset : 0),
+            headerHeight: headerBox.height + searchBox.height + tabBar.height + subTabBar.height,
+            titleHeight: headerBox.height,
             statusHeight: status
         }));
     }
 
     onWidthChanged: reportWindowGeometry()
-    onHeightChanged: reportWindowGeometry()
+    onHeightChanged: {
+        reportWindowGeometry();
+        if (__keyboardPan)
+            panTimer.restart();
+    }
 
     // Render evidence for managed: button/toggle geometry (for synthetic taps), counters, scroll.
     property int __emptyReports: 0
@@ -772,8 +944,60 @@ Page {
         }
         if (!menu || menu.openFor === undefined)
             return false;
-        menu.openFor(target.item, itemsJson);
+        // Silica's ContextMenu anchors its bottom to its parent's bottom and expects the parent to grow by the menu's
+        // height (a ListItem does), and it renders that parent through a layer sized for the grown height. A MAUI
+        // host never grows (MAUI lays it out), so the menu hung above the target, outside the layer, and only the
+        // slice over the target showed. The menu opens on a stand-in at the target's place instead, which grows as a
+        // ListItem would; it shares the target's parent, so it scrolls with it, and sits above its siblings.
+        var t = target.item;
+        __openContextMenuAnchor(menu);
+        __ctxAnchor.parent = t.parent;
+        __ctxAnchor.x = t.x;
+        __ctxAnchor.y = t.y;
+        __ctxAnchor.width = t.width;
+        __ctxAnchor.baseHeight = t.height;
+        menu.openFor(__ctxAnchor, itemsJson);
         return true;
+    }
+    // The stand-in a context menu opens on (created once), above its siblings.
+    function __openContextMenuAnchor(menu) {
+        if (!__ctxAnchor)
+            __ctxAnchor = Qt.createQmlObject(
+                "import QtQuick 2.6; import Sailfish.Silica 1.0; Item { id: a; objectName: 'mauiContextAnchor'; property real baseHeight; property Item menu;" +
+                " height: baseHeight + (menu && menu.parent === a ? menu.height : 0);" +
+                // A ListItem's menu pushes the rows below it away; MAUI's do not move, so an opaque backing keeps
+                // their text from showing through the translucent menu.
+                " Rectangle { z: -1; y: a.baseHeight; x: a.menu ? a.menu.x : 0; width: a.menu ? a.menu.width : a.width;" +
+                " height: a.height - a.baseHeight; color: Theme.highlightDimmerColor } }", page, "ctx-anchor");
+        __ctxAnchor.z = 10000;
+        __ctxAnchor.menu = menu;
+        return true;
+    }
+    property Item __ctxAnchor: null
+
+    // Shell.FlyoutIsPresented: the flyout entries as a context menu under the page chrome (no long-press target; the
+    // stand-in sits at the top of the visible content, 0 high, and grows with the menu).
+    function __openFlyoutMenu(itemsJson) {
+        var menu = null;
+        for (var id in __hosts) {
+            if (__hosts[id].uri === "context-menu") {
+                menu = __hosts[id].item;
+                break;
+            }
+        }
+        if (!menu || menu.openFor === undefined || !__openContextMenuAnchor(menu))
+            return false;
+        __ctxAnchor.parent = canvas;
+        __ctxAnchor.x = 0;
+        __ctxAnchor.y = flick.contentY + page.topInset;
+        __ctxAnchor.width = page.width;
+        __ctxAnchor.baseHeight = 0;
+        menu.openFor(__ctxAnchor, itemsJson);
+        return true;
+    }
+    function __closeFlyoutMenu() {
+        if (__ctxAnchor && __ctxAnchor.menu && __ctxAnchor.menu.active)
+            __ctxAnchor.menu.close();
     }
 
     // The open dialog panel (dialogs/DialogPanel.qml), or null.
@@ -894,7 +1118,7 @@ Page {
     SilicaFlickable {
         id: flick
         anchors.fill: parent
-        interactive: page.mauiScrollEnabled
+        interactive: page.mauiScrollEnabled && !page.mauiDragHeld
         contentHeight: Math.max(page.height, page.mauiContentHeight)
         onContentYChanged: {
             if (contentY < page.__pullDepth)
@@ -960,48 +1184,62 @@ Page {
             width: page.width
             height: page.topInset
 
-            PageHeader { id: pageHeader; title: page.pageTitle }
+            // A hidden header is 0 high and clipped, not destroyed: Canvas-painted shapes on a page without a rendered
+            // PageHeader never reached the screen (Jolla Phone, SFOS 5.2).
+            Item {
+                id: headerBox
+                objectName: "mauiHeaderBox"
+                width: parent.width
+                height: page.mauiHeaderShown ? pageHeader.height : 0
+                clip: !page.mauiHeaderShown
+                onHeightChanged: page.reportWindowGeometry()
+
+                PageHeader { id: pageHeader; title: page.mauiTitleShown ? page.pageTitle : "" }
+            }
+
+            // Shell.SearchHandler: a Silica SearchField where the other platforms put the search box in the navigation
+            // bar. Typing writes Query back; the enter key confirms the query.
+            Item {
+                id: searchBox
+                objectName: "mauiSearchBox"
+                anchors.top: headerBox.bottom
+                width: parent.width
+                visible: page.mauiSearchShown
+                height: visible ? searchField.height : 0
+                onHeightChanged: page.reportWindowGeometry()
+
+                SearchField {
+                    id: searchField
+                    objectName: "mauiSearchField"
+                    property bool __applying: false
+                    width: parent.width
+                    placeholderText: page.mauiSearchPlaceholder
+                    enabled: page.mauiSearchEnabled
+                    EnterKey.iconSource: "image://theme/icon-m-search"
+                    EnterKey.onClicked: {
+                        Adapter.pageEmit(page, "search-submit", { text: text });
+                        focus = false;
+                    }
+                    onTextChanged: if (!__applying) Adapter.pageEmit(page, "search-changed", { text: text })
+                }
+            }
 
             // Sailfish-style tab row; tapping one tells managed to switch the MAUI tab.
             Item {
                 id: tabBar
-                anchors.top: pageHeader.bottom
+                anchors.top: searchBox.bottom
                 width: parent.width
                 visible: page.mauiTabs.length > 1
                 height: visible ? Theme.itemSizeSmall : 0
                 onHeightChanged: page.reportWindowGeometry()
 
-                Row {
+                MauiTabRow {
                     id: tabRow
                     anchors.fill: parent
-                    Repeater {
-                        model: page.mauiTabs
-                        BackgroundItem {
-                            width: tabRow.width / Math.max(1, page.mauiTabs.length)
-                            height: tabRow.height
-                            objectName: "mauiTab_" + index
-                            Label {
-                                anchors.centerIn: parent
-                                width: parent.width - 2 * Theme.paddingSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                truncationMode: TruncationMode.Fade
-                                text: modelData
-                                color: index === page.mauiTabIndex ? palette.highlightColor : palette.secondaryColor
-                                font.pixelSize: Theme.fontSizeMedium
-                                // Four tabs share the width: a long title ("Transactions") shrinks before it fades.
-                                fontSizeMode: Text.HorizontalFit
-                                minimumPixelSize: Theme.fontSizeSmall
-                            }
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width
-                                height: Theme.paddingSmall / 2
-                                color: palette.highlightColor
-                                visible: index === page.mauiTabIndex
-                            }
-                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index })
-                        }
-                    }
+                    modelPage: page
+                    titles: page.mauiTabs
+                    badges: page.mauiTabBadges
+                    index: page.mauiTabIndex
                 }
             }
 
@@ -1014,37 +1252,18 @@ Page {
                 height: visible ? Theme.itemSizeExtraSmall : 0
                 onHeightChanged: page.reportWindowGeometry()
 
-                Row {
+                MauiTabRow {
                     id: subTabRow
                     anchors.fill: parent
-                    Repeater {
-                        model: page.mauiSubTabs
-                        BackgroundItem {
-                            width: subTabRow.width / Math.max(1, page.mauiSubTabs.length)
-                            height: subTabRow.height
-                            objectName: "mauiSubTab_" + index
-                            Label {
-                                anchors.centerIn: parent
-                                width: parent.width - 2 * Theme.paddingSmall
-                                horizontalAlignment: Text.AlignHCenter
-                                truncationMode: TruncationMode.Fade
-                                text: modelData
-                                color: index === page.mauiSubTabIndex ? palette.highlightColor : palette.secondaryColor
-                                font.pixelSize: Theme.fontSizeSmall
-                                fontSizeMode: Text.HorizontalFit
-                                minimumPixelSize: Theme.fontSizeExtraSmall
-                            }
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width
-                                height: Theme.paddingSmall / 2
-                                color: palette.highlightColor
-                                opacity: 0.6
-                                visible: index === page.mauiSubTabIndex
-                            }
-                            onClicked: Adapter.pageEmit(page, "tab-selected", { index: index, level: 1 })
-                        }
-                    }
+                    modelPage: page
+                    titles: page.mauiSubTabs
+                    badges: page.mauiSubTabBadges
+                    index: page.mauiSubTabIndex
+                    level: 1
+                    namePrefix: "mauiSubTab_"
+                    fontSize: Theme.fontSizeSmall
+                    minimumFontSize: Theme.fontSizeExtraSmall
+                    markerOpacity: 0.6
                 }
             }
         }
@@ -1055,5 +1274,21 @@ Page {
     PageBusyIndicator {
         objectName: "mauiPageBusy"
         running: page.mauiBusy && !page.mauiBusyOnPulley
+    }
+
+    // The drag ghost (mauiDragGhost): above the content and the chrome, a still snapshot of the source.
+    ShaderEffectSource {
+        id: dragGhost
+        property real grabX: 0
+        property real grabY: 0
+        property bool allowed: false
+        visible: false
+        z: 10000
+        live: false
+        hideSource: false
+        opacity: allowed ? 0.85 : 0.45
+        scale: 1.05
+        transformOrigin: Item.TopLeft
+        Behavior on opacity { NumberAnimation { duration: 120 } }
     }
 }

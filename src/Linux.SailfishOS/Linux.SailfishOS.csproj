@@ -4,13 +4,21 @@
     <TargetFramework>net11.0</TargetFramework>
     <RootNamespace>Microsoft.Maui.SailfishOS</RootNamespace>
     <AssemblyName>Microsoft.Maui.SailfishOS</AssemblyName>
-    <PackageId>Microsoft.Maui.SailfishOS</PackageId>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <Description>A .NET MAUI backend for Sailfish OS: MAUI apps render as native Qt Quick / Sailfish Silica UI on the device compositor and ship as harbour-style RPMs (linux-arm64, SFOS 5.2+).</Description>
     <PackageTags>maui;sailfish;sailfishos;linux;rpm;harbour;dotnet;cross-platform</PackageTags>
     <IsPackable>true</IsPackable>
     <IsShipping>true</IsShipping>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Trimmed with the app under TrimMode=partial, as MAUI's own assemblies are (tracker S53); the trim analyzer
+         runs on every build, and reflection is rooted where it is used (DynamicDependency). -->
+    <IsTrimmable>true</IsTrimmable>
+    <!-- Symbols beside the package (snupkg) and SourceLink to the repository (tracker S06). -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,30 +55,24 @@
     <None Include="scaffold/**" Pack="true" PackagePath="buildTransitive/scaffold/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
-  <!-- The device tools ship in the package (buildTransitive/net11.0/tools, same layout as the checkout's tools/),
-       so package consumers need no rpm toolchain or repo clone. Checkout-only commands (record, matrix, native
-       builds, ...) stay out; `sf` says so when one is asked for. -->
+  <!-- The device tools: the sailfish tool (src/Linux.SailfishOS.Tools, C# over the system ssh/scp, so Windows too;
+       tracker S56), built first and packed beside the targets, which run it with dotnet (setup, deploy, dotnet run).
+       The bash scripts in tools/ are the repo's own (matrix, shots, native builds) and stay out of the package. -->
   <ItemGroup>
-    <None Include="../../tools/sf;../../tools/sf-debug-pipe.sh;../../tools/sf-setup.sh;../../tools/sf-deploy.sh;../../tools/sf-run.sh;../../tools/sf-preflight.sh;../../tools/sf-debug-attach.sh"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/" />
-    <None Include="../../tools/lib/sf-lib.sh"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/lib/" />
-    <None Include="../../tools/cmd/setup.sh;../../tools/cmd/pair.sh;../../tools/cmd/detect.sh;../../tools/cmd/doctor.sh;../../tools/cmd/deploy.sh;../../tools/cmd/verify.sh;../../tools/cmd/run.sh;../../tools/cmd/kill.sh;../../tools/cmd/debug-attach.sh;../../tools/cmd/screenshot.sh"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/cmd/" />
-    <None Include="../../tools/remote/sf-run-remote.sh;../../tools/remote/sf-kill-remote.sh;../../tools/remote/sf-remote-env.sh;../../tools/remote/sf-screenshot-remote.sh"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/remote/" />
-    <None Include="../../tools/py/sf-rpmbuild.py;../../tools/py/sf-rpmquery.py;../../tools/py/sf_rpm.py;../../tools/py/sf-debug-dap-filter.py"
-          Pack="true" PackagePath="buildTransitive/net11.0/tools/py/" />
+    <ProjectReference Include="../Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <None Include="../../artifacts/sailfish-tool/sailfish.dll;../../artifacts/sailfish-tool/sailfish.runtimeconfig.json;../../artifacts/sailfish-tool/sailfish.deps.json"
+          Pack="true" Visible="false" PackagePath="buildTransitive/net11.0/tools/sailfish/" />
   </ItemGroup>
 
   <!-- The native shim as a NuGet native asset; pack fails without it, since the app would die on start. -->
   <ItemGroup Condition="Exists('../../artifacts/native/aarch64/libsailfishhost.so')">
     <None Include="../../artifacts/native/aarch64/libsailfishhost.so"
           Pack="true" PackagePath="runtimes/linux-arm64/native/libsailfishhost.so" />
-    <!-- Harbour launcher (SailfishHarbour=true) -->
+    <!-- Harbour launcher (SailfishHarbour=true). A folder PackagePath: an extension-less file name is read as a folder
+         (the launcher landed at native/sailfish-launcher/sailfish-launcher). -->
     <None Include="../../artifacts/native/aarch64/sailfish-launcher"
           Condition="Exists('../../artifacts/native/aarch64/sailfish-launcher')"
-          Pack="true" PackagePath="runtimes/linux-arm64/native/sailfish-launcher" />
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" />
     <!-- Sailfish Secrets bridge (dlopen'ed, optional) -->
     <None Include="../../artifacts/native/aarch64/libsailfishsecretsbridge.so"
           Condition="Exists('../../artifacts/native/aarch64/libsailfishsecretsbridge.so')"
@@ -82,7 +84,7 @@
           Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishhost.so" />
     <None Include="../../artifacts/native/armv7hl/sailfish-launcher"
           Condition="Exists('../../artifacts/native/armv7hl/sailfish-launcher')"
-          Pack="true" PackagePath="runtimes/linux-arm/native/sailfish-launcher" />
+          Pack="true" PackagePath="runtimes/linux-arm/native/" />
     <None Include="../../artifacts/native/armv7hl/libsailfishsecretsbridge.so"
           Condition="Exists('../../artifacts/native/armv7hl/libsailfishsecretsbridge.so')"
           Pack="true" PackagePath="runtimes/linux-arm/native/libsailfishsecretsbridge.so" />

@@ -46,7 +46,7 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf doctor` | blocking pre-flight for the deploy loop: sysroot/shim present, SSH paired, endpoint is a Sailfish device (`--local`, `--fix`, `--for-debug`) |
 | `sf deploy` | publish + RPM build + upload + install + verify (`--run`, `--screenshot`, `--clean`, `--release N`, `--jit`\|`--trim`\|`--trimr2r`; `SF_PUBLISH_PROPS` adds `-p:` arguments for A/B builds) |
 | `sf verify` | proves the installed RPM is byte-for-byte the local build; detects stale processes |
-| `sf run` | launches the installed app with a launcher-like Wayland env; `--env NAME=VALUE` injects variables; tails logs; `--wait S` waits up to S s for the app to exit on its own and exits with the app's own code (from its last log line `[Sailfish] exit code N`: 2 = the shim or the QML did not load, 1 = startup threw; 124 = still running) |
+| `sf run` | launches the installed app with a launcher-like Wayland env; `--env NAME=VALUE` injects variables; tails logs; `--wait S` waits up to S s for the app to exit on its own and exits with the app's own code (from its last log line `[Sailfish] exit code N`: 2 = the shim or the QML did not load, 1 = startup threw; 124 = still running); `--follow` streams the log until the app exits, returns its exit code and stops the app on Ctrl+C (what `dotnet run -f net11.0-sailfish` runs) |
 | `sf kill` | kills every instance (launcher/invoker/firejail and direct-binary cmdlines differ); `--list` only lists them |
 | `sf debug-attach` | prepares managed debugging: pushes the linux-arm64 vsdbg to `/tmp/vsdbg`, checks it runs, relaxes ptrace |
 | `sf screenshot` | compositor screenshot → local PNG (lipstick `saveScreenshot`, elevated) |
@@ -63,7 +63,7 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf sysroot` | assembles the aarch64 sysroot (Qt 5.6.3 headers + runtime libs) from public RPMs |
 | `sf screenrec-build` | `zig cc` cross-build of the on-phone recorder (lipstick recorder protocol → V4L2 H.264 → GStreamer MP4) |
 | `sf pack-local` | packs this checkout into the local NuGet feed (`Microsoft.Maui.SailfishOS`, the workload manifest and its `sailfish-workload` tool, the template), registers the source, clears the cached 0.1.0 — what SailfishKitchen and template apps restore from |
-| `sf workload-install` | teaches the local SDK the `net11.0-sailfish` TFM (without a clone: `dnx Microsoft.Maui.SailfishOS.Workload install`) |
+| `sf workload-install` | teaches the local SDK the `net11.0-sailfish` TFM (without a clone: `dnx Microsoft.Maui.Platforms.SailfishOS.Workload install`) |
 
 Layout: `tools/cmd/` holds the commands, `tools/lib/sf-lib.sh` the shared helpers (connection, transports,
 timeouts, app identity; `SF_SSH_MUX=1` makes every call of a run share one ssh connection per phone,
@@ -74,8 +74,47 @@ trace, QML and page-load analyzers, `tools/screenrec/` the recorder's source. `t
 VS Code's `pipeTransport` for the `coreclr` attach (with `py/sf-debug-dap-filter.py`, which drops the
 SHA384/SHA512 breakpoint checksums vsdbg rejects). `tools/sf-{setup,deploy,run,preflight,debug-attach}.sh`
 are the former names, kept for the `.vscode` files of apps generated before `tools/sf`.
-The NuGet package ships the device-loop subset (setup, pair, detect, doctor, deploy, verify, run, kill, screenshot,
-debug-attach); the other commands need a checkout.
+The NuGet package does not ship these scripts. It carries the `sailfish` device tool instead
+(`src/Linux.SailfishOS.Tools`, also its own package `Microsoft.Maui.Platforms.SailfishOS.Tools` for
+`dotnet tool install -g`). The tool is C# over the system OpenSSH, so it needs no bash, `expect` or python3 and runs on
+Windows. Its commands are `setup`, `deploy [--run] [--follow]`, `run [--follow] [--env N=V]`, `kill`, `logs [--follow]`
+and `screenshot [-o file]`. It reads and writes the same `connect.info` and drives the same phone-side scripts
+(`tools/remote`, embedded). `SailfishRun`, `SailfishSetup`, `DeployToDevice` and `dotnet run` call it (`SailfishToolDll`
+picks another build). In a checkout the targets run the build output in `artifacts/sailfish-tool/`. Debugging from
+VS Code goes through the MAUI Sailfish Tools extension (below), which has its own SSH layer.
+
+**A sandboxed run.** `tools/sf run --env SF_SAILJAIL=1` (or `SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1" tools/sf matrix …`,
+or `sailfish run --env SF_SAILJAIL=1`) starts the app through `sailjail -p <package>`: inside its sandbox, with the
+permissions of its desktop entry, as an app-grid launch does. Without it the helper runs `/usr/bin/<package>`
+unsandboxed. The package must be built sandboxed, for example the sample with
+`SF_PUBLISH_PROPS="-p:SailfishSandboxing=true -p:SailfishPermissions=Contacts%3BLocation%3BSensors" tools/sf deploy`
+(`%3B` is MSBuild's `;`). Permissions beyond Internet need the user's consent once: start the app from the app grid
+and allow them. Until then sailjaild reports the launch as undecided, and a launch over SSH waits and ends with no
+output.
+
+## CI and code style
+
+`tools/ci/host-ci.sh [style] [build] [test] [pack] [samples] [template]` is the host-only CI. It needs no phone and no native
+toolchain, and `.github/workflows/host-ci.yml` runs the same script: a Linux job that gates, and a Windows job under
+Git Bash that does not gate yet. Every stage but `style` first installs the workload manifest into
+`artifacts/ci/manifests` (`sailfish-workload install --manifest-root`) and sets `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`,
+so a runner whose SDK has never seen it knows `net11.0-sailfish`. Restores are hermetic: `artifacts/ci/nuget.config`
+(the CI feed and nuget.org only) and a NuGet cache under `artifacts/ci/packages`, so a local feed or cached packages
+on the developer's machine cannot make a local run pass that fails on a fresh runner. With no arguments it runs
+every stage:
+
+| Stage | What |
+|---|---|
+| `style` | `dotnet run tools/ci/style-check.cs`: LF line endings, a final newline, no trailing whitespace, C# indented with tabs. `--fix` repairs all of it except indentation. |
+| `build` | `tools/ci/Linux.Sailfish.ci.slnf` in Release: the backend, tools, tests and the sample that takes the backend by ProjectReference. The template app (Android/iOS heads need MAUI workloads) and the package-based samples are left out |
+| `test` | `tests/Linux.SailfishOS.Tests` |
+| `pack` | every package into `artifacts/ci/feed`, the backend without the native shim (`SailfishAllowMissingShim=true`) |
+| `samples` | SailfishKitchen and SkiaSharpProbe (they take the backend as a package) for `net11.0-sailfish`, against the CI feed |
+| `template` | `dotnet new maui-sailfish --sailfish-only` from the packed template, with its own NuGet cache, template hive and workload manifest (`DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`), then `dotnet build` and a Release `dotnet publish` that must write the RPM |
+
+`.editorconfig` holds the conventions and `.gitattributes` keeps LF in every checkout, Windows too. `dotnet format
+whitespace` is not used: on tab-indented code it moves comments and aligned continuation lines to wrong columns.
+The device matrix (`tools/sf matrix`) stays manual until a self-hosted runner with a phone exists.
 
 ## VS Code
 
@@ -128,13 +167,20 @@ by environment (all prefixed `MAUI_SAILFISH_QT_HOST`):
 | Variable | Effect |
 |---|---|
 | `…_DIAG=1` | master diag switch (traces, acceptance report) |
-| `…_PAGE_DIAG=1` / `…_CONTROLS_DIAG=1` / `…_NAV_DIAG=1` / `…_POPUP_DIAG=1` | page / controls / navigation / popup acceptance legs |
+| `…_PAGE_DIAG=1` (+ `…_PAGE_TYPE=<page>`, default `TextPage`) / `…_CONTROLS_DIAG=1` / `…_NAV_DIAG=1` / `…_POPUP_DIAG=1` | page / controls / navigation / popup acceptance legs |
 | `…_COLLECTION_DIAG=1` (+ `…_COLLECTION_ROWS=N`) | virtualized CollectionView legs (default 40 rows; matrix uses 10/100/500) |
-| `…_SHAPES_DIAG=1` / `…_VISUAL_DIAG=1` | shapes/images and visual-state legs |
-| `…_RECONCILE_DIAG=1` (+ `…_BRIDGE/…_TEXT/…_INPUT/…_GEOMETRY_DIAG=1`) | reconcile/bridge/text/input/geometry contract legs |
+| `…_LEGACYLIST_DIAG=1` | the legacy `ListView` (cells, groups, refresh, scroll-to) |
+| `…_SHAPES_DIAG=1` / `…_VISUAL_DIAG=1` / `…_CANVAS_DIAG=1` | shapes/images, visual-state and GraphicsView canvas legs; `…_SHAPES_HOLD=1` / `…_VISUAL_HOLD=1` stay on the gallery for a screenshot |
+| `…_RECONCILE_DIAG=1` (+ `…_BRIDGE_DIAG=1`, `…_TEXT_DIAG=1`, `…_INPUT_DIAG=1`, `…_GEOMETRY_DIAG=1`, `…_TREE_DIAG=1`) | reconcile, bridge, text input, input routing, geometry and host-tree contract legs |
+| `…_NAVBACK_DIAG=1` / `…_NAVDIALOG_DIAG=1` / `…_HEADER_DIAG=1` | back navigation without a flash; chained dialogs, unanimated navigation and span taps; page header and title view |
+| `…_SHELL_DIAG=1` (+ `…_SHELL_HOLD=1`) / `…_CONTAINERS_DIAG=1` | Shell, TabbedPage and FlyoutPage on the native page stack; container handlers and the page cache |
+| `…_PULLEY_DIAG=1` / `…_TABPULLEY_DIAG=1` / `…_SILICA_DIAG=1` / `…_FEATURES_DIAG=1` | pulley menus across navigation; per-tab pulleys; Silica idioms; the Features hub round trips |
 | `…_STRESS_DIAG=1` / `…_PERF_DIAG=1` / `…_ERROR_DIAG=1` | lifecycle stress, performance, error-path legs |
 | `…_F3_DIAG=1` | F3 controls leg (carousel, indicator, stepper, check box, swipe view, images/fonts, web view); with `MAUI_SAILFISH_DIAG_STALL_URL=<url of a server that accepts and never answers>` and `MAUI_SAILFISH_HTTP_STALL_S=3` it also checks the hung-image abort and retries |
 | `…_F4_DIAG=1` | F4 platform-services leg (Essentials statics, device, theme, battery, sensors, pickers, share) |
+| `…_ADAPTERBENCH_DIAG=1` (+ `MAUI_SAILFISH_ADAPTERBENCH_SRCS=a.qml,b.qml`) | creation cost of each QML adapter, and a pixel comparison against candidate replacements |
+| `…_SHOWCASE=1` (+ `…_SHOWCASE_TOUR`, `…_SHOWCASE_PROBE=1`, `…_SHOWCASE_PULL_NEAR/FAR=px`, `…_SHOWCASE_RECORD=<dir>`, `…_SHOWCASE_SYNC=1`) | the recorded showcase tour; the probe dumps every shape host, record writes the app's own frames, sync pairs with `tools/sf record` |
+| `…_APIDEMO=<name>` | one slow API demo scene for the clips in `sailfish-apis.md` |
 | `…_AUTO_SHUTDOWN=1` | quit when the cycle finishes (unattended runs) |
 | `MAUI_SAILFISH_TRACE=1` | verbose trace log (`/tmp/maui_trace.log`) |
 
@@ -155,11 +201,40 @@ Runtime knobs and probes for any app (full names):
 | `MAUI_SAILFISH_TEXT_CACHE=0` | A/B switch: measure every text through the shim on each layout pass (no cache of QFontMetrics answers) |
 | `MAUI_SAILFISH_HANDLER_TREE=0` | A/B switch: layout child changes wait for the full page reconcile instead of the container's subtree pass |
 | `MAUI_SAILFISH_APP_HANDLER=0` | do not attach the Application handler (then `Application.Quit()` does nothing) |
+| `MAUI_SAILFISH_DENSITY=<x>` | dp-to-pixel factor instead of pixel width / 540 (`1.0` = raw pixels) |
+| `MAUI_SAILFISH_APP_ID=<id>` | Qt application name, which becomes the Wayland app_id lipstick matches to the `.desktop` entry (default: from the package) |
+| `MAUI_SAILFISH_SECURESTORAGE=file` | `SecureStorage` uses the file store even when the Secrets daemon is there |
+| `MAUI_SAILFISH_FIRST_CHANCE=N` | logs the first N first-chance exceptions with their stacks (thrown and caught ones are otherwise invisible) |
+| `MAUI_SAILFISH_STRICT_THREAD=0` | an off-thread shim call is only logged instead of throwing (kept for one release) |
+| `MAUI_SAILFISH_CREATE_CHUNK=N` / `MAUI_SAILFISH_CREATE_FIRST_CHUNK=N` | hosts created per pass when a shown page grows (default 24), and for the visible top of a page being switched to (default 96) |
+| `MAUI_SAILFISH_ADAPTER_PRELOAD=0` | A/B switch: adapters load and warm up on first use instead of at startup |
+| `MAUI_SAILFISH_FLAT_ROWS=0` | A/B switch: every layout gets its own host, transparent row layouts included |
+| `MAUI_SAILFISH_LIST_DEFER=0` | A/B switch: rows in the ListView's off-screen cache are built at once instead of a few per loop turn |
+| `MAUI_SAILFISH_ROW_POOL=0` | A/B switch: a detached list row is destroyed instead of being reused by the next row of the same shape |
+| `MAUI_SAILFISH_TICK_POLL=1` | A/B switch: the shim's loop timer ticks at a fixed rate instead of being event driven |
+| `MAUI_SAILFISH_QT_HOST_NAV_ANIMATION=0` | managed push/pop without the Silica slide |
+| `MAUI_SAILFISH_QT_HOST_QML=<path>` | the shell QML to load instead of the one shipped with the app |
+| `MAUI_SAILFISH_OPS_TIMING=1` | each page logs where its host-creating op batches spend their time (`OPS-TIMING`) |
+| `MAUI_SAILFISH_QT_HOST_GEOMETRY_TRACE=1` / `MAUI_SAILFISH_QT_HOST_INPUT_TRACE=1` | logs every geometry write and window report / every routed pointer event |
+
+Developer aids (the sample app and `tools/sf shots` use them; any app can):
+
+| Variable | Effect |
+|---|---|
+| `MAUI_SAILFISH_TAPS=<ms>:<x>,<y>;…` | taps, drags (`ms:x,y>x2,y2@1500`) and typing (`ms:"text"`) at given ms after launch, in screenshot pixels, through the real input path |
+| `MAUI_SAILFISH_SHOT_HOLD_MS=N` / `MAUI_SAILFISH_SHOT_SYNC=1` | how long a diagnostics step holds at each `SF-SHOT` marker for `tools/sf shots` / hold until `tools/sf shots` acknowledges the screenshot (up to 20 s), then for the hold |
+| `MAUI_SAILFISH_BACK_AFTER=N` | injects Silica's edge back swipe once after the Nth page render |
+| `MAUI_SAILFISH_PULL_GESTURE=<ms>` / `MAUI_SAILFISH_OPEN_PULLEY=1` | a real slow pull on the top page's pulley, held for a screenshot / scroll writes frozen so an opened pulley stays open |
+| `MAUI_SAILFISH_NAVBACK_FILM=1` | the navback leg grabs a frame after every tick (may crash QV4 mid-transition, hence opt-in) |
+| `MAUI_SAILFISH_DIAG_CRASH=1` | a Clicked handler throws 2 s after the first page, unhandled (checks the crash path, S59) |
+
+The three tables are kept complete by `EnvSwitchTableTests`: every `MAUI_SAILFISH_*` name read in `src/` must appear
+here, and every name here must still be read somewhere.
 
 `tools/sf matrix` wraps these into named legs:
-`page controls nav popup collection collection10 collection100 collection500
+`page controls nav popup collection collection10 collection100 collection500 legacylist
 shapes visual text input geometry reconcile bridge stress perf error tree
-shell containers pulley tabpulley silica navback features f3 f4 adapterbench skia skiainput`
+shell containers pulley tabpulley header canvas navdialog silica navback features f3 f4 adapterbench skia skiainput`
 (`ALL_LEGS` in `tools/cmd/matrix.sh`; the skia legs run `samples/SkiaSharpProbe`).
 
 ## Recording the phone's screen

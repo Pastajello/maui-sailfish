@@ -7,7 +7,7 @@
     <TargetFramework>net11.0</TargetFramework>
     <RootNamespace>Microsoft.Maui.SailfishOS.SkiaSharp</RootNamespace>
     <AssemblyName>Microsoft.Maui.SailfishOS.SkiaSharp</AssemblyName>
-    <PackageId>Microsoft.Maui.SailfishOS.SkiaSharp</PackageId>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS.SkiaSharp</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <Description>Sailfish OS handlers for SkiaSharp.Views.Maui (SKCanvasView, SKGLView, SK*ImageSource): reference it next to SkiaSharp.Views.Maui.Controls and SkiaSharp.NativeAssets.Linux in the Sailfish head.</Description>
     <PackageTags>maui;sailfish;sailfishos;skiasharp</PackageTags>
@@ -15,6 +15,11 @@
     <IsShipping>true</IsShipping>
     <!-- The lowest SkiaSharp 3.x the supported apps use; NuGet lets apps resolve any later 3.x. -->
     <SailfishSkiaSharpVersion Condition="'$(SailfishSkiaSharpVersion)' == ''">3.116.1</SailfishSkiaSharpVersion>
+    <!-- Symbols beside the package (snupkg) and SourceLink to the repository (tracker S06). -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>

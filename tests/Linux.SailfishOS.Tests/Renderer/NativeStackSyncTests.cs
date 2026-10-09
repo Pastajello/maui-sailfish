@@ -37,6 +37,38 @@ public class NativeStackSyncTests
 		Assert.Equal("Root", h.Shim.ByUri("label").Single(o => o.Page == "mp1").Text("text"));
 	}
 
+	// Tracker S08: the app cancels the back the user swiped (Shell.Navigating). MAUI keeps the page, and it used to come
+	// back only when the follow operation's 3 s deadline ran out and a resync re-pushed it.
+	[Fact]
+	public void A_vetoed_back_gesture_brings_the_page_back_at_once()
+	{
+		var shell = new Shell();
+		var home = Page("Home");
+		shell.Items.Add(new ShellContent { Content = home });
+		using var h = new RendererHarness(shell);
+		Settle(h);
+		_ = home.Navigation.PushAsync(Page("Editor"));
+		Settle(h);
+		Assert.Equal(2, h.Shim.Pages.Count);
+		var seen = new List<string>();
+		shell.Navigating += (_, e) =>
+		{
+			seen.Add($"{e.Source} cancel={e.CanCancel}");
+			if (e.Source is ShellNavigationSource.Pop or ShellNavigationSource.PopToRoot)
+				e.Cancel();   // "unsaved changes"
+		};
+
+		var started = Environment.TickCount64;
+		h.Shim.Pages.RemoveAt(h.Shim.Pages.Count - 1);   // Silica's back gesture
+		Settle(h, 6);
+
+		Assert.True(shell.CurrentItem.CurrentItem.Navigation.NavigationStack.Count == 2, string.Join(";", seen));   // MAUI kept the editor
+		Assert.Equal(2, h.Shim.Pages.Count);                                                // and it is back on screen
+		Assert.True(Environment.TickCount64 - started < 2500, "came back only at the follow deadline");
+		Assert.Equal(1, h.Renderer.FollowVetoes);
+		Assert.Equal(0, h.Renderer.NavResyncs);
+	}
+
 	// Profitocracy: Settings (a Shell tab) pushes Profiles with Navigation.PushAsync; the back gesture's MAUI pop never
 	// completed, so after the timeout the resync pushed Profiles back on screen and the tab row was gone.
 	[Fact]

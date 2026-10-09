@@ -32,9 +32,21 @@ public class WorkloadToolTests
 
 	[Fact]
 	public void PackVersion_reads_the_backend_pack() =>
-		Assert.Equal("9.8.7", Program.PackVersion("""{ "version": 1, "packs": { "microsoft.maui.sailfishos": { "kind": "library", "version": "9.8.7" } } }"""));
+		Assert.Equal("9.8.7", Program.PackVersion("""{ "version": 1, "packs": { "microsoft.maui.platforms.sailfishos": { "kind": "library", "version": "9.8.7" } } }"""));
 
 	// The manifest the tool embeds is written from data/*.in with the repo's version (SailfishVersionedFiles.targets).
+	// Tracker S57: "WorkloadManifest.Run.targets" was read as culture "run" and went to a Run/ satellite assembly, so
+	// `install` failed with "the tool was built without WorkloadManifest.Run.targets".
+	[Fact]
+	public void Every_manifest_file_is_embedded_in_the_tool_itself()
+	{
+		var names = typeof(Program).Assembly.GetManifestResourceNames();
+
+		Assert.Contains("WorkloadManifest.json", names);
+		Assert.Contains("WorkloadManifest.targets", names);
+		Assert.Contains("WorkloadManifest.Run.targets", names);
+	}
+
 	[Fact]
 	public void The_embedded_manifest_carries_the_repo_version()
 	{

@@ -15,8 +15,34 @@ internal static class SailfishFontRules
 	/// 18) as a set value without PropertyChanged, so that value counts as unset; an explicit FontSize="18" therefore
 	/// paints at the theme size too (docs/porting-existing-apps.md, "Platform behaviour that differs"). Measure and paint both decide through here.
 	/// </summary>
+	/// <remarks>With FontAutoScalingEnabled (MAUI's default) the size follows the phone's text-size setting, as Android
+	/// scales sp with the system font scale (tracker S43).</remarks>
 	public static double? AppFontSize(Microsoft.Maui.Controls.BindableObject element, Microsoft.Maui.Controls.BindableProperty property, double size) =>
-		element.IsSet(property) && size > 0 && Math.Abs(size - Platform.SailfishFontManager.DefaultSize) > 0.01 ? size : null;
+		element.IsSet(property) && size > 0 && Math.Abs(size - Platform.SailfishFontManager.DefaultSize) > 0.01
+			? size * ScaleFor(element)
+			: null;
+
+	/// <summary>
+	/// The phone's text-size factor (Settings › Display › Text size: normal, large, huge, gigantic):
+	/// Theme.fontSizeMedium over Theme.fontSizeMediumBase, which Silica's own text follows. 1 until the theme answers;
+	/// read once per run, so a changed setting applies at the next start.
+	/// </summary>
+	public static double TextScale()
+	{
+		var scaled = SailfishMeasure.ThemeDp("Theme.fontSizeMedium", 0);
+		var baseSize = SailfishMeasure.ThemeDp("Theme.fontSizeMediumBase", 0);
+		return scaled > 0 && baseSize > 0 ? Math.Clamp(scaled / baseSize, 0.5, 4.0) : 1.0;
+	}
+
+	/// <summary>The factor an explicit size gets: <see cref="TextScale"/> unless the element turned FontAutoScalingEnabled off.</summary>
+	public static double ScaleFor(Microsoft.Maui.Controls.BindableObject element) => AutoScales(element) ? TextScale() : 1.0;
+
+	private static bool AutoScales(Microsoft.Maui.Controls.BindableObject element) => element switch
+	{
+		Microsoft.Maui.Controls.Span span => span.FontAutoScalingEnabled,
+		Microsoft.Maui.ITextStyle style => style.Font.AutoScalingEnabled,
+		_ => true,
+	};
 
 	/// <summary>
 	/// A Label's size: the app's, else null and Label.qml paints Theme.fontSizeMedium, as every Silica label and every

@@ -1,3 +1,6 @@
+Microsoft.Maui.Controls.PlatformConfiguration.SailfishOS
+Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page
+Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement
 Microsoft.Maui.LifecycleEvents.ISailfishLifecycleBuilder
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnApplicationStateChanged
@@ -12,6 +15,9 @@ Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnOrientationChanged
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnQuitting
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnScreenLockChanged
 Microsoft.Maui.LifecycleEvents.SailfishLifecycleExtensions
+Microsoft.Maui.SailfishOS.Graphics.SailfishImage
+Microsoft.Maui.SailfishOS.Graphics.SailfishImageLoadingService
+Microsoft.Maui.SailfishOS.Graphics.SailfishScreenshotExtensions
 Microsoft.Maui.SailfishOS.Handlers.NullElementHandler
 Microsoft.Maui.SailfishOS.Handlers.NullViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishActivityIndicatorHandler
@@ -28,11 +34,14 @@ Microsoft.Maui.SailfishOS.Handlers.SailfishFlyoutPageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishGraphicsHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishGridHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishHandlersFactory
+Microsoft.Maui.SailfishOS.Handlers.SailfishHybridWebViewHandler
+Microsoft.Maui.SailfishOS.Handlers.SailfishHybridWebViewJavaScriptException
 Microsoft.Maui.SailfishOS.Handlers.SailfishImageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishIndicatorViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishLabelHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishLayoutHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishLayoutHandlerBase`1
+Microsoft.Maui.SailfishOS.Handlers.SailfishLegacyListViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishListViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishNavigationViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishPageHandler
@@ -53,12 +62,15 @@ Microsoft.Maui.SailfishOS.Handlers.SailfishSwitchHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishTabbedPageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishTextInputHandlerBase`1
 Microsoft.Maui.SailfishOS.Handlers.SailfishTimePickerHandler
+Microsoft.Maui.SailfishOS.Handlers.SailfishToolbarHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishViewHandler`1
 Microsoft.Maui.SailfishOS.Handlers.SailfishViewMapper
 Microsoft.Maui.SailfishOS.Handlers.SailfishWebViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishWindowHandler
 Microsoft.Maui.SailfishOS.Hosting.AppHostBuilderExtensions
 Microsoft.Maui.SailfishOS.Hosting.SailfishMauiApplicationHost
+Microsoft.Maui.SailfishOS.Platform.QtHost.ISailfishImageSourceService
+Microsoft.Maui.SailfishOS.Platform.QtHost.ISailfishImageSourceService`1
 Microsoft.Maui.SailfishOS.Platform.QtHost.NativeElementHost
 Microsoft.Maui.SailfishOS.Platform.QtHost.NativeGeometry
 Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostAdapters
@@ -66,6 +78,7 @@ Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostException
 Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostImageSources
 Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostRuntime
 Microsoft.Maui.SailfishOS.Platform.QtHost.QtHostSurface
+Microsoft.Maui.SailfishOS.Platform.QtHost.SailfishImageSourceServiceResult
 Microsoft.Maui.SailfishOS.Platform.QtHost.SurfaceTouch
 Microsoft.Maui.SailfishOS.Platform.QtHost.SurfaceTouchAction
 Microsoft.Maui.SailfishOS.Platform.SailfishApplicationState
@@ -77,7 +90,9 @@ Microsoft.Maui.SailfishOS.Platform.SailfishCoverStatus
 Microsoft.Maui.SailfishOS.Platform.SailfishDisplay
 Microsoft.Maui.SailfishOS.Platform.SailfishDisplayState
 Microsoft.Maui.SailfishOS.Platform.SailfishDockEdge
+Microsoft.Maui.SailfishOS.Platform.SailfishExceptions
 Microsoft.Maui.SailfishOS.Platform.SailfishExtensions
+Microsoft.Maui.SailfishOS.Platform.SailfishKeyboard
 Microsoft.Maui.SailfishOS.Platform.SailfishMauiApplication
 Microsoft.Maui.SailfishOS.Platform.SailfishMemoryLevel
 Microsoft.Maui.SailfishOS.Platform.SailfishNotifications
@@ -87,3 +102,4 @@ Microsoft.Maui.SailfishOS.Platform.SailfishPage
 Microsoft.Maui.SailfishOS.Platform.SailfishPlatform
 Microsoft.Maui.SailfishOS.Platform.SailfishRemorse
 Microsoft.Maui.SailfishOS.Platform.SailfishTheme
+Microsoft.Maui.SailfishOS.Platform.SailfishUnhandledExceptionEventArgs

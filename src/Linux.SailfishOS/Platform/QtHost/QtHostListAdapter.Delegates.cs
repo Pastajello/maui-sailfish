@@ -194,9 +194,9 @@ internal sealed partial class QtHostListAdapter
 		}
 		else
 		{
-			if (ByHandle.Count >= MaxDelegates)
+			if (ByHandle.Count >= DelegateCap)
 			{
-				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"collection delegate cap ({MaxDelegates}) reached — row {rowIndex} not materialized");
+				QtHostDiag.Warn(QtHostDiagChannel.QmlObject, $"collection delegate cap ({DelegateCap}) reached — row {rowIndex} not materialized");
 				return;
 			}
 			// A different delegate may still hold the name: a dead one is dropped; a live one is only waiting for its
@@ -217,6 +217,7 @@ internal sealed partial class QtHostListAdapter
 		dg.Row = row;
 		row.DgObj = dgObj;
 
+		TemplateLazyCells(row);
 		var desired = new List<NativeElementHost>();
 		var props = new Dictionary<NativeElementHost, Dictionary<string, object?>>();
 		for (var c = 0; c < row.CellViews.Count; c++)

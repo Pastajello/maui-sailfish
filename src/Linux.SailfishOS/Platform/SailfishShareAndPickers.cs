@@ -70,7 +70,13 @@ internal sealed class SailfishShare : IShare
 	{
 		var resources = new List<object>();
 		var mime = "text/plain";
-		if (!string.IsNullOrEmpty(request.Uri))
+		if (!string.IsNullOrEmpty(request.Uri) && !string.IsNullOrEmpty(request.Text))
+		{
+			// Both: one text, the link after the message, as Android puts them into EXTRA_TEXT (the Uri was dropped
+			// the Text before, tracker S10).
+			resources.Add((request.Subject ?? request.Title ?? "text", request.Text + "\n" + request.Uri, "text/plain"));
+		}
+		else if (!string.IsNullOrEmpty(request.Uri))
 		{
 			mime = "text/x-url";
 			resources.Add((request.Subject ?? request.Title ?? request.Uri, request.Uri, "text/x-url"));
@@ -131,11 +137,13 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 		    function report(paths, cancelled) {
 		        window.mauiAppNotify("svc-pickers-result", JSON.stringify({ paths: paths, cancelled: cancelled }));
 		    }
-		    function pick(kind, filters) {
+		    function pick(kind, filters, title) {
 		        var comp = this[kind];
 		        var props = {};
 		        if (filters.length > 0 && (kind === "file" || kind === "files"))
 		            props.nameFilters = filters;
+		        if (title && title.length > 0)
+		            props.title = title;
 		        var page = pageStack.push(comp, props);
 		        current = page;
 		        var done = false;
@@ -167,17 +175,18 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 		}
 		""";
 
-	private static Task<List<string>> Pick(string kind, IEnumerable<string>? filters = null) =>
-		QtThread.Run(() => PickOnQt(kind, filters?.ToList()));
+	private static Task<List<string>> Pick(string kind, IEnumerable<string>? filters = null, string? title = null) =>
+		QtThread.Run(() => PickOnQt(kind, filters?.ToList(), title));
 
-	private static Task<List<string>> PickOnQt(string kind, IEnumerable<string>? filters)
+	private static Task<List<string>> PickOnQt(string kind, IEnumerable<string>? filters, string? title)
 	{
+		WarnIfUndeclared(kind);
 		if (!QtHostServices.Ensure(Service, Qml, (ShellEvents.PickersResult, OnResult)))
 			throw new FeatureNotSupportedException("Sailfish.Pickers is not available.");
 		_pending?.TrySetResult(new List<string>());   // a new request supersedes an open one
 		_pending = new TaskCompletionSource<List<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
 		var filterJs = "[" + string.Join(",", (filters ?? Array.Empty<string>()).Select(QtHostServices.Js)) + "]";
-		var result = QtHostServices.Eval(Service, $"s.pick({QtHostServices.Js(kind)},{filterJs})");
+		var result = QtHostServices.Eval(Service, $"s.pick({QtHostServices.Js(kind)},{filterJs},{QtHostServices.Js(title ?? string.Empty)})");
 		if (result != "ok")
 		{
 			_pending.TrySetResult(new List<string>());
@@ -185,6 +194,29 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 		}
 		return _pending.Task;
 	}
+
+	private static readonly HashSet<string> _warnedKinds = new();
+
+	/// <summary>Sailfish.Pickers run inside the app's sandbox: without the folders' permissions the picker opens empty.
+	/// MAUI's pickers need no permission on Android (the photo picker) or iOS, so this is a warning, not a
+	/// PermissionException (tracker S12).</summary>
+	private static void WarnIfUndeclared(string kind)
+	{
+		var needs = PickerPermissions(kind);
+		if (needs.Length == 0 || needs.All(SailfishPermissions.Declares) || !_warnedKinds.Add(kind))
+			return;
+		QtHostDiag.Warn(QtHostDiagChannel.QtHost,
+			$"picker '{kind}': the Sailjail sandbox shows only declared folders; add {string.Join(", ", needs.Where(n => !SailfishPermissions.Declares(n)))} " +
+			"to <SailfishPermissions> in the csproj, or the picker opens empty");
+	}
+
+	internal static string[] PickerPermissions(string kind) => kind switch
+	{
+		"image" or "images" => new[] { "Pictures", "MediaIndexing" },
+		"video" or "videos" => new[] { "Videos", "MediaIndexing" },
+		"file" or "files" => new[] { "UserDirs", "Documents", "Downloads" },
+		_ => Array.Empty<string>(),
+	};
 
 	private static void OnResult(JsonElement e)
 	{
@@ -209,13 +241,24 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 
 	public bool IsCaptureSupported => false;
 
-	public async Task<FileResult?> PickPhotoAsync(MediaPickerOptions? options = null) => One(await Pick("image").ConfigureAwait(true));
+	public async Task<FileResult?> PickPhotoAsync(MediaPickerOptions? options = null) =>
+		One(await Pick("image", title: options?.Title).ConfigureAwait(true));
 
-	public async Task<List<FileResult>> PickPhotosAsync(MediaPickerOptions? options = null) => Many(await Pick("images").ConfigureAwait(true));
+	public async Task<List<FileResult>> PickPhotosAsync(MediaPickerOptions? options = null) =>
+		Limit(Many(await Pick("images", title: options?.Title).ConfigureAwait(true)), options);
 
-	public async Task<FileResult?> PickVideoAsync(MediaPickerOptions? options = null) => One(await Pick("video").ConfigureAwait(true));
+	public async Task<FileResult?> PickVideoAsync(MediaPickerOptions? options = null) =>
+		One(await Pick("video", title: options?.Title).ConfigureAwait(true));
 
-	public async Task<List<FileResult>> PickVideosAsync(MediaPickerOptions? options = null) => Many(await Pick("videos").ConfigureAwait(true));
+	public async Task<List<FileResult>> PickVideosAsync(MediaPickerOptions? options = null) =>
+		Limit(Many(await Pick("videos", title: options?.Title).ConfigureAwait(true)), options);
+
+	/// <summary>MediaPickerOptions.SelectionLimit (0 = no limit): Silica's multi-pickers cannot cap the selection, so
+	/// the first ones picked are kept, as Android does where its picker does not enforce the limit.</summary>
+	internal static List<FileResult> Limit(List<FileResult> picked, MediaPickerOptions? options) =>
+		options is { SelectionLimit: > 0 } && picked.Count > options.SelectionLimit
+			? picked.Take(options.SelectionLimit).ToList()
+			: picked;
 
 	public Task<FileResult?> CapturePhotoAsync(MediaPickerOptions? options = null) =>
 		throw new FeatureNotSupportedException("Sailfish OS has no in-app camera capture API; use PickPhotoAsync.");
@@ -233,10 +276,11 @@ internal sealed class SailfishPickers : IMediaPicker, IFilePicker
 			.Select(t => "*." + t.TrimStart('.', '*'));
 	}
 
-	public async Task<FileResult?> PickAsync(PickOptions? options = null) => One(await Pick("file", Filters(options)).ConfigureAwait(true));
+	public async Task<FileResult?> PickAsync(PickOptions? options = null) =>
+		One(await Pick("file", Filters(options), options?.PickerTitle).ConfigureAwait(true));
 
 	public async Task<IEnumerable<FileResult?>> PickMultipleAsync(PickOptions? options = null) =>
-		Many(await Pick("files", Filters(options)).ConfigureAwait(true));
+		Many(await Pick("files", Filters(options), options?.PickerTitle).ConfigureAwait(true));
 
 	/// <summary>The open picker page (diagnostics).</summary>
 	internal static string CurrentPickerJs => "window.mauiServices['pickers'].current";
@@ -305,14 +349,21 @@ internal sealed class SailfishPermissions : IPermissions
 		"Media" => new[] { "Music", "Videos" },
 		"StorageRead" or "StorageWrite" => new[] { "UserDirs", "Documents", "Pictures" },
 		"Bluetooth" or "NearbyWifiDevices" => new[] { "Bluetooth" },
-		"LaunchApp" => new[] { "AppLaunch" },
+		"LaunchApp" => new[] { "AppLaunch" },   // a Sailjail permission (checked on SFOS 5.2, tracker S12)
+		"Sensors" => new[] { "Sensors" },       // sensorfw inside the sandbox
 		_ => Array.Empty<string>(),
 	};
+
+	/// <summary>Permissions no Sailjail permission grants inside a sandbox: the flashlight service is not reachable
+	/// from Sailjail at all, so its permission reads Denied there rather than Granted (Flashlight then throws).</summary>
+	internal static bool UnavailableInSandbox(Type permission) => permission.Name == "Flashlight";
 
 	internal static PermissionStatus StatusFor(Type permission) => StatusFor(permission, Policy.Value);
 
 	internal static PermissionStatus StatusFor(Type permission, (bool Sandboxed, HashSet<string> Declared) policy)
 	{
+		if (policy.Sandboxed && UnavailableInSandbox(permission))
+			return PermissionStatus.Denied;
 		var needs = SailjailFor(permission);
 		if (!policy.Sandboxed || needs.Length == 0)
 			return PermissionStatus.Granted;
@@ -362,7 +413,15 @@ internal sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
 
 	public bool IsComposeSupported => true;
 
-	public Task ComposeAsync(EmailMessage? message) => SailfishBrowser.OpenUrl(MailUri(message));
+	/// <summary>A mailto: link to the mail app. A mailto: link carries no attachments and no HTML body, so a message
+	/// with attachments is refused (FeatureNotSupportedException, as MAUI's Windows head does for what it cannot send)
+	/// instead of going out without them; an HTML body goes as its text.</summary>
+	public Task ComposeAsync(EmailMessage? message)
+	{
+		if (message?.Attachments is { Count: > 0 })
+			throw new FeatureNotSupportedException("Email attachments: Sailfish OS opens the mail app through a mailto: link, which cannot carry attachments. Share the file with Share.RequestAsync instead.");
+		return SailfishBrowser.OpenUrl(MailUri(message));
+	}
 
 	internal static string MailUri(EmailMessage? message)
 	{
@@ -394,22 +453,22 @@ internal sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
 	{
 		var location = placemark.Location;
 		return location is null
-			? SailfishBrowser.OpenUrl("geo:0,0?q=" + Uri.EscapeDataString(string.Join(", ",
-				new[] { placemark.Thoroughfare, placemark.Locality, placemark.CountryName }.Where(s => !string.IsNullOrEmpty(s)))))
+			? SailfishBrowser.OpenUrl(PlacemarkUri(placemark))
 			: OpenAsync(location.Latitude, location.Longitude, options);
 	}
 
-	public async Task<bool> TryOpenAsync(double latitude, double longitude, MapLaunchOptions options)
-	{
-		await OpenAsync(latitude, longitude, options).ConfigureAwait(true);
-		return true;
-	}
+	internal static string PlacemarkUri(Placemark placemark) =>
+		"geo:0,0?q=" + Uri.EscapeDataString(string.Join(", ",
+			new[] { placemark.Thoroughfare, placemark.Locality, placemark.CountryName }.Where(s => !string.IsNullOrEmpty(s))));
 
-	public async Task<bool> TryOpenAsync(Placemark placemark, MapLaunchOptions options)
-	{
-		await OpenAsync(placemark, options).ConfigureAwait(true);
-		return true;
-	}
+	/// <summary>Whether a map app took the geo: link (it was always true before, tracker S10).</summary>
+	public Task<bool> TryOpenAsync(double latitude, double longitude, MapLaunchOptions options) =>
+		SailfishBrowser.OpenUrl(GeoUri(latitude, longitude, options?.Name));
+
+	public Task<bool> TryOpenAsync(Placemark placemark, MapLaunchOptions options) =>
+		placemark.Location is { } location
+			? TryOpenAsync(location.Latitude, location.Longitude, options)
+			: SailfishBrowser.OpenUrl(PlacemarkUri(placemark));
 
 	internal static string GeoUri(double latitude, double longitude, string? name)
 	{
@@ -419,48 +478,109 @@ internal sealed class SailfishCommunication : IPhoneDialer, IEmail, ISms, IMap
 }
 
 /// <summary>Screenshot of the app window via QQuickWindow::grabWindow.</summary>
-internal sealed class SailfishScreenshot : IScreenshot
+/// <summary>
+/// Screenshots of the app window (IScreenshot) and, new in MAUI 11, of one view or window (IViewScreenshot, behind
+/// <c>view.CaptureAsync()</c>): a hosted view is cut out of the window grab at its scene rect, so what is drawn over it
+/// (a sibling above it) is in the picture too. The image is kept in memory; the grab's file is deleted at once.
+/// </summary>
+internal sealed class SailfishScreenshot : IScreenshot, IViewScreenshot
 {
 	public bool IsCaptureSupported => QtHostRuntime.IsRunning;
 
-	public Task<IScreenshotResult> CaptureAsync()
+	public Task<IScreenshotResult> CaptureAsync() =>
+		Task.FromResult<IScreenshotResult>(QtThread.Run(() => Grab(null))
+			?? throw new InvalidOperationException($"Screenshot capture failed: {QtHostRuntime.LastErrorText}"));
+
+	/// <summary>A hosted view (its <see cref="NativeElementHost"/>) → its part of the window; a window or anything else
+	/// → the window. Null when the view is not on screen (no native object, or an empty rect).</summary>
+	public Task<IScreenshotResult?> CaptureViewAsync(object platformView) => Task.FromResult(QtThread.Run(() =>
+	{
+		if (platformView is not NativeElementHost host)
+			return Grab(null);
+		if (!host.IsAttached || !QtHostRuntime.TryItemGeometry(host.NativeHandle, out var scene) || scene.Width < 1 || scene.Height < 1)
+			return null;
+		return Grab(scene);
+	}));
+
+	/// <summary>Qt thread.</summary>
+	private static IScreenshotResult? Grab(NativeGeometry? sceneRect)
 	{
 		var path = Path.Combine(SailfishAppPaths.CacheDirectory, $"screenshot-{Guid.NewGuid():N}.png");
-		if (QtThread.Run(() => QtHostRuntime.GrabPng(path)) != 0 || !File.Exists(path))
-			throw new InvalidOperationException($"Screenshot capture failed: {QtHostRuntime.LastErrorText}");
-		return Task.FromResult<IScreenshotResult>(new ScreenshotFile(path));
+		try
+		{
+			if (QtHostRuntime.GrabImage(path, sceneRect) != 0 || !File.Exists(path))
+				return null;
+			return new ScreenshotImage(File.ReadAllBytes(path));
+		}
+		finally
+		{
+			TryDelete(path);
+		}
 	}
 
-	private sealed class ScreenshotFile : IScreenshotResult
+	private static void TryDelete(string path)
 	{
-		private readonly string _path;
-
-		public ScreenshotFile(string path)
+		try
 		{
-			_path = path;
+			File.Delete(path);
+		}
+		catch (IOException)
+		{
+		}
+		catch (UnauthorizedAccessException)
+		{
+		}
+	}
+
+	/// <summary>A PNG in memory; JPEG is re-encoded by the shim on request (quality 0..100).</summary>
+	internal sealed class ScreenshotImage : IScreenshotResult
+	{
+		private readonly byte[] _png;
+
+		public ScreenshotImage(byte[] png)
+		{
+			_png = png;
 			// PNG IHDR: width/height big-endian at bytes 16..23
-			using var fs = File.OpenRead(path);
-			var header = new byte[24];
-			fs.ReadExactly(header);
-			Width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
-			Height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+			if (png.Length >= 24)
+			{
+				Width = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+				Height = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
+			}
 		}
 
 		public int Width { get; }
 
 		public int Height { get; }
 
-		public Task<Stream> OpenReadAsync(ScreenshotFormat format = ScreenshotFormat.Png, int quality = 100)
-		{
-			if (format != ScreenshotFormat.Png)
-				throw new NotSupportedException("Sailfish screenshots are PNG.");
-			return Task.FromResult<Stream>(File.OpenRead(_path));
-		}
+		/// <summary>The PNG as grabbed (SailfishScreenshotExtensions.ToImageAsync reads it without a copy).</summary>
+		internal byte[] Png => _png;
+
+		public Task<Stream> OpenReadAsync(ScreenshotFormat format = ScreenshotFormat.Png, int quality = 100) =>
+			Task.FromResult<Stream>(new MemoryStream(format == ScreenshotFormat.Jpeg ? Jpeg(quality) : _png, writable: false));
 
 		public async Task CopyToAsync(Stream destination, ScreenshotFormat format = ScreenshotFormat.Png, int quality = 100)
 		{
 			await using var source = await OpenReadAsync(format, quality).ConfigureAwait(true);
 			await source.CopyToAsync(destination).ConfigureAwait(true);
+		}
+
+		private byte[] Jpeg(int quality)
+		{
+			var stem = Path.Combine(SailfishAppPaths.CacheDirectory, $"screenshot-{Guid.NewGuid():N}");
+			var png = stem + ".png";
+			var jpg = stem + ".jpg";
+			try
+			{
+				File.WriteAllBytes(png, _png);
+				if (QtHostRuntime.ConvertImage(png, jpg, Math.Clamp(quality, 0, 100)) != 0 || !File.Exists(jpg))
+					throw new InvalidOperationException($"Screenshot JPEG encoding failed: {QtHostRuntime.LastErrorText}");
+				return File.ReadAllBytes(jpg);
+			}
+			finally
+			{
+				TryDelete(png);
+				TryDelete(jpg);
+			}
 		}
 	}
 }

@@ -169,4 +169,30 @@ public class MainThreadTests
 			SailfishMainThread.Clear();
 		}
 	}
+
+	// Tracker S04: a Tick that throws used to leave the next tick in the past, so the timer re-fired on every pump.
+	[Fact]
+	public void A_repeating_timer_whose_tick_throws_waits_for_its_interval()
+	{
+		var timer = new SailfishDispatcherTimer(new SailfishDispatcher()) { Interval = TimeSpan.FromSeconds(1), IsRepeating = true };
+		var ticks = 0;
+		timer.Tick += (_, _) => { ticks++; throw new InvalidOperationException("app bug"); };
+		timer.Start();
+		var due = DateTime.UtcNow.AddSeconds(2);
+		Assert.Throws<InvalidOperationException>(() => timer.OnTick(due));
+		Assert.True(timer.OnTick(due.AddMilliseconds(16)));   // the next pump, same second: not due again
+		Assert.Equal(1, ticks);
+		Assert.True(timer.IsRunning);
+		timer.Stop();
+	}
+
+	[Fact]
+	public void A_one_shot_timer_whose_tick_throws_is_stopped()
+	{
+		var timer = new SailfishDispatcherTimer(new SailfishDispatcher()) { Interval = TimeSpan.FromMilliseconds(10), IsRepeating = false };
+		timer.Tick += (_, _) => throw new InvalidOperationException("app bug");
+		timer.Start();
+		Assert.Throws<InvalidOperationException>(() => timer.OnTick(DateTime.UtcNow.AddSeconds(1)));
+		Assert.False(timer.IsRunning);
+	}
 }

@@ -20,6 +20,7 @@ internal static class ShellEvents
 	public const string InputMethod = "svc-input-method";
 	public const string NavIdle = "svc-nav-idle";
 	public const string NavDepth = "svc-nav-depth";
+	public const string ClipboardChanged = "svc-clipboard-changed";
 
 	// sailfish_host.cpp (synchronous: the loop is ending)
 	public const string AppQuit = "svc-app-quit";
@@ -29,6 +30,7 @@ internal static class ShellEvents
 	public const string ScreenLock = "svc-screen-lock";
 	public const string MemoryLevel = "svc-memory-level";
 	public const string ThemeChanged = "svc-theme-changed";
+	public const string ThemePalette = "svc-theme-palette";
 	public const string OpenUrl = "svc-open-url";
 	public const string BatteryChanged = "svc-battery-changed";
 	public const string ConnectivityChanged = "svc-connectivity-changed";

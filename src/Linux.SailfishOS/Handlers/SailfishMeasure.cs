@@ -108,7 +108,8 @@ internal static class SailfishMeasure
 
 		var (spans, paragraph) = LabelTextMapper.Map(label);
 
-		// Multi-font FormattedText is measured with the first span's font (approximation).
+		// FormattedText whose spans differ in font is measured run by run (one QTextLayout with a format per span, as the
+		// rich-text label lays it out); one font keeps the single-font path.
 		if (QtHostTextMetrics.Enabled && spans.Count > 0)
 		{
 			var text = string.Concat(spans.Select(s => s.Text));
@@ -131,15 +132,31 @@ internal static class SailfishMeasure
 			var fontSize = view is Microsoft.Maui.Controls.Label { FormattedText: null } plain
 				? (int)Math.Round(LabelFontSize(plain) ?? SilicaMediumFontDp())
 				: first.FontSize;
+			var runs = MixedFonts(spans) ? spans : null;
+			var tallest = runs is null ? fontSize : spans.Max(sp => sp.FontSize);
 			var (qw, qh) = QtHostTextMetrics.Measure(text, first.Family, first.Attributes, fontSize,
-				textWc, wrapMode, paragraph.LineHeight, maxLines, first.CharacterSpacing);
+				textWc, wrapMode, paragraph.LineHeight, maxLines, first.CharacterSpacing, runs);
 			if (qh == 0)
-				qh = fontSize;
-			return Constrain(qw + pad.HorizontalThickness, Math.Max(qh, fontSize) + pad.VerticalThickness, wc, hc);
+				qh = tallest;
+			return Constrain(qw + pad.HorizontalThickness, Math.Max(qh, tallest) + pad.VerticalThickness, wc, hc);
 		}
 
 		var est = EstimateTextSize(spans, paragraph, IsFinite(wc) ? wc : double.PositiveInfinity);
 		return Constrain(est.Width, est.Height, wc, hc);
+	}
+
+	/// <summary>True when the spans do not all share one font (family, size, weight, slant, spacing).</summary>
+	internal static bool MixedFonts(List<TextSpan> spans)
+	{
+		var first = spans[0];
+		for (var i = 1; i < spans.Count; i++)
+		{
+			var s = spans[i];
+			if (s.Text.Length > 0 && (s.Family != first.Family || s.Attributes != first.Attributes ||
+			    Math.Abs(s.FontSize - first.FontSize) > 0.01 || Math.Abs(s.CharacterSpacing - first.CharacterSpacing) > 0.001))
+				return true;
+		}
+		return false;
 	}
 
 	public static Size Button(IView view, double wc, double hc)
@@ -244,19 +261,25 @@ internal static class SailfishMeasure
 
 	private static double PaddingMediumDp() => ThemeDp("Theme.paddingMedium", 8);
 
-	private static readonly Dictionary<string, double> _themeDp = new(StringComparer.Ordinal);
+	// Theme answers in Qt units, converted on every read: a value cached in dp would keep the density of its first query,
+	// and a query before the screen is known (density 1) made Theme.fontSizeMedium 48 dp for the whole run (S43).
+	private static readonly Dictionary<string, double> _themeQt = new(StringComparer.Ordinal);
+
+	/// <summary>Forgets the theme answers (tests: each harness answers Theme.* its own way).</summary>
+	internal static void ClearThemeCache() => _themeQt.Clear();
 
 	/// <summary>A Silica Theme expression (Qt px) in dp, queried once and cached; <paramref name="fallback"/> when headless.</summary>
 	internal static double ThemeDp(string expression, double fallback)
 	{
-		if (_themeDp.TryGetValue(expression, out var cached))
-			return cached;
+		if (_themeQt.TryGetValue(expression, out var cached))
+			return QtHostUnits.ToLogical(cached);
 		if (!QtHostTextMetrics.Enabled || !QtHostRuntime.IsRunning)
 			return fallback;
 		var raw = QtHostRuntime.Eval(expression);
 		if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var qt) || qt <= 0)
 			return fallback;
-		return _themeDp[expression] = QtHostUnits.ToLogical(qt);
+		_themeQt[expression] = qt;
+		return QtHostUnits.ToLogical(qt);
 	}
 
 	public static Size Activity(IView view, double wc, double hc) =>
@@ -321,8 +344,8 @@ internal static class SailfishMeasure
 	private static double TextInputMarginsDp(string silicaType, bool noLabel = false)
 	{
 		var key = "margins:" + silicaType + (noLabel ? ":bare" : string.Empty);
-		if (_themeDp.TryGetValue(key, out var cached))
-			return cached;
+		if (_themeQt.TryGetValue(key, out var cached))
+			return QtHostUnits.ToLogical(cached);
 		if (!QtHostTextMetrics.Enabled || !QtHostRuntime.IsRunning)
 			return 18;
 		var raw = QtHostRuntime.Eval(
@@ -333,7 +356,8 @@ internal static class SailfishMeasure
 			QtHostDiag.Warn(QtHostDiagChannel.Geometry, $"{silicaType} margin probe failed ('{raw}') — 18dp estimate");
 			return 18;
 		}
-		return _themeDp[key] = QtHostUnits.ToLogical(qt);
+		_themeQt[key] = qt;
+		return QtHostUnits.ToLogical(qt);
 	}
 
 	public static Size Check(IView view, double wc, double hc)
@@ -357,6 +381,7 @@ internal static class SailfishMeasure
 			var height = IsFinite(hc) ? (IsFinite(wc) ? 0 : hc) : adapter.CrossExtentDp;
 			return Constrain(width, height, wc, hc);
 		}
+		adapter.SetUnbounded(!IsFinite(hc) && !adapter.Carousel);
 		if (IsFinite(hc))
 			return Constrain(0, 0, wc, hc);
 		return new Size(IsFinite(wc) ? wc : 0, adapter.ContentExtentDp);
@@ -469,7 +494,8 @@ internal static class SailfishMeasure
 
 		var fontSize = spans[0].FontSize;
 		var charAdvance = fontSize * 0.55 + spans[0].CharacterSpacing;
-		var lineAdvance = fontSize * 1.2 * (paragraph.LineHeight > 0 ? paragraph.LineHeight : 1.0);
+		// A line is as tall as its tallest span.
+		var lineAdvance = spans.Max(s => s.FontSize) * 1.2 * (paragraph.LineHeight > 0 ? paragraph.LineHeight : 1.0);
 		var naturalWidth = text.Length * charAdvance;
 
 		var lines = 1;

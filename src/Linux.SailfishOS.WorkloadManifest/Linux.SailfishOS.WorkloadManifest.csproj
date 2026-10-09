@@ -8,7 +8,7 @@
        must match the SDK feature band (global.json). -->
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <PackageId>microsoft.maui.sailfishos.Manifest-$(SailfishWorkloadBand)</PackageId>
+    <PackageId>microsoft.maui.platforms.sailfishos.Manifest-$(SailfishWorkloadBand)</PackageId>
     <Version>$(PlatformMauiSailfishVersion)</Version>
     <IsPackable>true</IsPackable>
     <IncludeBuildOutput>false</IncludeBuildOutput>
@@ -24,6 +24,7 @@
   <ItemGroup>
     <SailfishVersioned Include="data/WorkloadManifest.json.in" TargetPath="WorkloadManifest.json" />
     <SailfishVersioned Include="data/WorkloadManifest.targets.in" TargetPath="WorkloadManifest.targets" />
+    <None Include="data/WorkloadManifest.Run.targets" Pack="true" PackagePath="data/WorkloadManifest.Run.targets" />
   </ItemGroup>
   <Target Name="_SailfishPackVersionedManifest" AfterTargets="SailfishCollectVersioned" BeforeTargets="_GetPackageFiles">
     <ItemGroup>

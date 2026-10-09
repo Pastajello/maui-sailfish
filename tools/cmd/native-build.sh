@@ -52,7 +52,7 @@ zig c++ \
 	-O2 -fPIC -shared -std=c++14 $STRIP_FLAG \
 	"${INC[@]}" \
 	"$SRC/sailfish_host.cpp" "$SRC/host_core.cpp" "$SRC/host_handles.cpp" "$SRC/host_text.cpp" \
-	"$SRC/host_surface.cpp" "$SRC/host_diag.cpp" \
+	"$SRC/host_surface.cpp" "$SRC/host_diag.cpp" "$SRC/host_image.cpp" \
 	-o "$OUT" \
 	-L"$SYSROOT/$LIBDIR" \
 	-lsailfishapp -lQt5Quick -lQt5Qml -lQt5Network -lQt5Gui -lQt5Core

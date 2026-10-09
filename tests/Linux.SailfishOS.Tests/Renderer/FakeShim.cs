@@ -80,7 +80,7 @@ internal sealed class FakeShim : IQtHostShim
 	private static readonly HashSet<string> PageMethods = new(StringComparer.Ordinal)
 	{
 		"setMauiScroll", "setMauiTabs", "setMauiRefresh", "mauiReattachPulleys", "mauiSetTabDrag", "mauiEndTabDrag",
-		"mauiRemorse", "mauiRemorseCancel", "__destroyAllHosts",
+		"mauiRemorse", "mauiRemorseCancel", "__destroyAllHosts", "mauiHoldDrag", "mauiDragGhost",
 	};
 
 	private static readonly System.Text.RegularExpressions.Regex PageIdRx =
@@ -446,18 +446,71 @@ internal sealed class FakeShim : IQtHostShim
 		return failed;
 	}
 
+	/// <summary>Image transform ops (JSON) that reached the shim, in order.</summary>
+	public List<string> ImageOps { get; } = new();
+
+	/// <summary>A fake encoded image QImage would read as <paramref name="width"/> × <paramref name="height"/>: a PNG
+	/// signature and IHDR (real enough for any header reader), or for the other formats their magic bytes followed by
+	/// the size.</summary>
+	public static byte[] FakeImage(int width, int height, string format = "png")
+	{
+		static byte[] Be(int v) => [(byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v];
+		byte[] magic = format switch
+		{
+			"jpg" => [0xFF, 0xD8, 0xFF, 0xE0],
+			"gif" => "GIF89a"u8.ToArray(),
+			"bmp" => "BMxx"u8.ToArray(),
+			"tiff" => [(byte)'I', (byte)'I', 0x2A, 0x00],
+			_ => [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R'],
+		};
+		return [.. magic, .. Be(width), .. Be(height)];
+	}
+
+	public bool TryImageInfo(byte[] data, out int width, out int height)
+	{
+		width = height = 0;
+		var at = data is [0x89, (byte)'P', ..] ? 16 : data is [(byte)'G', (byte)'I', (byte)'F', ..] ? 6 : 4;
+		if (data.Length < at + 8 || Microsoft.Maui.SailfishOS.Graphics.SailfishImage.Sniff(data) is null)
+			return false;
+		width = (data[at] << 24) | (data[at + 1] << 16) | (data[at + 2] << 8) | data[at + 3];
+		height = (data[at + 4] << 24) | (data[at + 5] << 16) | (data[at + 6] << 8) | data[at + 7];
+		return true;
+	}
+
+	/// <summary>Every mode comes out at the op's w × h (the size QImage's would have); GIF is read-only, as in Qt.</summary>
+	public byte[]? ImageTransform(byte[] data, string opJson)
+	{
+		ImageOps.Add(opJson);
+		if (!TryImageInfo(data, out _, out _))
+			return null;
+		using var doc = JsonDocument.Parse(opJson);
+		var op = doc.RootElement;
+		var format = op.GetProperty("format").GetString()!;
+		return format == "gif" ? null : FakeImage(op.GetProperty("w").GetInt32(), op.GetProperty("h").GetInt32(), format);
+	}
+
 	/// <summary>Text measures that reached the shim.</summary>
 	public int TextMeasures { get; private set; }
+
+	/// <summary>The last text measure request (JSON), as the shim received it.</summary>
+	public string? LastMeasureRequest { get; private set; }
 
 	public bool TryMeasureText(string json, out double widthPx, out double heightPx)
 	{
 		TextMeasures++;
+		LastMeasureRequest = json;
 		using var doc = JsonDocument.Parse(json);
 		var root = doc.RootElement;
 		var text = root.GetProperty("text").GetString() ?? string.Empty;
 		var px = root.TryGetProperty("px", out var p) ? p.GetDouble() : 16;
 		var maxW = root.TryGetProperty("maxW", out var m) ? m.GetDouble() : 0;
 		var width = text.Length * px * 0.5;
+		// Runs (mixed fonts): each run advances at its own size, and a line is as tall as the tallest run.
+		if (root.TryGetProperty("runs", out var runs) && runs.GetArrayLength() > 0)
+		{
+			width = runs.EnumerateArray().Sum(r => r.GetProperty("n").GetInt32() * r.GetProperty("px").GetDouble() * 0.5);
+			px = runs.EnumerateArray().Max(r => r.GetProperty("px").GetDouble());
+		}
 		var lines = maxW > 0 && width > maxW ? Math.Ceiling(width / maxW) : 1;
 		widthPx = maxW > 0 ? Math.Min(width, maxW) : width;
 		heightPx = lines * px * 1.2;

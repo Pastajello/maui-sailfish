@@ -19,30 +19,18 @@ public enum SailfishOrientations
 }
 
 /// <summary>
-/// Per-page Silica settings MAUI has no API for. <see cref="AllowedOrientationsProperty"/> is Silica's
-/// <c>Page.allowedOrientations</c>: a video page can turn to landscape while the rest of the app stays portrait, as an
-/// Android activity sets its own <c>screenOrientation</c>. It applies within the app-wide orientation and can sit on
-/// the page or on a container around it (a NavigationPage, a Shell), the nearest one winning.
+/// The first home of the per-page orientation setting; it forwards to the platform-specific API (decision D13, tracker
+/// S47), so both spellings set the same value.
 /// </summary>
-/// <example><code>SailfishPage.SetAllowedOrientations(playerPage, SailfishOrientations.LandscapeMask);</code></example>
+[Obsolete("Use page.On<SailfishOS>().SetAllowedOrientations(…) (Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page).")]
 public static class SailfishPage
 {
-	public static readonly BindableProperty AllowedOrientationsProperty = BindableProperty.CreateAttached(
-		"AllowedOrientations", typeof(SailfishOrientations), typeof(SailfishPage), SailfishOrientations.Default,
-		propertyChanged: (bindable, _, _) => SailfishRenderSession.OfElement(bindable as Element)?.RequestPoll());
+	public static readonly BindableProperty AllowedOrientationsProperty =
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.AllowedOrientationsProperty;
 
 	public static SailfishOrientations GetAllowedOrientations(BindableObject page) =>
-		(SailfishOrientations)page.GetValue(AllowedOrientationsProperty);
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.GetAllowedOrientations(page);
 
 	public static void SetAllowedOrientations(BindableObject page, SailfishOrientations value) =>
-		page.SetValue(AllowedOrientationsProperty, value);
-
-	/// <summary>The page's own setting, else the nearest container's; <see cref="SailfishOrientations.Default"/> when none.</summary>
-	internal static SailfishOrientations Effective(Element page)
-	{
-		for (var e = page; e is not null; e = e.Parent)
-			if (e is Page && GetAllowedOrientations(e) is var value && value != SailfishOrientations.Default)
-				return value;
-		return SailfishOrientations.Default;
-	}
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.SetAllowedOrientations(page, value);
 }

@@ -272,6 +272,11 @@ sf_publish_rpm() {
 		|| sf_die "dotnet publish failed (release $1)"
 	SF_BUILT_RPM="$(ls -1 "$SF_RPM_DIR"/*-"$1"."$SF_RPM_ARCH".rpm 2>/dev/null | head -1)"
 	[ -n "$SF_BUILT_RPM" ] || sf_die "publish produced no RPM for release $1 in $SF_RPM_DIR"
+	# A payload assembly missing from deps.json fails only at its first use on the phone (tracker S61).
+	local deps
+	deps="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../py/sf-depscheck.py" "$SF_PUBLISH_DIR" "$SF_BIN")" \
+		|| sf_die "publish payload: $deps"
+	sf_ok "publish payload: $deps"
 }
 
 # sf_upload_rpm <rpm> - copy it to the phone's home and check its sha256 there. Sets SF_REMOTE_RPM.

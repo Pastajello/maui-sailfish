@@ -4,8 +4,10 @@ The durable design rules of the Sailfish OS backend and the platform facts they 
 quarter-by-quarter migration plan (Q0–Q24, `PLAN.md` + `PLAN-checklist.md`) that got the backend here is
 finished and was removed on 2026-09-28; it and its per-quarter device evidence remain in git history.
 Current work: [`parity-plan.md`](parity-plan.md) (roadmap), [`../BUG_LIST.md`](../BUG_LIST.md) (defects),
-[`architecture-plan.md`](architecture-plan.md) (the architecture review and its device evidence) and
-[`architecture-handoff.md`](architecture-handoff.md) (the packages that remain).
+[`architecture-plan.md`](architecture-plan.md) (the architecture review and its device evidence),
+[`architecture-handoff.md`](architecture-handoff.md) (the packages that remain) and
+[`maui11-alignment-plan.md`](maui11-alignment-plan.md) (what a MAUI 11 app expects that the backend does not
+provide yet, with the work packages M1–M28; the per-area audits are in [`audits/maui11/`](audits/maui11/)).
 
 ## Fixed constraints
 

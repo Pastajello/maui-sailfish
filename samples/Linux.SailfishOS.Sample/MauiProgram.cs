@@ -17,7 +17,9 @@ public static class MauiProgram
 			.ConfigureFonts(fonts =>
 			{
 				// fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-			});
+			})
+			// The f3 leg's custom ImageSource and its service, registered as a library registers its own.
+			.ConfigureImageSources(SailfishDiagnostics.ConfigureImageSources);
 
 		// Shared sample data, injected into App and the pages.
 		builder.Services.AddSingleton<TaskStore>();

@@ -144,8 +144,62 @@ internal sealed partial class QtHostDiagnosticsRunner
 						$"no parked QML hosts left ({census.Parked}==0)",
 						PageShows(renderer, "C Other", "c other body") && renderer.ParkedPages == 0 &&
 						renderer.PageCacheDrops > drops0 && census.Parked == 0);
-					_qtContainersChecks.Accept("OK — Shell/Tabbed/Flyout container handlers drive the native stack and the page cache keeps each container's pages");
-					QtHost.QtHostRuntime.Shutdown();
+					BadgedTabs(renderer, dispatcher, window);
+				});
+			});
+		});
+	}
+
+	/// <summary>Scene geometry of the first object named <paramref name="name"/> under the current page as
+	/// "x,width,visible" (MAUI 11 tab badges, the scrolling tab row); empty when absent.</summary>
+	private static string TabObject(string name) => QtHost.QtHostRuntime.Eval(
+		"(function(){function F(o){if(!o)return null;if(o.objectName==='" + name + "')return o;var k=o.children;if(k)for(var i=0;i<k.length;++i){var r=F(k[i]);if(r)return r;}return null;}" +
+		"var t=F(pageStack.currentPage);if(!t)return '';var v=true;for(var x=t;x;x=x.parent)if(!x.visible){v=false;break;}" +
+		"return Math.round(t.mapToItem(null,0,0).x)+','+Math.round(t.width)+','+v+(t.children&&t.children.length&&t.children[0].text!==undefined?','+t.children[0].text:'');})()");
+
+	/// <summary>Leg J (tracker S14): six tabs, one with a count badge and one with a dot. The badges paint, a badge
+	/// change at runtime re-pushes, and the row scrolls so the last tab comes into view when selected.</summary>
+	private void BadgedTabs(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, Microsoft.Maui.Controls.Window window)
+	{
+		void Step(int ms, Action next) => dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(ms), next);
+		var tabbed = new TabbedPage { Title = "Badges" };
+		for (var i = 1; i <= 6; i++)
+			tabbed.Children.Add(SimplePage("Tab " + i, "badge tab " + i + " body"));
+		TabbedPage.SetBadgeText(tabbed.Children[0], "3");
+		TabbedPage.SetBadgeColor(tabbed.Children[0], Microsoft.Maui.Graphics.Colors.Red);
+		TabbedPage.SetBadgeTextColor(tabbed.Children[0], Microsoft.Maui.Graphics.Colors.White);
+		TabbedPage.SetBadgeText(tabbed.Children[1], "");
+		window.Page = tabbed;
+		Step(ContainersStepMs, () =>
+		{
+			var count = TabObject("mauiTab_badge_0");
+			var dot = TabObject("mauiTab_badge_1");
+			var none = TabObject("mauiTab_badge_2");
+			var last = TabObject("mauiTab_5");
+			var pageWidth = DiagQml.EvalNum("pageStack.currentPage?pageStack.currentPage.width:0");
+			var lastX = DiagQml.Num(last.Split(',')[0], 0);
+			_qtContainersChecks.Check($"leg J badges: tabs '{TabState()}', count badge [{count}] visible with '3', dot [{dot}] visible, tab 3 none [{none}], " +
+				$"row scrolls (tab 6 at x {lastX:F0} ≥ page width {pageWidth:F0})",
+				TabState() == "Tab 1,Tab 2,Tab 3,Tab 4,Tab 5,Tab 6@0" && count.EndsWith(",true,3", StringComparison.Ordinal) &&
+				dot.Contains(",true", StringComparison.Ordinal) && none.Contains(",false", StringComparison.Ordinal) && lastX >= pageWidth - 1);
+			Shot(dispatcher, "containers-j-badges", () =>
+			{
+				TabbedPage.SetBadgeText(tabbed.Children[0], "12");
+				tabbed.CurrentPage = tabbed.Children[5];
+				Step(ContainersStepMs, () =>
+				{
+					var updated = TabObject("mauiTab_badge_0");
+					var shownLast = TabObject("mauiTab_5").Split(',');
+					var x = DiagQml.Num(shownLast[0], -1);
+					var w = shownLast.Length > 1 ? DiagQml.Num(shownLast[1], 0) : 0;
+					_qtContainersChecks.Check($"leg J runtime: badge now [{updated}] ends with '12'; tab 6 selected ('{TabState()}'), in view (x {x:F0}, width {w:F0}, page {pageWidth:F0}); 'Tab 6' rendered",
+						updated.EndsWith(",12", StringComparison.Ordinal) && TabState().EndsWith("@5", StringComparison.Ordinal) &&
+						x >= 0 && x + w <= pageWidth + 1 && PageShows(renderer, "Tab 6", "badge tab 6 body"));
+					Shot(dispatcher, "containers-j-last-tab", () =>
+					{
+						_qtContainersChecks.Accept("OK — Shell/Tabbed/Flyout container handlers drive the native stack and the page cache keeps each container's pages; tab badges and the scrolling tab row");
+						QtHost.QtHostRuntime.Shutdown();
+					});
 				});
 			});
 		});

@@ -33,6 +33,30 @@ Canvas {
     property string mauiPixelHash: "0"
     property bool mauiWantHash: false
     property int mauiDashes: 0
+    property int mauiImageOps: 0
+
+    // DrawImage and ImagePaint name file URLs (QtHostDrawnImages); Context2D draws an image only once it is loaded,
+    // so the first paint asks for it and the load paints again.
+    property var __imageRequests: ({})
+    onImageLoaded: requestPaint()
+    function __imageReady(url) {
+        if (!url)
+            return false;
+        if (isImageLoaded(url))
+            return true;
+        if (isImageError(url)) {
+            if (__imageRequests[url] !== "error") {
+                __imageRequests[url] = "error";
+                console.log("[Sailfish] graphics " + objectName + ": image did not load: " + url);
+            }
+            return false;
+        }
+        if (!__imageRequests[url]) {
+            __imageRequests[url] = "loading";
+            loadImage(url);
+        }
+        return false;
+    }
 
     // Qt 5.6 cannot change strategy/target once the context exists, and pixel
     // readback (mauiWantHash) is unsupported in Cooperative mode, hence Immediate + FBO.
@@ -40,7 +64,16 @@ Canvas {
     renderTarget: Canvas.FramebufferObject
 
     onMauiWantHashChanged: requestPaint()
-    onMauiCommandsChanged: requestPaint()
+    onMauiCommandsChanged: {
+        antialiasing = !__aaOff(mauiCommands);
+        requestPaint();
+    }
+    function __aaOff(cmds) {
+        for (var i = 0; cmds && i < cmds.length; ++i)
+            if (cmds[i][0] === "aa" && cmds[i][1] === 0)
+                return true;
+        return false;
+    }
     onMauiScaleChanged: requestPaint()
     onMauiBackgroundChanged: requestPaint()
     onMauiFontFamilyChanged: requestPaint()
@@ -56,6 +89,7 @@ Canvas {
         ctx.clearRect(0, 0, width, height);
         mauiPaints++;
         mauiDashes = 0;
+        mauiImageOps = 0;
         var st = {
             fill: null, stroke: "#000000", lineWidth: 1, fontColor: "#000000",
             fontSize: 12, fontName: mauiFontFamily, fontWeight: 400, fontItalic: false,
@@ -93,7 +127,8 @@ Canvas {
             case "sv": stateSave(st); ctx.save(); st.executed++; break;
             case "rs": ctx.restore(); stateRestore(st); st.executed++; break;
             case "reset": PathOps.resetContext(ctx); st.executed++; break;   // ICanvas.ResetState()
-            case "aa": st.antialias = c[1] !== 0; st.executed++; break;   /* Qt antialiases in the scene graph */
+            /* Context2D has no per-op antialias: Antialias=false anywhere turns the canvas's off (__aaOff). */
+            case "aa": st.antialias = c[1] !== 0; st.executed++; break;
             case "al": ctx.globalAlpha = c[1]; st.executed++; break;
             case "bm": ctx.globalCompositeOperation = blendName(c[1]); st.executed++; break;
             /* --- stroke / fill / font state --- */
@@ -141,7 +176,10 @@ Canvas {
                 break;
             case "clipp":
                 PathOps.buildPath(ctx, c[1]);
-                try { ctx.clip(c[2] === 1 ? "evenodd" : "nonzero"); } catch (e) { ctx.clip(); }
+                /* Qt 5.6's Context2D ignores clip()/fill()'s rule argument: the rule is ctx.fillRule. */
+                ctx.fillRule = c[2] === 1 ? Qt.OddEvenFill : Qt.WindingFill;
+                ctx.clip();
+                ctx.fillRule = Qt.WindingFill;
                 st.executed++;
                 break;
             case "subclipr":
@@ -199,13 +237,21 @@ Canvas {
                 fillSetup(ctx, st);
                 if (st.hasFill) {
                     PathOps.buildPath(ctx, c[1]);
-                    try { ctx.fill(c[2] === 1 ? "evenodd" : "nonzero"); } catch (e) { ctx.fill(); }
+                    ctx.fillRule = c[2] === 1 ? Qt.OddEvenFill : Qt.WindingFill;
+                    ctx.fill();
+                    ctx.fillRule = Qt.WindingFill;
                 }
                 st.executed++;
                 break;
             case "img":
-                /* IImage has no decoded pixels on this platform yet; counted as skipped. */
-                st.skipped++;
+                /* ["img", url, x, y, w, h]: skipped until the image has loaded (onImageLoaded paints again). */
+                if (c.length > 5 && __imageReady(c[1])) {
+                    ctx.drawImage(c[1], c[2], c[3], c[4], c[5]);
+                    mauiImageOps++;
+                    st.executed++;
+                } else {
+                    st.skipped++;
+                }
                 break;
             /* --- text --- */
             case "strp":
@@ -280,6 +326,13 @@ Canvas {
             if (spec[0] === "solid") {
                 ctx.fillStyle = spec[1];
                 st.hasFill = true;
+            } else if (spec[0] === "image") {
+                /* ImagePaint: a repeating pattern once the image has loaded; nothing fills until then. */
+                if (__imageReady(spec[1])) {
+                    ctx.fillStyle = ctx.createPattern(spec[1], "repeat");
+                    st.hasFill = true;
+                    mauiImageOps++;
+                }
             } else {
                 var g = PathOps.paintStyle(ctx, spec, null);
                 if (g) {
@@ -359,13 +412,13 @@ Canvas {
         }
     }
 
-    /* DrawString(value, x, y, ha): the point is the top-left of the text box, as in
-     * MAUI's Skia backend. ha: 0 Left, 1 Center, 2 Right, 3 Justify. */
+    /* DrawString(value, x, y, ha): y is the text's baseline, as on Android (Canvas.drawText) and in MAUI's Skia
+     * backend (tracker S30; it was the top of the text box). ha: 0 Left, 1 Center, 2 Right, 3 Justify. */
     function drawTextPoint(ctx, st, text, x, y, ha) {
         applyFont(ctx, st);
         var w = measure(ctx, text, st);
         var dx = ha === 1 ? x - w / 2 : (ha === 2 ? x - w : x);
-        ctx.textBaseline = "top";
+        ctx.textBaseline = "alphabetic";
         ctx.textAlign = "left";
         ctx.fillText(text, dx, y);
     }

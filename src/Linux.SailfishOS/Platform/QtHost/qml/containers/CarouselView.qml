@@ -52,6 +52,14 @@ PathView {
     preferredHighlightBegin: 0.5
     preferredHighlightEnd: 0.5
     highlightMoveDuration: 250
+    // CarouselView.IsScrollAnimated false: a Position set from code jumps. Imperative, as the rebuild sets the duration
+    // to 0 for a moment (a binding would be lost there).
+    property bool mauiScrollAnimated: true
+    onMauiScrollAnimatedChanged: highlightMoveDuration = mauiScrollAnimated ? 250 : 0
+    Component.onCompleted: highlightMoveDuration = mauiScrollAnimated ? 250 : 0
+    // IsDragging / IsScrolling (carousel-motion {id,dragging,moving}).
+    onDraggingChanged: mauiEvent("carousel-motion", JSON.stringify({ id: mauiId, dragging: dragging, moving: moving }))
+    onMovingChanged: mauiEvent("carousel-motion", JSON.stringify({ id: mauiId, dragging: dragging, moving: moving }))
     // The path spans three pages, centered on the page box between the peeks.
     path: Path {
         startX: root.mauiPeekStart + root.__pageW / 2 - 1.5 * root.__step

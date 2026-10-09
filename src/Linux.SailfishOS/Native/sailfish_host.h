@@ -38,7 +38,7 @@ enum sfhost_err {
 
 /* Bumped whenever an export's signature, a payload format or an error code changes. The managed side
  * (QtHostNative.AbiVersion) refuses to start against another version instead of losing features silently. */
-#define SFHOST_ABI_VERSION 4
+#define SFHOST_ABI_VERSION 5
 
 
 /* Called on the Qt loop every tick_ms milliseconds. */
@@ -193,6 +193,12 @@ int sailfish_host_apply_geometry(const char *geo_json);
  * maxW 0 = unbounded. Output is device pixels; paragraphs split on \n. Qt thread. */
 int sailfish_host_measure_text(const char *json, double *out_w, double *out_h);
 
+/* IImage on QImage (host_image.cpp, tracker S49): the decoded size of encoded image bytes, and a resize/re-encode
+ * (op JSON {w,h,mode,format,quality}) whose result is written to out when it fits cap; returns its size (call again
+ * with a larger buffer), negative on error. Any thread. */
+int sailfish_host_image_info(const unsigned char *data, int len, int *out_w, int *out_h);
+int sailfish_host_image_transform(const unsigned char *data, int len, const char *op, unsigned char *out, int cap);
+
 
 /* JSON {"window":{x,y,width,height,dpr},"screen":{name,x,y,width,height,dpr,orientation,
  * nativeOrientation}} in device pixels. Returns the JSON length. */
@@ -228,6 +234,14 @@ int sailfish_host_clipboard_set(const char *text);
 
 /* Copies the clipboard text into buf; returns the copied UTF-8 length. Qt thread. */
 int sailfish_host_clipboard_get(char *buf, int cap);
+
+/* Screenshot (IScreenshot/IViewScreenshot): grabs the window and writes the part at x,y w×h (scene units; w or h
+ * <= 0 = the whole window) to path, as JPEG when path ends in .jpg/.jpeg (quality 0..100, -1 = Qt's default), else
+ * PNG. Qt thread. */
+int sailfish_host_grab_image(const char *path, double x, double y, double w, double h, int quality);
+
+/* Re-encodes the image file src into dst (format by dst's extension, quality as above). Qt thread. */
+int sailfish_host_convert_image(const char *src, const char *dst, int quality);
 
 /* Opens a URL with the system handler (QDesktopServices). Qt thread. */
 int sailfish_host_open_url(const char *url);

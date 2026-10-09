@@ -180,11 +180,12 @@ public static class QtHostRuntime
 		if (rc != 0)
 			throw BootFailed(rc, "sailfish_host_show");
 
-		// Input callbacks run inside Qt's event delivery: an exception there would fail fast, so it is logged instead.
+		// Input callbacks run inside Qt's event delivery: an exception must not unwind into native code, so it goes to
+		// SailfishExceptions (which ends the app from a thread of its own, unless the app handles it).
 		_pointer = (kind, x, y, delta, extra, _) =>
 		{
 			try { PointerInput?.Invoke(kind, x, y, delta, extra); }
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in pointer input: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "pointer input"); }
 		};
 		_key = (kind, key, mods, text, _) =>
 		{
@@ -192,7 +193,7 @@ public static class QtHostRuntime
 			{
 				KeyInput?.Invoke(kind, key, mods, text == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(text) ?? string.Empty);
 			}
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in key input: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "key input"); }
 		};
 		QtHostNative.sailfish_host_set_input_callbacks(_pointer, _key, IntPtr.Zero);
 
@@ -205,7 +206,7 @@ public static class QtHostRuntime
 				QmlEvent?.Invoke(name == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(name) ?? string.Empty,
 					payload == IntPtr.Zero ? string.Empty : Marshal.PtrToStringUTF8(payload) ?? string.Empty);
 			}
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in QML event handler: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "a QML event handler"); }
 		};
 		QtHostNative.sailfish_host_set_event_callback(_event, IntPtr.Zero);
 
@@ -215,7 +216,7 @@ public static class QtHostRuntime
 			dispatcher.DrainQueue();
 			var now = DateTime.UtcNow;
 			try { SailfishRuntime.TickDueTimers(now); }
-			catch (Exception ex) { QtHostDiag.Error(QtHostDiagChannel.QtHost, $"unhandled exception in timer callback: {ex}"); }
+			catch (Exception ex) { SailfishExceptions.Report(ex, "a timer callback"); }
 			var next = dispatcher.HasPendingWork ? 0 : SailfishRuntime.NextTimerDelayMs(DateTime.UtcNow);
 			QtHostNative.sailfish_host_wake(next >= 0 ? Math.Min(next, HeartbeatMs) : HeartbeatMs);
 		};
@@ -485,6 +486,25 @@ public static class QtHostRuntime
 		return QtHostNative.sailfish_host_grab_png(path);
 	}
 
+	/// <summary>Writes the window, or the part at <paramref name="sceneRect"/> (scene units), to <paramref name="path"/>:
+	/// JPEG for a .jpg path (<paramref name="quality"/> 0..100), else PNG. 0 on success (Qt thread only).</summary>
+	public static int GrabImage(string path, NativeGeometry? sceneRect = null, int quality = -1)
+	{
+		if (TestShim is not null)
+			return -1;
+		CheckThread("grab_image");
+		var r = sceneRect ?? default;
+		return QtHostNative.sailfish_host_grab_image(path, r.X, r.Y, r.Width, r.Height, quality);
+	}
+
+	/// <summary>Re-encodes an image file (format by <paramref name="dst"/>'s extension). 0 on success.</summary>
+	public static int ConvertImage(string src, string dst, int quality = -1)
+	{
+		if (TestShim is not null)
+			return -1;
+		return QtHostNative.sailfish_host_convert_image(src, dst, quality);
+	}
+
 	/// <summary>Starts recording the window's frames as <c>&lt;ms&gt;.jpg</c> files in <paramref name="dir"/>.</summary>
 	public static int RecordStart(string dir, int fps = 15, int scalePct = 70)
 	{
@@ -638,6 +658,36 @@ public static class QtHostRuntime
 		CheckThread("measure_text");
 		var rc = QtHostNative.sailfish_host_measure_text(json, out widthPx, out heightPx);
 		return rc == 0;
+	}
+
+	/// <summary>The decoded size of encoded image bytes (QImageReader, EXIF orientation applied). Any thread: QImage
+	/// needs no Qt loop.</summary>
+	public static bool TryImageInfo(byte[] data, out int width, out int height)
+	{
+		if (TestShim is { } shim)
+			return shim.TryImageInfo(data, out width, out height);
+		return QtHostNative.sailfish_host_image_info(data, data.Length, out width, out height) == 0;
+	}
+
+	/// <summary>Decodes, transforms and re-encodes image bytes with QImage (op JSON {w,h,mode,format,quality}); null on
+	/// error (<see cref="LastErrorText"/> says why). Any thread.</summary>
+	public static byte[]? ImageTransform(byte[] data, string opJson, int widthHint, int heightHint)
+	{
+		if (TestShim is { } shim)
+			return shim.ImageTransform(data, opJson);
+		// Uncompressed pixels plus headers fit any format QImage writes; PNG and JPEG come out far smaller.
+		var cap = (int)Math.Min(int.MaxValue - 64, (long)Math.Max(1, widthHint) * Math.Max(1, heightHint) * 4 + 65536);
+		var buffer = new byte[cap];
+		var len = QtHostNative.sailfish_host_image_transform(data, data.Length, opJson, buffer, cap);
+		if (len > cap)
+		{
+			buffer = new byte[len];
+			len = QtHostNative.sailfish_host_image_transform(data, data.Length, opJson, buffer, len);
+		}
+		if (len < 0 || len > buffer.Length)
+			return null;
+		Array.Resize(ref buffer, len);
+		return buffer;
 	}
 
 	/// <summary>Window and screen geometry as JSON in device pixels (empty on error).</summary>

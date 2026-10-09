@@ -27,6 +27,8 @@ internal sealed partial class QtHostDiagnosticsRunner
 	private bool _qtF4Diag;
 	private readonly DiagChecks _qtF4Checks = new("Qt f4 diag");
 
+	private sealed record F4JsonProbe(string Name, int Count);
+
 
 	private void RunQtF4Diagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
@@ -44,6 +46,8 @@ internal sealed partial class QtHostDiagnosticsRunner
 		});
 	}
 
+	[System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The JSON probe checks reflection serialization on purpose (S53).")]
+	[System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050", Justification = "The JSON probe checks reflection serialization on purpose (S53).")]
 	private async Task F4StaticsA()
 	{
 		var stamp = DateTime.UtcNow.Ticks;
@@ -58,6 +62,33 @@ internal sealed partial class QtHostDiagnosticsRunner
 			Preferences.Default.Get("f4_flag", false) && Preferences.Default.Get("f4_when", DateTime.MinValue) == when);
 		var fresh = new SailfishPreferences();
 		_qtF4Checks.Check($"A Preferences persisted: a fresh store reads stamp {fresh.Get("f4_stamp", 0L)}=={stamp}", fresh.Get("f4_stamp", 0L) == stamp);
+
+		// Tracker S46: the ambience's colours as Silica has them, the theme seeded before the host ran, and the layout
+		// direction from Qt's locale.
+		var qtHighlight = QtHost.QtHostRuntime.Eval("Theme.highlightColor + ''");
+		var highlight = SailfishTheme.HighlightColor;
+		var qtScheme = QtHost.QtHostRuntime.Eval("Theme.colorScheme === Theme.DarkOnLight ? 'light' : 'dark'");
+		_qtF4Checks.Check($"A SailfishTheme S46: HighlightColor {highlight?.ToArgbHex(true)} matches Theme.highlightColor '{qtHighlight}', " +
+			$"PrimaryColor {SailfishTheme.PrimaryColor?.ToArgbHex(true)}, Current {SailfishTheme.Current} for a {qtScheme} ambience, " +
+			$"RequestedLayoutDirection {AppInfo.Current.RequestedLayoutDirection}",
+			highlight is not null && qtHighlight.StartsWith('#') && highlight.Equals(Microsoft.Maui.Graphics.Color.FromArgb(qtHighlight)) &&
+			SailfishTheme.PrimaryColor is not null &&
+			SailfishTheme.Current == (qtScheme == "light" ? AppTheme.Light : AppTheme.Dark) &&
+			AppInfo.Current.RequestedLayoutDirection == LayoutDirection.LeftToRight);
+
+		// Tracker S53: reflection-based System.Text.Json works in a trimmed Release, as on Android (the SDK turns it off for
+		// trimmed apps; the backend's targets turn it back on under TrimMode=partial).
+		try
+		{
+			var json = System.Text.Json.JsonSerializer.Serialize(new F4JsonProbe("sailfish", 3));
+			var back = System.Text.Json.JsonSerializer.Deserialize<F4JsonProbe>(json);
+			_qtF4Checks.Check($"A reflection System.Text.Json round trip (IsReflectionEnabledByDefault={System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault}): {json} -> {back}",
+				back == new F4JsonProbe("sailfish", 3));
+		}
+		catch (Exception ex)
+		{
+			_qtF4Checks.Check($"A reflection System.Text.Json threw {ex.GetType().Name}: {ex.Message}", false);
+		}
 
 		await SecureStorage.Default.SetAsync("f4_secret", "s3cr3t");
 		var secret = await SecureStorage.Default.GetAsync("f4_secret");
@@ -101,8 +132,11 @@ internal sealed partial class QtHostDiagnosticsRunner
 			contactsLoaded = false;
 		}
 		_qtF4Checks.Check($"A Contacts.GetAllAsync → {contactsAnswer}", contactsLoaded);
+		// No Sailjail permission reaches the torch: a sandboxed app reports it unsupported (tracker S12).
 		var torch = await Flashlight.Default.IsSupportedAsync();
-		_qtF4Checks.Check($"A Flashlight.IsSupportedAsync={torch} (the sample is not sandboxed)", torch);
+		var sandboxed = SailfishPermissions.IsSandboxed;
+		_qtF4Checks.Check($"A Flashlight.IsSupportedAsync={torch} ({(sandboxed ? "sandboxed: expected unsupported" : "not sandboxed: expected supported")})",
+			torch != sandboxed);
 		var coverBefore = SailfishCover.Actions;
 		await AppActions.Current.SetAsync(new[] { new AppAction("f4a", "A", icon: "icon-cover-refresh"), new AppAction("f4b", "B") });
 		var cover = SailfishCover.Actions;
@@ -128,6 +162,14 @@ internal sealed partial class QtHostDiagnosticsRunner
 
 		_qtF4Checks.Check($"A AppInfo.Current: name '{AppInfo.Current.Name}', version {AppInfo.Current.VersionString}, theme {AppInfo.Current.RequestedTheme}",
 			AppInfo.Current.Name.Length > 0 && AppInfo.Current.RequestedTheme != AppTheme.Unspecified);
+		// Tracker S09: the identity the other heads report (ApplicationId, ApplicationDisplayVersion), and VersionTracking
+		// over it, from the statics and from the services.
+		var tracking = IPlatformApplication.Current?.Services.GetService(typeof(IVersionTracking)) as IVersionTracking;
+		_qtF4Checks.Check($"A AppInfo identity: PackageName '{AppInfo.Current.PackageName}'=='com.maui.sailfish.sample' (ApplicationId), " +
+			$"build '{AppInfo.Current.BuildString}', packaging {AppInfo.Current.PackagingModel}; VersionTracking.CurrentVersion '{VersionTracking.CurrentVersion}'==AppInfo '{AppInfo.Current.VersionString}', " +
+			$"IVersionTracking from the services {(tracking is null ? "null" : "resolved")}, versions seen [{string.Join(",", VersionTracking.VersionHistory)}]",
+			AppInfo.Current.PackageName == "com.maui.sailfish.sample" && AppInfo.Current.PackagingModel == AppPackagingModel.Packaged &&
+			VersionTracking.CurrentVersion == AppInfo.Current.VersionString && tracking is not null);
 
 		var info = DeviceInfo.Current;
 		_qtF4Checks.Check($"A DeviceInfo.Current: {info.Manufacturer} '{info.Model}' ({info.Name}) {info.Platform} {info.VersionString} v{info.Version} {info.Idiom} {info.DeviceType}",
@@ -380,6 +422,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 								{
 									_qtF4Checks.Check($"E Screenshot.CaptureAsync threw {ex.GetType().Name}: {ex.Message}", false);
 								}
+								await F4CaptureAndClipboard(dispatcher);
 								F4EssentialsPageF(dispatcher);
 							});
 						});
@@ -390,6 +433,68 @@ internal sealed partial class QtHostDiagnosticsRunner
 	}
 
 	private static string Trim(string s) => s.Length > 90 ? s[..90] + "…" : s;
+
+	/// <summary>Tracker S11: view.CaptureAsync() (IViewScreenshot) of the shown page's content, the JPEG encoding, the
+	/// display refresh rate, and Clipboard.ClipboardContentChanged for a change made outside the app's own SetTextAsync.</summary>
+	private async Task F4CaptureAndClipboard(SailfishDispatcher dispatcher)
+	{
+		try
+		{
+			if ((RootNav?.CurrentPage as ContentPage)?.Content is not View view)
+			{
+				_qtF4Checks.Check("E view.CaptureAsync: a page content to capture", false);
+				return;
+			}
+			var shot = await view.CaptureAsync();
+			var expectedW = (int)Math.Round(view.Width * SailfishDisplay.Density);
+			var expectedH = (int)Math.Round(view.Height * SailfishDisplay.Density);
+			byte[] png = Array.Empty<byte>(), jpeg = Array.Empty<byte>();
+			if (shot is not null)
+			{
+				await using (var s = await shot.OpenReadAsync())
+				{
+					png = new byte[4];
+					s.ReadExactly(png);
+				}
+				await using (var s = await shot.OpenReadAsync(ScreenshotFormat.Jpeg, 80))
+				{
+					jpeg = new byte[2];
+					s.ReadExactly(jpeg);
+				}
+			}
+			_qtF4Checks.Check($"E view.CaptureAsync() → {(shot is null ? "null" : $"{shot.Width}x{shot.Height}")} ≈ the view {expectedW}x{expectedH} px, PNG, JPEG(80) starts FF D8 ({(jpeg.Length == 2 ? $"{jpeg[0]:X2} {jpeg[1]:X2}" : "-")})",
+				shot is not null && Math.Abs(shot.Width - expectedW) <= 2 && Math.Abs(shot.Height - expectedH) <= 2 &&
+				png[1] == (byte)'P' && jpeg[0] == 0xFF && jpeg[1] == 0xD8);
+		}
+		catch (Exception ex)
+		{
+			_qtF4Checks.Check($"E view.CaptureAsync threw {ex.GetType().Name}: {ex.Message}", false);
+		}
+
+		var rate = DeviceDisplay.Current.MainDisplayInfo.RefreshRate;
+		_qtF4Checks.Check($"E DeviceDisplay RefreshRate {rate:F2} from the screen (QScreen::refreshRate), > 0", rate > 0);
+
+		// Another app's copy, as Silica's Clipboard sees it: set from QML, not through Clipboard.Default.
+		var changes = 0;
+		void OnChanged(object? sender, EventArgs e) => changes++;
+		Clipboard.Default.ClipboardContentChanged += OnChanged;
+		await Clipboard.Default.SetTextAsync("f4-own-" + DateTime.UtcNow.Ticks);
+		var tcs = new TaskCompletionSource();
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+		{
+			var ownChanges = changes;
+			QtHost.QtHostRuntime.Eval("Qt.createQmlObject('import QtQuick 2.6; import Sailfish.Silica 1.0; QtObject { Component.onCompleted: Clipboard.text = \"f4-external\" }', pageStack, 'f4clip')");
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(800), async () =>
+			{
+				var text = await Clipboard.Default.GetTextAsync();
+				_qtF4Checks.Check($"E ClipboardContentChanged: own SetTextAsync once ({ownChanges}==1), an outside change once more ({changes}==2, text '{text}')",
+					ownChanges == 1 && changes == 2 && text == "f4-external");
+				Clipboard.Default.ClipboardContentChanged -= OnChanged;
+				tcs.TrySetResult();
+			});
+		});
+		await tcs.Task;
+	}
 
 	private void F4EssentialsPageF(SailfishDispatcher dispatcher)
 	{

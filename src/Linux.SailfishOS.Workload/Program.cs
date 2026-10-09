@@ -8,13 +8,17 @@ namespace Microsoft.Maui.SailfishOS.Workload;
 /// <c>sailfish-workload</c>: teaches the local .NET SDK the <c>net11.0-sailfish</c> TFM on a machine without a checkout of
 /// the backend. The TFM check runs before restore, so no package a Sailfish project references can do it; a tool
 /// package restores with a plain TFM. It copies the embedded WorkloadManifest.json/.targets into
-/// <c>sdk-manifests/&lt;band&gt;/microsoft.maui.sailfishos</c>, which is what <c>dotnet workload install</c> does for a
+/// <c>sdk-manifests/&lt;band&gt;/microsoft.maui.platforms.sailfishos</c>, which is what <c>dotnet workload install</c> does for a
 /// manifest (the aggregate workload packs are not shipped).
 /// </summary>
 public static class Program
 {
-	internal const string ManifestId = "microsoft.maui.sailfishos";
-	private static readonly string[] ManifestFiles = ["WorkloadManifest.json", "WorkloadManifest.targets"];
+	internal const string ManifestId = "microsoft.maui.platforms.sailfishos";
+
+	/// <summary>The manifest id before the packages took the maui-labs naming (tracker S07): a manifest left under it
+	/// defines the same "sailfish" workload, which the SDK refuses, so install and uninstall remove it.</summary>
+	internal const string LegacyManifestId = "microsoft.maui.sailfishos";
+	private static readonly string[] ManifestFiles = ["WorkloadManifest.json", "WorkloadManifest.targets", "WorkloadManifest.Run.targets"];
 
 	private const string Usage = """
 		Usage: sailfish-workload [install|uninstall|status] [--dotnet <path>] [--manifest-root <dir>]
@@ -97,10 +101,11 @@ public static class Program
 		var manifestBand = EmbeddedBand();
 		if (!string.Equals(manifestBand, target.Band, StringComparison.OrdinalIgnoreCase))
 			throw new ToolException($"this package carries the manifest for SDK band {manifestBand}, the active SDK " +
-				$"{target.SdkVersion} is band {target.Band}. Use the Microsoft.Maui.SailfishOS.Workload version built for " +
+				$"{target.SdkVersion} is band {target.Band}. Use the Microsoft.Maui.Platforms.SailfishOS.Workload version built for " +
 				"that band, or select a matching SDK with global.json.");
 		try
 		{
+			RemoveLegacy(target);
 			System.IO.Directory.CreateDirectory(target.Directory);
 			foreach (var file in ManifestFiles)
 			{
@@ -123,8 +128,26 @@ public static class Program
 		return 0;
 	}
 
+	/// <summary>Removes the manifest installed under <see cref="LegacyManifestId"/> beside the current one.</summary>
+	private static void RemoveLegacy(Target target)
+	{
+		var legacy = Path.Combine(Path.GetDirectoryName(target.Directory)!, LegacyManifestId);
+		if (!System.IO.Directory.Exists(legacy))
+			return;
+		System.IO.Directory.Delete(legacy, recursive: true);
+		Console.WriteLine($"removed the manifest of the old package name: {legacy}");
+	}
+
 	private static int Uninstall(Target target)
 	{
+		try
+		{
+			RemoveLegacy(target);
+		}
+		catch (UnauthorizedAccessException)
+		{
+			throw new ToolException($"no write access to {Path.GetDirectoryName(target.Directory)}; run it with sudo");
+		}
 		if (!System.IO.Directory.Exists(target.Directory))
 		{
 			Console.WriteLine($"not installed for SDK band {target.Band} ({target.Directory})");
@@ -184,7 +207,7 @@ public static class Program
 		return null;
 	}
 
-	/// <summary>The microsoft.maui.sailfishos pack version in a WorkloadManifest.json.</summary>
+	/// <summary>The microsoft.maui.platforms.sailfishos pack version in a WorkloadManifest.json.</summary>
 	internal static string? PackVersion(string manifestJson)
 	{
 		using var doc = System.Text.Json.JsonDocument.Parse(manifestJson);

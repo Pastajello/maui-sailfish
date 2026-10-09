@@ -263,4 +263,93 @@ public sealed class CollectionBridgeTests
 			h.Poll();
 		Assert.NotEqual(headerH, native.Text("mauiHeaderH"));
 	}
+
+	/// <summary>Strings get a Label, numbers a BoxView: two templates from one selector.</summary>
+	private sealed class KindSelector : DataTemplateSelector
+	{
+		public static readonly DataTemplate Text = new(() =>
+		{
+			var label = new Label { HeightRequest = 30 };
+			label.SetBinding(Label.TextProperty, ".");
+			return label;
+		});
+
+		public static readonly DataTemplate Number = new(() => new BoxView { HeightRequest = 50 });
+
+		protected override DataTemplate OnSelectTemplate(object item, BindableObject container) =>
+			item is string ? Text : Number;
+	}
+
+	private static List<QtHostCollectionBridge.Row> RowsOf(RendererHarness h, ItemsView list) =>
+		h.Renderer.Collection.AdapterOf(list)!.Rows;
+
+	// M3 / tracker S01: CreateContent on a DataTemplateSelector throws; every row used to be null and 0 dp high, so a
+	// selector-driven list rendered empty. Each item gets the template its selector picks.
+	[Fact]
+	public void A_template_selector_builds_each_row_from_the_template_it_selects()
+	{
+		var list = new CollectionView
+		{
+			ItemsSource = new object[] { "alpha", 7, "beta" },
+			ItemTemplate = new KindSelector(),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(Page(list));
+		h.Poll();
+
+		var rows = RowsOf(h, list);
+		Assert.Equal(3, rows.Count);
+		Assert.IsType<Label>(rows[0].CellViews[0]);
+		Assert.IsType<BoxView>(rows[1].CellViews[0]);
+		Assert.IsType<Label>(rows[2].CellViews[0]);
+		Assert.All(rows, r => Assert.True(r.HeightDp > 0));
+	}
+
+	// The slots and group templates go through the same selection: a selector there no longer leaves them empty.
+	[Fact]
+	public void Selectors_on_group_headers_and_the_empty_view_are_resolved()
+	{
+		var grouped = new CollectionView
+		{
+			IsGrouped = true,
+			ItemsSource = new[] { new List<object> { "a", 1 } },
+			ItemTemplate = new KindSelector(),
+			GroupHeaderTemplate = new KindSelector(),   // a List<object> is not a string: the Number template
+			HeightRequest = 600,
+		};
+		var empty = new CollectionView
+		{
+			ItemsSource = new List<string>(),
+			EmptyView = "nothing",
+			EmptyViewTemplate = new KindSelector(),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(Page(new VerticalStackLayout { Children = { grouped, empty } }));
+		h.Poll();
+
+		var rows = RowsOf(h, grouped);
+		Assert.Equal(QtHostCollectionBridge.KindGroupHeader, rows[0].Kind);
+		Assert.IsType<BoxView>(rows[0].CellViews[0]);
+		Assert.IsType<Label>(rows[1].CellViews[0]);
+		Assert.IsType<BoxView>(rows[2].CellViews[0]);
+		Assert.IsType<Label>(h.Renderer.Collection.AdapterOf(empty)!.EmptySlotView);
+	}
+
+	// A Replace brings a new item: its row is built from the template the selector picks for it, the other rows stay.
+	[Fact]
+	public void A_replaced_item_gets_the_template_its_selector_picks()
+	{
+		var items = new ObservableCollection<object> { "a", "b" };
+		var list = new CollectionView { ItemsSource = items, ItemTemplate = new KindSelector(), HeightRequest = 600 };
+		using var h = new RendererHarness(Page(list));
+		h.Poll();
+		var kept = RowsOf(h, list)[0].CellViews[0];
+
+		items[1] = 42;
+		for (var i = 0; i < 3; i++)
+			h.Poll();
+		var rows = RowsOf(h, list);
+		Assert.Same(kept, rows[0].CellViews[0]);
+		Assert.IsType<BoxView>(rows[1].CellViews[0]);
+	}
 }

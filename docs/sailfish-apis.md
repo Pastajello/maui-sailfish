@@ -149,31 +149,102 @@ Files come as `file://` URIs. The other way round, `Launcher.OpenAsync(new OpenF
 app registered for its type; under Sailjail that app only sees its own allowed locations (Documents, Downloads,
 Pictures, …), not your app's private data.
 
-## SailfishPage
+## Page orientations: `On<SailfishOS>()`
+
+Sailfish's platform-specific settings use MAUI's own `On<Platform>()` API, as `On<Android>()` and `On<iOS>()` do,
+from `Microsoft.Maui.Controls.PlatformConfiguration` (the `SailfishOS` platform) and
+`Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific` (the settings).
 
 The orientations one page may turn to, Silica's `Page.allowedOrientations`. It works inside the app-wide setting
 (`<SailfishOrientation>` in the project, `Any` by default), as an Android activity's own `screenOrientation` does:
 
 ```csharp
-SailfishPage.SetAllowedOrientations(playerPage, SailfishOrientations.LandscapeMask);  // landscape either way up
-SailfishPage.SetAllowedOrientations(Shell.Current, SailfishOrientations.Portrait);     // every page of the Shell
+using Microsoft.Maui.Controls.PlatformConfiguration;
+using Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific;
+
+playerPage.On<SailfishOS>().SetAllowedOrientations(SailfishOrientations.LandscapeMask);   // landscape either way up
+Shell.Current.On<SailfishOS>().SetAllowedOrientations(SailfishOrientations.Portrait);       // every page of the Shell
 ```
+
+As with `AndroidSpecific`, the `SailfishOSSpecific` namespace has its own `Page` and `VisualElement` classes: in a file
+that imports it, write `Microsoft.Maui.Controls.Page` where a bare `Page` would be ambiguous.
 
 Set it on the page or on a container around it (a `NavigationPage`, a `Shell`, a `TabbedPage`); the nearest one
 wins, and `SailfishOrientations.Default` hands the page back to the app's setting. It is a bindable attached
-property, so XAML works too (`xmlns:sf="clr-namespace:Microsoft.Maui.SailfishOS.Platform;assembly=Microsoft.Maui.SailfishOS"`,
-`sf:SailfishPage.AllowedOrientations="Landscape"`).
+property, so XAML works too
+(`xmlns:sailfish="clr-namespace:Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific;assembly=Microsoft.Maui.SailfishOS"`,
+`sailfish:Page.AllowedOrientations="Landscape"`). The earlier `SailfishPage.AllowedOrientations` still works (the
+same property) and is marked obsolete.
+
+### The back gesture
+
+Silica pages go back with a swipe from the left edge, and the hardware Back key does the same. A page decides about
+Back with MAUI's own API, no Sailfish one:
+
+- Override `OnBackButtonPressed` and return `true` to stay. Such a page loses the back swipe (Silica cannot ask
+  before it slides the page away), so Back reaches the override through the Back key and `IWindow.BackButtonClicked`.
+- In a Shell, cancel `Shell.Navigating` for `ShellNavigationSource.Pop`/`PopToRoot` (e.g. "unsaved changes"). The swipe
+  stays, and a cancelled one brings the page straight back.
+- `NavigationPage.SetHasBackButton(page, false)` and `Shell.BackButtonBehavior` with `IsVisible`/`IsEnabled` false
+  turn the swipe and the back indicator off.
+
+A drag on a view with a Pan, Swipe or Pinch recognizer belongs to that view: the back swipe and the pull-down menu
+wait until the finger lifts. One Sailfish switch hands such a drag to Silica as well:
+
+```csharp
+using SailfishView = Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement;
+
+SailfishView.SetKeepsDrag(carousel, false);           // any view: a horizontal pan on it also swipes the page back
+button.On<SailfishOS>().SetKeepsDrag(false);          // the same on a control that has On<T>()
+```
+
+## SailfishKeyboard
+
+MAUI's `ShowSoftInputAsync`, `HideSoftInputAsync` and `IsSoftInputShowing` are built for the platform heads only and
+throw `NotSupportedException` on this target framework. The same three from Sailfish:
+
+```csharp
+SailfishKeyboard.Show(searchEntry);   // focuses it and opens the keyboard
+if (SailfishKeyboard.IsShowing)
+    SailfishKeyboard.Hide();          // closes it; the focused input lets go of the focus
+```
+
+## Unhandled exceptions
+
+An exception thrown by app code on the UI thread ends the app, as on Android. Such code is:
+- a dispatched action or an `async void` handler's continuation;
+- a dispatcher timer;
+- an event handler raised from a native event (`Clicked`, a gesture, a service event).
+
+The exception and its stack go to the log, and `AppDomain.UnhandledException` fires. To decide otherwise, handle
+`SailfishExceptions.Unhandled`:
+
+```csharp
+SailfishExceptions.Unhandled += (_, e) =>
+{
+    Log.Error(e.Exception, $"unhandled in {e.Source}");
+    e.Handled = e.Exception is HttpRequestException;   // keep running for these; end the app for the rest
+};
+```
+
+A handled exception abandons only the failed callback; the UI loop goes on. A handler that throws itself does not keep
+the app.
 
 ## Theme and display
 
 ```csharp
 AppTheme theme = SailfishTheme.Current;              // the ambience's light/dark, as Application.RequestedTheme
+Color? accent = SailfishTheme.HighlightColor;        // the ambience's highlight (also PrimaryColor, SecondaryColor,
+SailfishTheme.ColorsChanged += () => Restyle();      //   SecondaryHighlightColor); changes with every ambience
 SailfishOrientation o = SailfishDisplay.Orientation;  // Portrait, Landscape, …
 double density = SailfishDisplay.Density;            // pixels per dp
 SailfishDisplay.Changed += () => Relayout();
 ```
 
-Prefer `Application.RequestedTheme` and `DeviceDisplay` in shared code: they carry the same values.
+Prefer `Application.RequestedTheme` and `DeviceDisplay` in shared code: they carry the same values. The theme is right
+from the start: the app's constructor and `CreateWindow` already see the ambience's light or dark (read from its
+setting while MAUI builds the app), so the first frame never shows the other one. The colours are known once the app's
+window is up (null before).
 
 Shared code that branches per platform compares `DeviceInfo.Platform` with `SailfishPlatform.DevicePlatform`, as it
 does with `DevicePlatform.Android`.

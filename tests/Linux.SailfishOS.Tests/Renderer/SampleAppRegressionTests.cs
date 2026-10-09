@@ -7,6 +7,7 @@ using Microsoft.Maui.SailfishOS.Handlers;
 using Microsoft.Maui.SailfishOS.Hosting;
 using Microsoft.Maui.SailfishOS.Platform;
 using Microsoft.Maui.SailfishOS.Platform.QtHost;
+using Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific;
 using Xunit;
 
 namespace Linux.SailfishOS.Tests.Renderer;
@@ -500,17 +501,17 @@ public class SampleAppRegressionTests
 	{
 		var page = new ContentPage { Title = "Player", Content = new Label { Text = "x" } };
 		var nav = new NavigationPage(page);
-		SailfishPage.SetAllowedOrientations(nav, SailfishOrientations.PortraitMask);
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.SetAllowedOrientations(nav, SailfishOrientations.PortraitMask);
 		using var h = new RendererHarness(nav);
 		int Mask() => h.Shim.Ops.Last(op => op.GetProperty("op").GetString() == "orientations").GetProperty("mask").GetInt32();
 		Assert.Equal(5, Mask());
 
-		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.LandscapeMask);
+		page.On<Microsoft.Maui.Controls.PlatformConfiguration.SailfishOS>().SetAllowedOrientations(SailfishOrientations.LandscapeMask);
 		h.Poll();
 		Assert.Equal(10, Mask());
 
-		SailfishPage.SetAllowedOrientations(page, SailfishOrientations.Default);
-		SailfishPage.SetAllowedOrientations(nav, SailfishOrientations.Default);
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.SetAllowedOrientations(page, SailfishOrientations.Default);
+		Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.Page.SetAllowedOrientations(nav, SailfishOrientations.Default);
 		h.Poll();
 		Assert.Equal(0, Mask());
 	}

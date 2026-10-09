@@ -1,0 +1,53 @@
+# Host-only CI (tracker S57): style, build, unit tests, packages and a template smoke test that builds the app's RPM.
+# Nothing here needs a phone or the native toolchain (the packages are packed without libsailfishhost.so); the device
+# matrix stays manual (tools/sf matrix) until a self-hosted runner with a phone exists. Every step is
+# tools/ci/host-ci.sh, which runs the same way in a checkout.
+name: host-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: host-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Host CI (style, build, test, pack, samples, template)
+        run: tools/ci/host-ci.sh
+      - name: Packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux
+          path: |
+            artifacts/ci/feed/*.nupkg
+            artifacts/ci/smoke/CiSmoke/bin/SailfishRpm/*.rpm
+          if-no-files-found: ignore
+
+  # Windows builds, packs and packages an app too (tracker S56: the RPM writer and the sailfish tool need no Unix
+  # programs). Not a gate until it has passed once: the suite has only ever run on macOS and Linux.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Host CI (build, test, pack, samples, template)
+        run: tools/ci/host-ci.sh build test pack samples template

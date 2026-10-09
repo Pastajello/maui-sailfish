@@ -121,7 +121,7 @@ that touches SkiaSharp (even an `SKTypeface` in a view-model constructor: MoneyF
 
 ```xml
 <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'sailfish'">
-  <PackageReference Include="Microsoft.Maui.SailfishOS.SkiaSharp" Version="0.1.0" />
+  <PackageReference Include="Microsoft.Maui.Platforms.SailfishOS.SkiaSharp" Version="0.1.0" />
   <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />  <!-- = the app's SkiaSharp -->
 </ItemGroup>
 ```
@@ -132,6 +132,11 @@ often `InvalidateSurface` is called, and touch with `Handled` and parent-scroll 
 - SkiaSharp 2.88 (the MAUI 6–8 line) is not supported.
 - Libraries built on SkiaSharp draw, but their own platform code is theirs to port. LiveCharts' plain-`net` input
   is a stub, so its charts show but do not react to touch.
+
+Release builds are trimmed (`TrimMode=partial`, as on Android) with Android's runtime feature switches: reflection-based
+`System.Text.Json` (`GetFromJsonAsync<T>` without a `JsonSerializerContext`) and `[DefaultValue]` work as there. The
+full table, and the few switches kept different for on-phone tracing and debugging, is in
+[aot-and-trimming.md §2.5](aot-and-trimming.md).
 
 ## Platform `#if` blocks
 
@@ -206,20 +211,118 @@ failure once per handler type, logs `[QT_HOST][WARN] <handler> failed for <view>
 
 These follow Silica conventions. Port authors should expect them; none needs app changes.
 
-- `ToolbarItems` become the page's pull-down menu. The line at the top of the page is its indicator.
+- `ToolbarItems` become the page's pull-down menu, in the order MAUI's toolbar gives them on the other platforms:
+  sorted by `Priority` (lower first), with a Shell's own `ToolbarItems` on each of its pages. The line at the top of
+  the page is its indicator. Pulley entries
+  are text only: an icon-only item shows its `AutomationId`, its `SemanticProperties.Description` or its icon file's
+  name (`ic_add.png` → "ic_add"); with none of them the entry is blank and the log warns once. Give such items a
+  `Text` or an `AutomationId` for Sailfish.
+- A `ContextFlyout` opens Silica's press-and-hold `ContextMenu`. It has no submenus: a `MenuFlyoutSubItem` shows as a
+  label row followed by its own items, and `MenuFlyoutSeparator` is left out.
+- A `TapGestureRecognizer` or `LongPressGestureRecognizer` on a native control (`Button`, `Entry`, `Switch`, `Slider`,
+  `CheckBox`, …) fires beside the control's own action, as on Android. One on an ancestor of the control does not:
+  the control took the touch. `LongPressing` reports `Completed` or `Canceled` (early release, moving beyond
+  `AllowableMovement`, a pan or a second finger), as MAUI's Android backend does.
+- Control events follow Android: `Button`/`ImageButton` `Pressed` and `Released` (before `Clicked`), `Slider`
+  `DragStarted`/`DragCompleted`, `SwipeView` `SwipeStarted` at the start of a finger drag and `SwipeChanging` while
+  it moves, and `Editor.Completed` when the editor loses focus (Return is a newline). Return on an `Entry` with
+  `ReturnType.Next` focuses the next visible, editable text input on the page. A `Keyboard.Create(...)` without a
+  Capitalize flag does not capitalize the first letter.
+- `view.CaptureAsync()` and `window.CaptureAsync()` (MAUI 11) work: a view is cut out of a grab of the app window at
+  its place on screen, so anything drawn over it is in the picture too. Screenshots are PNG or JPEG
+  (`OpenReadAsync(ScreenshotFormat.Jpeg, quality)`) and are kept in memory, not left in the cache folder.
+  `Clipboard.ClipboardContentChanged` also fires when another app copies text; `DeviceDisplay` reports the screen's
+  real refresh rate.
+- Images: `Image.IsLoading` is true from a source change until the image shows (or fails). Changing `Source` cancels
+  the old source's pending stream read. A GIF from `ImageSource.FromStream` animates. Stream images are cached as files
+  that are deleted when the source is collected and at the next start. An image with no size yet, or with
+  `Aspect.Center`, decodes no larger than the screen's long side, so a 4000 px photo no longer decodes at full size; an
+  unsized image larger than that measures at the capped size.
+- An exception from app code on the UI thread (an event handler, an `async void` continuation, a timer) ends the
+  app, as on Android; it used to be logged while the app went on. `SailfishExceptions.Unhandled` can mark it handled
+  ([sailfish-apis.md](sailfish-apis.md#unhandled-exceptions)).
+- `ContentPage.HideSoftInputOnTapped` works: a press outside a text field unfocuses the focused one, which closes the
+  keyboard. (`HideSoftInputAsync`/`ShowSoftInputAsync` still throw on the plain `net` build MAUI ships for this
+  head.)
+- A focused text field stays above the keyboard, in portrait and landscape. Inside a `ScrollView` (or a list) the page
+  gets shorter and the container scrolls to the field, like Android's `adjustResize`. In plain page content the page
+  keeps its layout and slides up until the field is in view, then back when the keyboard closes, like `adjustPan`.
+  A field that lies below the screen before the keyboard opens needs a `ScrollView`, as on every platform.
 - Shell and TabbedPage tabs are a row under the page header. Long titles shrink before they fade. A horizontal
   swipe across the page drags it with the finger, the next tab's title beside it; released past the threshold it
   slides on to that tab, otherwise back.
+- Tabs are text only: a tab's `IconImageSource` is not drawn. A tab without a `Title` shows its NavigationPage root's
+  title, its explicit route, or its page type name. With more than four tabs the row scrolls sideways (about three
+  and a half in view) and keeps the selected tab in view; a drag on the row scrolls it instead of switching the tab.
+- MAUI 11 badges (`TabbedPage.BadgeText`/`BadgeColor`/`BadgeTextColor`, `BaseShellItem.BadgeText` on Shell tabs)
+  draw as a pill on the tab title's top-right corner; an empty `BadgeText` is a dot, as on Android. Without
+  `BadgeColor` the pill takes the ambience highlight colour. `ToolbarItem.BadgeText` is not drawn (pull-down menu
+  entries have no badge).
 - A page without a `Title` shows the app's name (`ApplicationTitle`) in its header.
 - `Shell.BackButtonBehavior` `IsVisible`/`IsEnabled` false and `NavigationPage.HasBackButton` false turn off the
   back gesture and indicator. A first-run modal page cannot be swiped away.
+- Hardware Back (and Escape on a keyboard) goes through `IWindow.BackButtonClicked`, as on Android: a page's
+  `OnBackButtonPressed`, Shell's `BackButtonBehavior.Command`, the NavigationPage/Shell/TabbedPage/FlyoutPage pops and
+  the default modal pop decide. Silica pops on the back swipe and the Back key before MAUI is asked, so a page whose
+  type overrides `OnBackButtonPressed`, or that has a `BackButtonBehavior.Command`, gets no Silica back gesture or
+  indicator: Back reaches it only through MAUI and its veto holds. Such a page needs its own way back (a button, or
+  `OnBackButtonPressed` returning false once it allows leaving).
 - A `Picker` opens Silica's inline menu. With more than five items, or inside a container that would clip the
   menu (an outlined field's rounded `Border`), it opens Silica's selection page instead.
 - An `Entry`/`Editor` with a set `BackgroundColor` or `Background` has no Silica underline, as a set background
   replaces the native one on Android. The "borderless entry" idiom (`BackgroundColor="Transparent"` inside the
   app's own frame) needs no platform mapper.
+- `view.ShowSoftInputAsync()`, `HideSoftInputAsync()` and `IsSoftInputShowing()` throw on this target framework (MAUI
+  builds them for the platform heads only); use `SailfishKeyboard.Show(view)`, `Hide()` and `IsShowing`.
+- A root page's `Loaded` (the page the app hands to its `Window`) fires before the page has a handler: MAUI's
+  plain-net build raises it as soon as the page joins the window. Code there that needs the native side (focus, a
+  measured size) belongs in `OnAppearing` or `HandlerChanged`. Pages pushed later get their handlers first.
+- A `LinearGradientBrush` or `RadialGradientBrush` `Background` draws under any view (layouts, labels, buttons,
+  controls), on the GPU; a gradient `Shadow.Brush` shadows in the average of its colours, as on iOS.
+- FormattedText spans take their `BackgroundColor`, `CharacterSpacing` and `TextTransform`, and a span with a
+  `TapGestureRecognizer` fires it when tapped (the sender is the `Label`). A span's own `LineHeight` is not applied;
+  the label's is. Spans of different sizes or fonts are measured as one rich-text layout, so a line is as tall as
+  its largest span, and a span without a `FontSize` takes the label's.
+- A `GraphicsView` draws again when you call `Invalidate()`, when a property of it changes or when its size changes, as
+  on Android and iOS; a drawable that changes its own state must call `Invalidate()` (it used to be redrawn on every
+  update pass here). Touches arrive as `StartInteraction`, `DragInteraction` and `EndInteraction` (points in the
+  view's own coordinates; a second finger sends `CancelInteraction`), and a drag on it does not swipe the page back.
+  `DrawString(text, x, y, alignment)` draws with `y` on the text's baseline, as on Android; `FillPath`/`ClipPath` with
+  `WindingMode.EvenOdd` leave holes, and `Antialias = false` turns antialiasing off for the whole view.
+  `DrawImage` draws any `IImage` (a `SailfishImage`, or MAUI's `PlatformImage` from its bytes), and
+  `SetFillPaint(new ImagePaint { Image = … })` tiles it, starting at the view's origin, one image pixel per dp. Images
+  load asynchronously: the image is written to a cache file and the canvas loads it from there, so the first frame of a
+  new image draws without it and the view draws again when it has loaded (Android draws it in the same frame).
+  `(await Screenshot.Default.CaptureAsync()).ToImageAsync()` (`Microsoft.Maui.SailfishOS.Graphics`) turns a screenshot
+  into a `SailfishImage` you can draw, resize or save.
+- The legacy `ListView` works for `TextCell`, `ImageCell` and `ViewCell` rows (a `DataTemplateSelector` too):
+  `ItemTapped`, `ItemSelected` and `SelectedItem` behave as elsewhere, and `SelectionMode="None"` still reports taps.
+  It renders on the same native list as `CollectionView`; `SwitchCell`, `EntryCell`, context actions and `TableView`
+  are not supported (one warning names the cell; a `TableView` renders nothing, with one warning). New code should use
+  `CollectionView`.
+- A selected `CollectionView` item looks the way its template's `VisualStateManager` `Selected` state makes it, as on
+  Android and iOS; Silica draws only the press feedback. A list that relied on a default selection colour needs a
+  `Selected` state (for example a `BackgroundColor` setter on the template's root). Carousel pages take the
+  `CurrentItem`, `PreviousItem`, `NextItem` and `DefaultItem` states, and `IsDragging`, `IsScrolling`, `VisibleViews`
+  and `IsScrollAnimated` work.
+- `ItemSizingStrategy="MeasureFirstItem"` makes every row as tall as the first item and templates a row only when it
+  shows, which opens a long list several times faster (500 rows: 61 ms instead of 223 ms on a Jolla phone). It applies to
+  vertical lists with one `ItemTemplate`; a `DataTemplateSelector`, a horizontal list and a carousel measure every item.
+- A `CollectionView` inside a `ScrollView` (or a `StackLayout`) with no height of its own is as tall as all its rows,
+  and the `ScrollView` scrolls it, as on Android and iOS. Every row is then built natively, so a long list there is
+  slow to open (one warning above 200 rows): give it a height, or put the content around it in its `Header`/`Footer`
+  and drop the `ScrollView`.
+- A vertical `CarouselView` with `Loop="True"` does not wrap (only horizontal carousels loop); it stops at its ends,
+  with one warning.
+- `ItemsLayout` snap points work: `SnapPointsType` `Mandatory` or `MandatorySingle` with `SnapPointsAlignment` `Start`,
+  `Center` or `End`.
+- `CollectionView.ItemsUpdatingScrollMode` works as elsewhere: `KeepLastItemInView` brings the end into view when
+  items are added (a chat), `KeepScrollOffset` keeps the offset while the rows move under it, and the default keeps
+  the visible items in place. `ScrollTo(…, animate: true)` eases there. `Scrolled` reports offsets and deltas. A Span or
+  spacing set on the `ItemsLayout` object at runtime rebuilds the rows.
 - A `TapGestureRecognizer` in a `CollectionView` item template fires on tap, and the tap then does not select the
-  row. A `SwipeItemView` shows as a Silica swipe action: the first background colour, image and label in its
+  row. Pan, swipe, pointer and long-press recognizers in an item template work too; a long press does not select the
+  row either, and a pan the template captured keeps the list from scrolling until the finger lifts. A `SwipeItemView` shows as a Silica swipe action: the first background colour, image and label in its
   content, with `Invoked`/`Command` as usual.
 - A page's size (`Width`/`Height`, `OnSizeAllocated`) is the area below the page header and tab row, as on Android
   and iOS, so apps that size views from it fit the screen.
@@ -232,14 +335,59 @@ These follow Silica conventions. Port authors should expect them; none needs app
   `[Sailfish][QT_HOST][ERROR] unhandled exception in dispatched work` with its stack, and the app keeps running.
   Android would crash; look for that line when an action silently does nothing.
 - Pulling the pull-down menu all the way and releasing past its items leaves it open; tap an item then (Silica).
-- The page header is always there. A page whose own `BackgroundColor` is unset shows the theme behind the header
-  even when its root layout has a colour; set the page's `BackgroundColor` to colour the whole screen.
+- `NavigationPage.HasNavigationBar="False"` (on the page, or on a TabbedPage that holds it) and
+  `Shell.NavBarIsVisible="False"` (on the page, its ShellContent, section, item or the Shell; the nearest setting
+  wins) hide the page header, and the content starts under the status area. The back gesture stays. A page whose own
+  `BackgroundColor` is unset shows the theme behind the header even when its root layout has a colour; set the
+  page's `BackgroundColor` to colour the whole screen.
+- `NavigationPage.TitleView` and `Shell.TitleView` replace the header's title text with your view, laid out in the
+  header's band (full width, the header's height). Views in it take taps as anywhere on the page.
+- `Shell.TabBarIsVisible="False"` hides the row of the item's sections (Android's bottom tabs); a section's own
+  contents (Android's top tabs) stay as a row under the header.
+- `Shell.SearchHandler` shows a Silica `SearchField` under the page header (where the other platforms put the search
+  box in the navigation bar): typing writes `Query` (so `OnQueryChanged` runs), the enter key confirms it (`Command`
+  with `CommandParameter`, `OnQueryConfirmed`), and setting `Query` from code fills the field. `Placeholder`,
+  `IsSearchEnabled` and `SearchBoxVisibility` (`Collapsible` shows the field expanded; `Hidden` removes it) follow at
+  runtime; a hidden navigation bar hides the field too. Icons, colours, fonts and text alignment keep the Silica look
+  (one warning lists the ones you set).
+- The Shell flyout is the page's pull-down menu: one text entry per flyout item and `MenuItem`, pulled from the top.
+  `FlyoutHeader`, `FlyoutFooter`, `FlyoutContent`, `ItemTemplate`, `MenuItemTemplate`, the flyout background, icon and
+  size are not shown (one warning lists the ones you set). `Shell.FlyoutIsPresented = true` from code (a "menu" button)
+  opens the same entries as a context menu under the page header; a pick or a tap outside closes it and sets
+  `FlyoutIsPresented` back to `false`, and setting it to `false` closes the menu.
+- With `ShowsResults="True"` the handler's `ItemsSource` shows as a list over the page content while it has items
+  (your `ItemTemplate`, else a row with `DisplayMemberName` or the item's text). A tapped row calls `OnItemSelected`,
+  sets `SelectedItem` and confirms the query, as on Android; the list then closes until the query changes. The enter
+  key closes it too. The usual filtering handler works unchanged:
+
+  ```csharp
+  public sealed class FruitSearch : SearchHandler
+  {
+      static readonly string[] Fruit = { "apple", "apricot", "kiwi", "peach", "pear", "plum" };
+      protected override void OnQueryChanged(string oldValue, string newValue) =>
+          ItemsSource = string.IsNullOrEmpty(newValue) ? null : Fruit.Where(f => f.Contains(newValue)).ToList();
+      protected override async void OnItemSelected(object item) =>
+          await Shell.Current.GoToAsync($"fruit?name={item}");
+  }
+  ```
 - An `Image` without a size request takes its source's size, as Android's ImageView does: a `MauiImage` its
   `BaseSize` (an SVG its own size), a bitmap packaged without `BaseSize` one dp per pixel, any other bitmap (a file, a
   stream, a download, a SkiaSharp image) its pixels ÷ density. One requested side gives the other by the aspect
   ratio. A remote image is 0 × 0 until it has loaded, then the layout grows to it.
+- A view with a `PanGestureRecognizer`, `SwipeGestureRecognizer` or `PinchGestureRecognizer` keeps the drags it
+  captures, as on Android and iOS: while the finger is down, Silica's back swipe and the pull-down menu leave the page
+  alone. To let Silica take the drag as well (a horizontal pan that also goes back), set
+  `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.SetKeepsDrag(view, false)`.
 - `PinchGestureRecognizer` works with two fingers (`Scale` is the change since the last update, `ScaleOrigin` the
   midpoint relative to the view, as on Android); the pinch takes over a pan in progress and the sequence is no tap.
+- Drag & drop works as on Android: a press held still for half a second on a view with a `DragGestureRecognizer`
+  (also inside a `CollectionView` row) starts the drag, a translucent copy of the view follows the finger, and the
+  `DropGestureRecognizer` under it gets `DragOver`/`DragLeave`. Releasing over a target that accepts (`AcceptedOperation`
+  not `None`) raises `Drop` (MAUI's default copies the text or image into the target), then `DropCompleted` on the
+  source. Moving before the half second is a scroll or pan, not a drag. `Cancel = true` in `DragStarting` leaves the
+  press to the view's other gestures. A second finger or a release elsewhere ends the drag with `DropCompleted` only.
+  While dragging, the back swipe, the pull-down menu and the list under the finger hold still. The data stays inside
+  the app: Sailfish has no system drag & drop between apps.
 - `RotationX`/`RotationY` turn the view in 3D with Android's default perspective (camera at 1280 dp), and
   `ScaleX`≠`ScaleY` or a rotation inside a scaled layout are drawn exactly. Taps on a 3D-turned view hit its
   unturned rectangle.
@@ -250,6 +398,13 @@ These follow Silica conventions. Port authors should expect them; none needs app
   cancels. A single-button alert shows its one button as the acknowledgement. A prompt's Enter key accepts, and the
   panel stays above the keyboard. An action sheet lists its choices as full-width rows, the destructive one first in
   the error colour.
+- A dialog asked for while another is open waits and opens when the first closes, so two `DisplayAlertAsync` calls
+  in a row both show and both return their answer. A dialog can be asked for from any thread. On a right-to-left page
+  the panel is mirrored; `Keyboard.Email`, `Url`, `Numeric` and `Telephone` prompts open the matching keyboard. A
+  navigation asked for while a dialog is open waits until it closes (the panel belongs to the page under it).
+- `PushAsync(page, false)`, `PopAsync(false)`, `InsertPageBefore` and `RemovePage` change the page stack without
+  Silica's slide. The four most recent pages under the top keep their native views; going back further rebuilds a
+  page's native view (its MAUI state stays; native-only state such as a text caret does not).
 - A Button's `TextColor` or `BackgroundColor` set back to `null` (or a VisualState setter that ends) returns to
   Silica's theme colours, as clearing a colour returns the platform's own on Android.
 - `Application.OpenWindow` does nothing (a Sailfish app has one window, as an iOS app without multiple scenes) and
@@ -291,6 +446,33 @@ These follow Silica conventions. Port authors should expect them; none needs app
   theme size (`Theme.fontSizeMedium`), larger than MAUI's 14 dp, so unstyled text reads like the rest of the phone.
   A `FontSize` of exactly 18 counts as unset too, because 18 is the default MAUI reports when the app sets none.
   Use 17.9 or 18.1 to pin a size near 18.
+- Text follows the phone's Settings › Display › Text size, as on Android: unset sizes through Silica's theme, and an
+  explicit `FontSize` (also a span's) scaled by the same factor (`Theme.fontSizeMedium / Theme.fontSizeMediumBase`)
+  unless the element sets `FontAutoScalingEnabled="False"`. The factor is read once per start, so a changed setting
+  applies when the app is next opened.
+
+- Colours an app sets explicitly, such as the default MAUI template's `Styles.xaml` (white or near-black pages,
+  purple buttons), apply on Sailfish too and cover the ambience wallpaper and theme. A colour left unset follows the
+  ambience. To keep a style's colour for the other platforms only, as the `maui-sailfish` template does, wrap it:
+  `<Setter Property="TextColor"><OnPlatform x:TypeArguments="Color"><On Platform="Android, iOS, MacCatalyst, WinUI"
+  Value="{AppThemeBinding …}" /></OnPlatform></Setter>`. No branch matches on `SailfishOS`, so the property stays
+  unset there.
+- `HybridWebView` works on the Gecko web view: the page loads its `DefaultFile` from the `HybridRoot` folder
+  (`Resources/Raw/wwwroot` by default, shipped under the app root) through a loopback address of its own
+  (`http://127.0.0.1:<port>`), `_framework/hybridwebview.js` is served as on the other platforms, and
+  `SendRawMessage`/`RawMessageReceived`, `InvokeJavaScriptAsync`, `EvaluateJavaScriptAsync` and JavaScript's
+  `HybridWebView.InvokeDotNet` (with `SetInvokeJavaScriptTarget`) behave as on Android. A JavaScript error in
+  `InvokeJavaScriptAsync` throws `SailfishHybridWebViewJavaScriptException` (MAUI's own exception type is internal on
+  this target framework). Like `WebView` it needs the `WebView` Sailjail permission.
+- `Microsoft.Maui.Graphics.IImage` (resize, re-encode) is QImage on the phone. `PlatformImage.FromStream`
+  does not work here: on this target framework MAUI's `PlatformImage` only keeps the bytes, and its `Downsize` and
+  `Resize` throw `PlatformNotSupportedException`. MAUI cannot redirect that static. Use
+  `SailfishImage.FromStream`/`FromBytes` (`Microsoft.Maui.SailfishOS.Graphics`), or resolve `IImageLoadingService` from
+  the app's services (it gives `SailfishImage`s). `SailfishImage.From(image)` converts a `PlatformImage` you already
+  hold. `Downsize` keeps the aspect ratio and leaves a smaller image alone. `Resize`: `Fit` letterboxes with transparent
+  bars, `Bleed` crops the centre, `Stretch` distorts. `Save` writes PNG, JPEG (with quality), BMP or TIFF. Qt does not
+  write GIF, so a resized GIF comes out as PNG. Read formats are whatever the phone's Qt image plugins read (PNG, JPEG,
+  GIF, BMP, WebP, …). EXIF orientation is applied.
 
 ## Not supported yet
 
@@ -310,9 +492,18 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - **Essentials the platform lacks:** `TextToSpeech` (no speech engine), `Geocoding` (no geocoder) and `Passkeys` (no
   WebAuthn authenticator) throw `FeatureNotSupportedException`, as MAUI does on a device without the feature;
   `TextToSpeech.GetLocalesAsync` returns no locales. `MediaPicker.CapturePhotoAsync`/`CaptureVideoAsync` likewise.
-  These stay out on purpose, as do `BlazorWebView` and `MauiSplashScreen` (Sailfish apps have no splash screen).
+  These stay out on purpose, as do `BlazorWebView` (`HybridWebView` covers web UI with a .NET bridge) and
+  `MauiSplashScreen` (Sailfish apps have no splash screen).
 - **`FileResult.OpenReadAsync()`** throws: MAUI's plain-`net` `FileBase` has no platform reader and the method is
   internal to MAUI. Read `File.OpenRead(result.FullPath)` instead. `ContentType` and `FileName` work.
+- **The instance form of a permission** (`new Permissions.Camera().CheckStatusAsync()`, `RequestAsync()`,
+  `ShouldShowRationale()`) throws `NotImplementedInReferenceAssemblyException`: MAUI's plain-`net` `BasePlatformPermission`
+  has no hook. Use the generic static form, `Permissions.CheckStatusAsync<Permissions.Camera>()`, which reaches the
+  Sailfish implementation (Sailjail permissions; a sandboxed app is Granted only for what `<SailfishPermissions>`
+  declares, and `Permissions.Flashlight` is Denied in a sandbox, where no Sailjail permission reaches the torch).
+- **Pickers in a sandbox** show only the folders the app declares: `MediaPicker` needs `Pictures`/`Videos` and
+  `MediaIndexing`, `FilePicker` `UserDirs`/`Documents`/`Downloads` in `<SailfishPermissions>`; without them the picker
+  opens empty (a warning names the missing ones).
 
 ## MAUI 10/11 changes that break older libraries everywhere
 

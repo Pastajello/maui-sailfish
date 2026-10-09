@@ -235,7 +235,7 @@ foreach (var g in gcs.Where(g => g.gen >= 1)) P($"    gen{g.gen} at {Rel(g.t),7:
 P();
 
 P($"== JIT: {jits.Count} methods jitted; {jits.Count(j => Rel(j.t) >= 0)} after anchor; " +
-  $"{eventNames.GetValueOrDefault("Microsoft-Windows-DotNETRuntime/TieredCompilation/BackgroundJitStart")} background tier-up batches ==");
+	$"{eventNames.GetValueOrDefault("Microsoft-Windows-DotNETRuntime/TieredCompilation/BackgroundJitStart")} background tier-up batches ==");
 if (jits.Count == 0)
 	P("  (Method/JittingStarted needs the JIT keyword at level 5; dotnet-counters shows dotnet.jit.* rates)");
 foreach (var g in jits.Where(j => Rel(j.t) >= 0).GroupBy(j => Math.Floor(Rel(j.t) / 1000)).OrderBy(g => g.Key))

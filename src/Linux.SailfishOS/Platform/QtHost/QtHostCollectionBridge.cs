@@ -197,6 +197,7 @@ internal sealed class QtHostCollectionBridge
 		public double NaturalCrossDp;                  // a horizontal list's item height when nothing bounds it
 		public EventHandler? MeasureHandler;           // the cells' MeasureInvalidated (null = not watched)
 		public bool Remeasure;                         // a cell asked for a measure since the last pass
+		public bool LazyCells;                         // MeasureFirstItem: cells templated when the row materializes
 	}
 
 	internal sealed class DgState
@@ -257,11 +258,23 @@ internal sealed class QtHostCollectionBridge
 	}
 
 	/// <summary>A looping horizontal CarouselView uses the PathView adapter (a ListView cannot wrap); both
-	/// share the bridge contract. A Loop change swaps it (RegisterList).</summary>
-	internal static string AdapterUriFor(IView? view) =>
-		view is CarouselView { Loop: true } carousel && (carousel.ItemsLayout?.Orientation ?? ItemsLayoutOrientation.Horizontal) == ItemsLayoutOrientation.Horizontal
-			? "carousel-view"
-			: "list-view";
+	/// share the bridge contract. A Loop change swaps it (RegisterList). A vertical one does not loop (tracker S29: the
+	/// PathView path is horizontal), with one warning.</summary>
+	internal static string AdapterUriFor(IView? view)
+	{
+		if (view is not CarouselView { Loop: true } carousel)
+			return "list-view";
+		if ((carousel.ItemsLayout?.Orientation ?? ItemsLayoutOrientation.Horizontal) == ItemsLayoutOrientation.Horizontal)
+			return "carousel-view";
+		if (!VerticalLoopWarned.TryGetValue(carousel, out _))
+		{
+			VerticalLoopWarned.Add(carousel, VerticalLoopWarned);
+			QtHostDiag.Warn(QtHostDiagChannel.QmlObject, "a vertical CarouselView with Loop=true does not wrap on Sailfish (only horizontal carousels loop): it stops at its ends");
+		}
+		return "list-view";
+	}
+
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CarouselView, object> VerticalLoopWarned = new();
 
 
 	/// <summary>True when a hosted list owns this RefreshView, so the page-level arm stays out.</summary>
@@ -562,31 +575,54 @@ internal sealed class QtHostCollectionBridge
 
 
 
-	internal static View? CreateFromTemplate(DataTemplate template, object? context)
+	/// <summary>Lists whose template failed already logged it (one error per list, not one per item).</summary>
+	private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BindableObject, object> TemplateFailureLogged = new();
+
+	/// <summary>
+	/// The view of <paramref name="template"/> for <paramref name="context"/>. A <see cref="DataTemplateSelector"/>
+	/// picks its template for the item and <paramref name="container"/> first, as the in-box handlers do
+	/// (DataTemplateExtensions.SelectDataTemplate): CreateContent on a selector itself throws.
+	/// </summary>
+	internal static View? CreateFromTemplate(DataTemplate template, object? context, BindableObject container)
 	{
 		try
 		{
-			if (template.CreateContent() is View view)
+			var selected = template is DataTemplateSelector
+				? Microsoft.Maui.Controls.Internals.DataTemplateExtensions.SelectDataTemplate(template, context!, container)
+				: template;
+			if (selected?.CreateContent() is View view)
 			{
 				view.BindingContext = context;
 				return view;
 			}
+			LogTemplateFailure(container, selected is null
+				? $"{template.GetType().Name} returned no template for {context?.GetType().Name ?? "null"}"
+				: $"the template's content is not a View ({selected.GetType().Name})");
 		}
 		catch (Exception ex)
 		{
-			QtHostDiag.Error(QtHostDiagChannel.QmlObject, $"collection template instantiation failed: {ex.Message}");
+			LogTemplateFailure(container, ex.Message);
 		}
 		return null;
 	}
 
-	internal static View? CreateSlotView(object? content, DataTemplate? template)
+	private static void LogTemplateFailure(BindableObject container, string reason)
+	{
+		if (TemplateFailureLogged.TryGetValue(container, out _))
+			return;
+		TemplateFailureLogged.AddOrUpdate(container, new object());
+		QtHostDiag.Error(QtHostDiagChannel.QmlObject,
+			$"collection template instantiation failed on {container.GetType().Name}: {reason} (logged once per list)");
+	}
+
+	internal static View? CreateSlotView(object? content, DataTemplate? template, BindableObject container)
 	{
 		if (content is View direct)
 			return direct;
 		if (content is null)
 			return null;
 		if (template is not null)
-			return CreateFromTemplate(template, content);
+			return CreateFromTemplate(template, content, container);
 		return new Label { Text = content.ToString() ?? string.Empty };
 	}
 
@@ -688,6 +724,9 @@ internal sealed class QtHostCollectionBridge
 		nameof(ItemsView.EmptyView), nameof(ItemsView.ItemTemplate), nameof(GroupableItemsView.IsGrouped),
 		nameof(GroupableItemsView.GroupHeaderTemplate), nameof(GroupableItemsView.GroupFooterTemplate),
 		nameof(ItemsView.VerticalScrollBarVisibility), nameof(ItemsView.HorizontalScrollBarVisibility),
+		nameof(ItemsView.ItemsUpdatingScrollMode), nameof(CarouselView.IsScrollAnimated),
+		nameof(StructuredItemsView.ItemSizingStrategy), nameof(StructuredItemsView.HeaderTemplate),
+		nameof(StructuredItemsView.FooterTemplate), nameof(ItemsView.EmptyViewTemplate),
 	};
 
 

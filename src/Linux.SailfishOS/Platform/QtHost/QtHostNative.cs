@@ -11,7 +11,7 @@ internal static class QtHostNative
 	private const string Lib = "sailfishhost";
 
 	/// <summary>SFHOST_ABI_VERSION of the shim this code was written against (sailfish_host.h).</summary>
-	internal const int AbiVersion = 4;
+	internal const int AbiVersion = 5;
 
 	/* Log levels match QtMsgType: 0=debug 1=warning 2=critical 3=fatal. */
 	public delegate void LogFn(int level, IntPtr message, IntPtr userData);
@@ -95,6 +95,14 @@ internal static class QtHostNative
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_grab_png(string path);
 
+	/* Screenshot: the window or a part of it (scene units) as PNG, or JPEG for a .jpg path. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_grab_image(string path, double x, double y, double w, double h, int quality);
+
+	/* Re-encodes an image file (format by the destination's extension). */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_convert_image(string src, string dst, int quality);
+
 	/* Records the app window's frames as JPEGs (used by tools/sf record). */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_record_start(string dir, int fps, int scalePct);
@@ -140,6 +148,14 @@ internal static class QtHostNative
 	/* Text measurement with QFontMetrics; input and output in device pixels. */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_measure_text(string json, out double w, out double h);
+
+	/* IImage on QImage (host_image.cpp): decoded size, and resize/re-encode into outBuf (returns the encoded size; not
+	 * written when larger than cap). Any thread. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_image_info(byte[] data, int len, out int w, out int h);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_image_transform(byte[] data, int len, string op, byte[]? outBuf, int cap);
 
 	/* Window/screen geometry as JSON; returns its length or -1. */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]

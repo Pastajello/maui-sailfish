@@ -80,6 +80,9 @@ internal static class SailfishKeys
 		/// <summary>An image failed to load (after the adapter's retries): <see cref="Source"/>.</summary>
 		public const string ImageFailed = "image-failed";
 
+		/// <summary>An image finished loading (Image.IsLoading goes false): <see cref="Source"/>.</summary>
+		public const string ImageLoaded = "image-loaded";
+
 		public const string Source = "source";
 		public const string Width = "width";
 		public const string Height = "height";

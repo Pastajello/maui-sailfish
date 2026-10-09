@@ -168,6 +168,52 @@ static QString qml_root_url(QObject *obj)
     return at >= 0 ? base.left(at + 5) : QString();
 }
 
+// Generic gradient Background (tracker S41, D10 a): a lazy child made from qml/effects/GradientFill.qml, which draws
+// QtHostPaint.GradientSpec's JSON with a shader; "" hides it.
+static void apply_background_gradient(QObject *obj, const QString &spec)
+{
+    QQuickItem *item = qobject_cast<QQuickItem *>(obj);
+    if (!item)
+        return;
+    QQuickItem *fill = nullptr;
+    const QList<QQuickItem *> kids = item->childItems();
+    for (QQuickItem *k : kids)
+        if (k->objectName() == QLatin1String("mauiBackgroundGradient")) {
+            fill = k;
+            break;
+        }
+    if (!fill) {
+        if (spec.isEmpty())
+            return;
+        QQmlEngine *engine = qmlEngine(obj);
+        const QString root = qml_root_url(obj);
+        if (!engine || root.isEmpty())
+            return;
+        // Engine-owned and weakly held, as the solid fill's component.
+        static QHash<QQmlEngine *, QPointer<QQmlComponent>> components;
+        QQmlComponent *component = components.value(engine);
+        if (!component) {
+            component = new QQmlComponent(engine, QUrl(root + QStringLiteral("effects/GradientFill.qml")), engine);
+            components.insert(engine, component);
+        }
+        if (component->isError()) {
+            log_line(1, QStringLiteral("background gradient: component failed: %1").arg(component->errorString()));
+            return;
+        }
+        QObject *created = component->beginCreate(qmlContext(obj) ? qmlContext(obj) : engine->rootContext());
+        fill = qobject_cast<QQuickItem *>(created);
+        if (!fill) {
+            delete created;
+            log_line(1, QStringLiteral("background gradient: create failed: %1").arg(component->errorString()));
+            return;
+        }
+        fill->setParent(item);
+        fill->setParentItem(item);
+        component->completeCreate();
+    }
+    fill->setProperty("spec", spec);
+}
+
 static void apply_layer_effect(QObject *obj)
 {
     QQuickItem *item = qobject_cast<QQuickItem *>(obj);
@@ -295,7 +341,7 @@ static bool apply_generic_prop(QObject *obj, const QByteArray &name, const QJson
         apply_item_matrix(obj, value);
         return true;
     }
-    const bool generic = name == "mauiBackgroundFill" || name == "mauiAccessibleName" ||
+    const bool generic = name == "mauiBackgroundFill" || name == "mauiBackgroundGradient" || name == "mauiAccessibleName" ||
                          name == "mauiAccessibleDescription" || name == "mauiAutomationId" ||
                          name == "mauiLayerShadow" || name == "mauiLayerClip" ||
                          name == "mauiAccessibleRole" || name == "mauiAccessibleIgnored" ||
@@ -309,6 +355,8 @@ static bool apply_generic_prop(QObject *obj, const QByteArray &name, const QJson
             log_line(1, QStringLiteral("background fill: unparsable color '%1' (json type %2) on %3")
                             .arg(text).arg(static_cast<int>(value.type())).arg(obj->objectName()));
         apply_background_fill(obj, color.isValid() ? color : QColor(Qt::transparent));
+    } else if (name == "mauiBackgroundGradient") {
+        apply_background_gradient(obj, text);
     } else if (name == "mauiLayerShadow" || name == "mauiLayerClip") {
         const QByteArray slot = name == "mauiLayerShadow" ? QByteArrayLiteral("__mauiShadowSpec") : QByteArrayLiteral("__mauiClipSpec");
         if (obj->property(slot.constData()).toString() != text) {

@@ -167,6 +167,11 @@ internal static class QtHostVisualState
 		// The shim lays a fill Rectangle under Silica controls that paint no background.
 		if (HasGenericBackground(element))
 			props["mauiBackgroundFill"] = QtHostPaint.Background(element) ?? Microsoft.Maui.Graphics.Colors.Transparent;
+		// A gradient Background goes under any host as a shader item (tracker S41, D10 a), except where the adapter
+		// paints the brush itself (Border, shapes and BoxView take it through their fill spec).
+		if (element is not Border and not Microsoft.Maui.Controls.Shapes.Shape and not BoxView &&
+		    (element.Background is GradientBrush || element.IsSet(VisualElement.BackgroundProperty)))
+			props["mauiBackgroundGradient"] = QtHostPaint.GradientSpec(element.Background);
 		// Semantics → Qt accessibility; AutomationId as a dynamic property for UI-test lookups.
 		if (((IView)element).Semantics is { } semantics)
 		{
@@ -223,6 +228,9 @@ internal static class QtHostVisualState
 		{
 			if (e is VisualElement ve && ve.FlowDirection != FlowDirection.MatchParent)
 				return ve.FlowDirection == FlowDirection.RightToLeft;
+			// The window is the root (it is no VisualElement): RTL set on it mirrors every page (tracker S13).
+			if (e is Window window && window.FlowDirection != FlowDirection.MatchParent)
+				return window.FlowDirection == FlowDirection.RightToLeft;
 		}
 		return false;
 	}
@@ -230,7 +238,8 @@ internal static class QtHostVisualState
 	/// <summary>MAUI Shadow → "#AARRGGBB|radius|x|y" in device px; "" means none.</summary>
 	public static string ShadowSpec(Shadow? shadow, double density)
 	{
-		if (shadow?.Brush is not SolidColorBrush { Color: { } color } || shadow.Opacity <= 0)
+		// A gradient brush shadows in its average colour, as iOS draws it (tracker S41).
+		if (QtHostPaint.Average(shadow?.Brush) is not { } color || shadow!.Opacity <= 0)
 			return string.Empty;
 		var c = color.WithAlpha((float)Math.Clamp(color.Alpha * shadow.Opacity, 0, 1));
 		if (c.Alpha <= 0)

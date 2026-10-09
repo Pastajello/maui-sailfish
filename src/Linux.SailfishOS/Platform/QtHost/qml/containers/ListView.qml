@@ -10,11 +10,13 @@ import "../lib/pullrefresh.js" as PullRefresh
 // and materialized as children of the delegate (the delegate never lays it out).
 //
 // Events: list-item-attached/rebind/detached {id,row,dg}, list-item-released {id,dg,to},
-// list-item-tapped
-// {id,row,cell,x,y} (x/y delegate-relative, Qt units), list-scroll {id,y,first,last,count} (throttled, along the scroll
-// axis), carousel-position {id,index}, refresh-requested {id}.
+// list-item-tapped and list-item-pressed
+// {id,row,cell,x,y} (x/y delegate-relative, Qt units; pressed only for rows with g=1), list-scroll {id,y,first,last,count} (throttled, along the scroll
+// axis), carousel-position {id,index}, carousel-motion {id,dragging,moving}, refresh-requested {id}.
 // mauiRowsJson: [{k,h,t}] where h is the extent along the scroll axis (Qt units) and t is 0 (inert), 1 (selectable,
-// highlights on press) or 2 (tap recognizers in the template only, no highlight).
+// highlights on press) or 2 (tap recognizers in the template only, no highlight); g is 1 when the template has
+// other recognizers (pan, swipe, long press, pointer, pinch): its presses go to managed's input router, and
+// mauiHoldRow (that row's index, -1 none) keeps the list from stealing a drag the router captured.
 // mauiSelectedRows is highlight only ("0,3,5", or "row:cell" in grids); MAUI stays the selection authority.
 // Grid rows hold mauiSpan cells mauiCellStride apart (Qt units, across the scroll axis: x in a vertical list, y in a
 // horizontal one); taps report the touched cell.
@@ -32,6 +34,13 @@ SilicaListView {
     property bool mauiApplying: false
 
     property string mauiRowsJson: "[]"
+    // ItemsUpdatingScrollMode: 0 KeepItemsInView (Qt keeps the visible rows in place), 1 KeepScrollOffset (the offset
+    // stays, the rows move under it), 2 KeepLastItemInView (rows added: the end comes into view, as a chat does).
+    property int mauiUpdatingMode: 0
+    property int mauiHoldRow: -1
+    // The row being dragged (drag & drop, tracker S40): its press highlight goes, as a pressed state ends when a drag
+    // starts on Android, and the drag ghost (a snapshot of the delegate) does not carry it.
+    property int mauiDragRow: -1
     property string mauiSelectedRows: ""
     property real mauiSpacing: 0
     property int mauiSpan: 1
@@ -53,13 +62,33 @@ SilicaListView {
     property bool mauiBounce: true
 
     orientation: __horizontal ? ListView.Horizontal : ListView.Vertical
-    interactive: mauiSwipeEnabled
-    // Carousel: one item per flick, the current page kept inside the peek window.
-    snapMode: mauiCarousel ? ListView.SnapOneItem : ListView.NoSnap
-    highlightRangeMode: mauiCarousel ? ListView.StrictlyEnforceRange : ListView.NoHighlightRange
-    preferredHighlightBegin: mauiCarousel ? mauiPeekStart : 0
-    preferredHighlightEnd: mauiCarousel ? (__horizontal ? width : height) - mauiPeekEnd : 0
+    // mauiUnbounded: as tall as its rows inside a ScrollView/StackLayout; the outer scroller scrolls it, and its
+    // every row lies in its own viewport (QtHostListAdapter.Unbounded).
+    property bool mauiUnbounded: false
+    interactive: mauiSwipeEnabled && !mauiUnbounded
+    // Carousel: one item per flick, the current page kept inside the peek window. A list's ItemsLayout snap points
+    // (mauiSnapType 1 Mandatory / 2 MandatorySingle) snap rows to the start, or to the centre or end through a highlight
+    // range one row high (mauiSnapAlign 1 Center / 2 End).
+    property int mauiSnapType: 0
+    property int mauiSnapAlign: 0
+    readonly property real __snapExtent: Math.max(1, __avgRowH - mauiSpacing)
+    readonly property real __snapBegin: mauiSnapAlign === 1 ? ((__horizontal ? width : height) - __snapExtent) / 2
+                                      : mauiSnapAlign === 2 ? (__horizontal ? width : height) - __snapExtent : 0
+    snapMode: mauiCarousel ? ListView.SnapOneItem
+            : mauiSnapType === 1 ? ListView.SnapToItem
+            : mauiSnapType === 2 ? ListView.SnapOneItem : ListView.NoSnap
+    highlightRangeMode: mauiCarousel ? ListView.StrictlyEnforceRange
+                      : mauiSnapType > 0 && mauiSnapAlign > 0 ? ListView.ApplyRange : ListView.NoHighlightRange
+    preferredHighlightBegin: mauiCarousel ? mauiPeekStart : mauiSnapType > 0 ? __snapBegin : 0
+    preferredHighlightEnd: mauiCarousel ? (__horizontal ? width : height) - mauiPeekEnd
+                         : mauiSnapType > 0 ? __snapBegin + __snapExtent : 0
     highlightMoveDuration: 250
+    // A carousel's IsScrollAnimated false: a Position set from code jumps (see CarouselView.qml).
+    property bool mauiScrollAnimated: true
+    onMauiScrollAnimatedChanged: highlightMoveDuration = mauiScrollAnimated ? 250 : 0
+    // A carousel's IsDragging / IsScrolling (carousel-motion {id,dragging,moving}).
+    onDraggingChanged: if (mauiCarousel) mauiEvent("carousel-motion", JSON.stringify({ id: mauiId, dragging: dragging, moving: moving }))
+    onMovingChanged: if (mauiCarousel) mauiEvent("carousel-motion", JSON.stringify({ id: mauiId, dragging: dragging, moving: moving }))
 
     onMauiPositionChanged: __applyPosition()
     function __applyPosition() {
@@ -109,7 +138,11 @@ SilicaListView {
         onTriggered: root.__prefetch = true
     }
     // Rows can arrive as creation props, which fire no change handler.
-    Component.onCompleted: if (mauiRowsJson.length > 2) prefetchTimer.start()
+    Component.onCompleted: {
+        highlightMoveDuration = mauiScrollAnimated ? 250 : 0;
+        if (mauiRowsJson.length > 2)
+            prefetchTimer.start();
+    }
     model: ListModel { id: rowModel }
 
     onMauiRowsJsonChanged: { __rebuildRows(); if (!__prefetch && !prefetchTimer.running) prefetchTimer.start(); }
@@ -175,7 +208,21 @@ SilicaListView {
         var rows = [];
         try { rows = JSON.parse(mauiRowsJson); } catch (e) { rows = []; }
         __rebuilding = true;
+        var countBefore = rowModel.count;
+        var offsetBefore = __horizontal ? contentX - originX : contentY - originY;
         __syncRows(rows);
+        if (!mauiCarousel && countBefore > 0) {
+            if (mauiUpdatingMode === 2 && rowModel.count > countBefore) {
+                scrollAnim.row = -1;   // superseded: no landing on the old target
+                scrollAnim.stop();
+                positionViewAtEnd();
+            } else if (mauiUpdatingMode === 1) {
+                if (__horizontal)
+                    contentX = originX + offsetBefore;
+                else
+                    contentY = originY + offsetBefore;
+            }
+        }
         if (mauiCarousel && mauiPosition >= 0 && mauiPosition < count) {
             var move = highlightMoveDuration;
             highlightMoveDuration = 0;
@@ -214,7 +261,7 @@ SilicaListView {
         }
         for (i = 0; i < rows.length; ++i) {
             var n = rows[i];
-            var h = n.h || 0, t = n.t || 0, c = n.n === undefined ? 1 : n.n;
+            var h = n.h || 0, t = n.t || 0, g = n.g || 0, c = n.n === undefined ? 1 : n.n;
             if (keyed && i < rowModel.count && rowModel.get(i).k !== n.k) {
                 for (j = i + 1; j < rowModel.count; ++j)
                     if (rowModel.get(j).k === n.k) {
@@ -226,11 +273,12 @@ SilicaListView {
                 var cur = rowModel.get(i);
                 if (cur.h !== h) rowModel.setProperty(i, "h", h);
                 if (cur.t !== t) rowModel.setProperty(i, "t", t);
+                if (cur.g !== g) rowModel.setProperty(i, "g", g);
                 if (cur.n !== c) rowModel.setProperty(i, "n", c);
             } else {
                 rowModel.insert(i, { k: keyed ? n.k : i, r: i, h: h, n: c,
                                      s: "",   // selected cells ",0,2,"; set by __applySelection
-                                     t: t });
+                                     t: t, g: g });
             }
         }
         // indices last: every delegate is at its final position, so its
@@ -291,20 +339,54 @@ SilicaListView {
     function mauiCommand(json) {
         var c = JSON.parse(json);
         if (c.name === "scrollTo")
-            __scrollToRow(c.row, c.pos);
+            __scrollToRow(c.row, c.pos, !!c.animate);
     }
 
-    function __scrollToRow(row, where) {
+    function __scrollToRow(row, where, animate) {
         if (row < 0 || row >= count)
             return;
-        // Qt 5.6 positionViewAtIndex is immediate, so managed ScrollTo never animates.
         var pos = where === 0 ? ListView.Beginning
                 : where === 1 ? ListView.Center
                 : where === 2 ? ListView.End
                 : ListView.Contain;
+        scrollAnim.row = -1;   // superseded: no landing on the old target
+        scrollAnim.stop();
+        // Qt 5.6 positionViewAtIndex is immediate: an animated ScrollTo finds the target offset with it, goes back and
+        // eases there.
+        var prop = __horizontal ? "contentX" : "contentY";
+        var from = root[prop];
         positionViewAtIndex(row, pos);
+        var to = root[prop];
+        if (animate && Math.abs(to - from) > 1) {
+            root[prop] = from;
+            scrollAnim.row = row;
+            scrollAnim.pos = pos;
+            scrollAnim.property = prop;
+            scrollAnim.from = from;
+            scrollAnim.to = to;
+            scrollAnim.start();
+            return;
+        }
         __restingAtTop = !__horizontal && atYBeginning;
         __reportScroll();
+    }
+
+    NumberAnimation {
+        id: scrollAnim
+        property int row: -1
+        property int pos: 0
+        target: root
+        duration: 300
+        easing.type: Easing.InOutQuad
+        onStopped: {
+            // The target was measured with the rows around it created; rows created on the way can move it (estimated
+            // heights), so the end lands on the row itself.
+            if (row >= 0 && row < root.count)
+                root.positionViewAtIndex(row, pos);
+            row = -1;
+            root.__restingAtTop = !root.__horizontal && root.atYBeginning;
+            root.__reportScroll();
+        }
     }
 
     Timer {
@@ -351,7 +433,9 @@ SilicaListView {
             return cell;
         }
 
-        // Selection/press highlight per cell; MAUI children are created later and stack above it.
+        // Press highlight per cell; MAUI children are created later and stack above it. A selected cell shows its
+        // template's VisualStateManager Selected state only, as on Android and iOS (D4 a): a highlight under the content
+        // was hidden by any opaque template (tracker S27).
         Repeater {
             model: dg.__grid ? root.mauiSpan : 1
             Rectangle {
@@ -361,19 +445,24 @@ SilicaListView {
                 width: dg.__grid && !root.__horizontal ? root.mauiCellWidth : dg.width
                 height: dg.__grid && root.__horizontal ? root.mauiCellWidth : dg.height
                 radius: 8
-                color: pressed ? Theme.rgba(Theme.highlightColor, 0.45)
-                               : Theme.rgba(Theme.highlightColor, 0.22)
-                visible: pressed || s.indexOf("," + index + ",") >= 0
+                color: Theme.rgba(Theme.highlightColor, 0.45)
+                visible: pressed && root.mauiDragRow !== r
             }
         }
 
         MouseArea {
             id: tapArea
             anchors.fill: parent
-            enabled: t !== 0
-            onPressed: dg.__pressCell = dg.__cellAt(mouse.x, mouse.y)
+            enabled: t !== 0 || g !== 0
+            preventStealing: root.mauiHoldRow === r
+            onPressed: {
+                dg.__pressCell = dg.__cellAt(mouse.x, mouse.y);
+                if (g !== 0 && dg.__pressCell >= 0)
+                    root.mauiEvent("list-item-pressed",
+                        JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell, x: mouse.x, y: mouse.y }))
+            }
             onClicked: {
-                if (dg.__pressCell >= 0)
+                if (t !== 0 && dg.__pressCell >= 0)
                     root.mauiEvent("list-item-tapped",
                         JSON.stringify({ id: root.mauiId, row: r, cell: dg.__pressCell, x: mouse.x, y: mouse.y }))
             }

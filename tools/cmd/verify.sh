@@ -42,6 +42,10 @@ PKG_NAME="$(rpm -qp --qf '%{NAME}' "$RPM_FILE")"
 LOCAL_NVR="$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}' "$RPM_FILE")"
 LOCAL_DLL="$SF_PUBLISH_DIR/$SF_BIN.dll"
 REMOTE_DIR="/usr/share/$PKG_NAME"
+# Harbour builds keep the payload in /usr/share/<pkg>/lib (/usr/bin/<pkg> is the native launcher).
+if rpm -qp --qf "[%{FILENAMES}\n]" "$RPM_FILE" | sed 's/^[[:space:]]*//' | grep -qx "$REMOTE_DIR/lib/$SF_BIN.dll"; then
+	REMOTE_DIR="$REMOTE_DIR/lib"
+fi
 
 sf_info "Verifying $PKG_NAME"
 sf_note "local RPM   : $(basename "$RPM_FILE") ($LOCAL_NVR)"

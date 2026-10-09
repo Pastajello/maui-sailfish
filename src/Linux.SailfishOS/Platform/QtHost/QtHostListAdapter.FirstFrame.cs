@@ -69,8 +69,8 @@ internal sealed partial class QtHostListAdapter
 	{
 		if (_slotsBuiltWhileHeld || View is not StructuredItemsView siv)
 			return;
-		HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate);
-		FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate);
+		HeaderView = CreateSlotView(siv.Header, siv.HeaderTemplate, siv);
+		FooterView = CreateSlotView(siv.Footer, siv.FooterTemplate, siv);
 		InheritOwnerContext(siv, HeaderView);
 		InheritOwnerContext(siv, FooterView);
 		_slotsBuiltWhileHeld = true;

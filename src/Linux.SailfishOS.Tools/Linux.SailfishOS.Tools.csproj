@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- sailfish: the device loop for package users (tracker S56b, decision D8 b): set up the phone, deploy the app's RPM,
+       run it with its log, stop it, take a screenshot. Plain C# over the system ssh/scp (OpenSSH, also on Windows 10+),
+       so it needs no bash, expect or python3 on the build machine. The scripts that run on the phone stay shell
+       (tools/remote, embedded). The repo's own matrix/shots tooling stays in tools/sf. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Tools</RootNamespace>
+    <AssemblyName>sailfish</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sailfish</ToolCommandName>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS.Tools</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Description>Sets up a Sailfish OS phone and deploys, runs and screenshots .NET MAUI apps on it over SSH: dotnet tool install -g Microsoft.Maui.Platforms.SailfishOS.Tools, then sailfish setup and sailfish deploy --run</Description>
+    <PackageReadmeFile></PackageReadmeFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <!-- One fixed place, as the build tasks: the backend package carries this output (buildTransitive/net11.0/tools/
+         sailfish) and a checkout's targets run it from here. -->
+    <OutputPath>$(MSBuildThisFileDirectory)../../artifacts/sailfish-tool/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The phone side, the same scripts tools/sf pushes. -->
+    <EmbeddedResource Include="../../tools/remote/sf-run-remote.sh;../../tools/remote/sf-kill-remote.sh;../../tools/remote/sf-remote-env.sh;../../tools/remote/sf-screenshot-remote.sh"
+                      LogicalName="remote/%(Filename)%(Extension)" />
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+</Project>

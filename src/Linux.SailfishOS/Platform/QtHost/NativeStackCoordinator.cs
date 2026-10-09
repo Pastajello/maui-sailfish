@@ -111,7 +111,16 @@ internal sealed class NativeStackCoordinator(INativeStackOwner owner)
 	{
 		if (_navOp is { } op)
 		{
-			if (!NavOpDone(op, native))
+			if (FollowVetoed(op, native))
+			{
+				// MAUI finished its pop but kept the page (Shell's Navigating cancelled, a NavigationPage that refused): the
+				// page the user swiped away comes back now, through the depth sync below, not after the 3 s deadline.
+				FollowVetoes++;
+				_owner.LogNavOp("VETO", op.Source, (_nativePageIds.Count > 0 ? _nativePageIds[^1] : "-"),
+					$"{op} mauiDepth={_owner.ExpectedNativeDepth()} native={native.Count} ver={version} — re-push");
+				_navOp = null;
+			}
+			else if (!NavOpDone(op, native))
 			{
 				if (op.Kind == NavOpKind.FollowNative && _owner.ExpectedNativeDepth() > native.Count)
 					NativePopRacesBlocked++;   // MAUI still ahead: no re-push of the page the user left
@@ -167,6 +176,14 @@ internal sealed class NativeStackCoordinator(INativeStackOwner owner)
 			_owner.RequestPoll();
 		}
 	}
+
+	/// <summary>A follow pop MAUI completed without popping: the app vetoed the back the user did natively.</summary>
+	private bool FollowVetoed(NavOperation op, List<string> native) =>
+		op is { Kind: NavOpKind.FollowNative, MauiDone: true } && native.SequenceEqual(_nativePageIds) &&
+		_owner.ExpectedNativeDepth() > _nativePageIds.Count;
+
+	/// <summary>Native back gestures the app vetoed (the page re-pushed at once).</summary>
+	public long FollowVetoes { get; private set; }
 
 	/// <summary>Whether the native stack shows the operation's result.</summary>
 	private bool NavOpDone(NavOperation op, List<string> native) => op.Kind switch

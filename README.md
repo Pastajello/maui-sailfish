@@ -20,10 +20,9 @@ Both clips are recorded on a Jolla phone (Sailfish OS 5.2) with real touch input
 
 - All stock MAUI controls, Shell, TabbedPage and FlyoutPage, CollectionView, WebView (Gecko) and most of MAUI
   Essentials work on the phone.
-- Handler parity with the official MAUI mappers: 100% (1073/1073 keys, [docs/handler-parity.md](docs/handler-parity.md)).
+- Handler parity with the official MAUI mappers: 100% (1344/1344 keys, [docs/handler-parity.md](docs/handler-parity.md)).
 - On-device acceptance matrix: 31 legs (`tools/sf matrix`, list in [docs/tools.md](docs/tools.md)); the full run on
-  2026-10-04 passed all 31 (the `silica` leg after its theme check was updated). SecureStorage (`f4`) needs an
-  unlocked phone.
+  2026-10-07 passed all 31. SecureStorage (`f4`) needs an unlocked phone.
 - 15 open-source MAUI apps run on the phone, some with gaps such as empty charts ([docs/porting-existing-apps.md](docs/porting-existing-apps.md)).
 - What is left: [docs/parity-plan.md](docs/parity-plan.md) (roadmap), [BUG_LIST.md](BUG_LIST.md) (open defects).
 
@@ -34,7 +33,7 @@ Both clips are recorded on a Jolla phone (Sailfish OS 5.2) with real touch input
 | Where | What |
 |---|---|
 | Build machine | .NET SDK 11 RC1 (`11.0.100-rc.1.26425.128`, see `global.json`) |
-| Build machine | `ssh`, `python3` (RPM build) |
+| Build machine | OpenSSH (`ssh`, `scp`, `ssh-keygen`; Windows: the *OpenSSH Client* feature). macOS, Linux and Windows all build, deploy and run; a checkout's own `tools/sf` scripts (matrix, screenshots, native builds) need bash and python3 |
 | Build machine, only when working on this repo | `zig` (cross-compiles the native shim; no Sailfish SDK needed) |
 | Phone | Sailfish OS with developer mode and a Remote connection password (tested on SFOS 5.2, aarch64; armv7hl builds but has never run on a device) |
 
@@ -57,19 +56,27 @@ If you got a feed from someone else, add it with `dotnet nuget add source <feed>
 
 ```bash
 # once per machine: teach the SDK the net11.0-sailfish target framework
-dnx Microsoft.Maui.SailfishOS.Workload install
+dnx Microsoft.Maui.Platforms.SailfishOS.Workload install
 
 # a MAUI app with a Sailfish OS head next to Android/iOS/Mac Catalyst/Windows
 dotnet new install Microsoft.Maui.Platforms.SailfishOS.Templates
 dotnet new maui-sailfish -n MyApp && cd MyApp     # --sailfish-only: just the Sailfish head
 
-# build the RPM, install it on the phone and start it
-dotnet build -f net11.0-sailfish -t:SailfishRun
+# build the RPM, install it on the phone, start it and stream its log (Ctrl+C stops it)
+dotnet run -f net11.0-sailfish
 ```
 
-The first `SailfishRun` asks for the phone's address, user and the Remote connection password, installs your
+`dotnet build -f net11.0-sailfish -t:SailfishRun` does the same but returns once the app has started. Both run the
+`sailfish` device tool the package carries; installed on its own (`dotnet tool install -g
+Microsoft.Maui.Platforms.SailfishOS.Tools`) it also gives `sailfish setup | deploy | run --follow | kill | logs |
+screenshot` in the app's folder. The first run asks for the phone's address, user and the Remote connection password, installs your
 SSH key and saves the settings in `~/.config/maui-sailfish/connect.info`. Details and error messages:
 [docs/connecting-your-phone.md](docs/connecting-your-phone.md).
+
+The template follows the official `maui` template (`--applicationId`, `-f/--framework`, a fresh Windows
+`PhoneProductId`, `UseMaui`). Its `Resources/Styles/Styles.xaml` colours apply to Android, iOS, Mac Catalyst and
+Windows only (each colour sits in an `OnPlatform`), so on the phone the app takes the ambience colours and wallpaper
+like a native Sailfish app.
 
 `dotnet publish -f net11.0-sailfish` alone builds the RPM (`bin/SailfishRpm/harbour-<app>-<version>.aarch64.rpm`).
 
@@ -162,6 +169,8 @@ MAUI does all layout. Native elements are created once and updated in place. Lis
 | [aot-and-trimming.md](docs/aot-and-trimming.md) | payload options (trimming, ReadyToRun, NativeAOT) and measurements |
 | [profiling.md](docs/profiling.md) | EventPipe, QML profiler and memory on the phone |
 | [parity-plan.md](docs/parity-plan.md) | roadmap |
+| [maui11-alignment-plan.md](docs/maui11-alignment-plan.md) | gap analysis against MAUI 11 (lifecycle, navigation, collections, graphics, input, Essentials, build) and the work packages that close it; evidence in [docs/audits/maui11/](docs/audits/maui11/) |
+| [maui11-tracker.md](docs/maui11-tracker.md) | that plan split into one-session tasks with checkboxes and notes: take the next unticked one |
 | [BUG_LIST.md](BUG_LIST.md) | open defects |
 | [app-test-campaign.md](docs/app-test-campaign.md) | log of the real-app test campaign |
 | [skiasharp-plan.md](docs/skiasharp-plan.md) | SkiaSharp support plan |
@@ -169,7 +178,7 @@ MAUI does all layout. Native elements are created once and updated in place. Lis
 ## Repository layout
 
 ```
-src/Linux.SailfishOS/                 the backend (Microsoft.Maui.SailfishOS package)
+src/Linux.SailfishOS/                 the backend (Microsoft.Maui.Platforms.SailfishOS package)
   Handlers/                           Sailfish handlers: controls, pages, Shell/Tabbed/Flyout
   Native/                             C++ shim (libsailfishhost.so)
   Platform/QtHost/                    renderer, navigation, bridges; qml/ = Silica adapters

@@ -34,7 +34,16 @@ internal static class SailfishRuntime
 		foreach (var timer in _timers.Keys)
 		{
 			var start = SlowWorkMs > 0 ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-			timer.OnTick(now);
+			try
+			{
+				timer.OnTick(now);
+			}
+			catch (Exception ex)
+			{
+				// Ends the app unless handled; when handled, one failing Tick must not skip the other due timers of this
+				// pump, and its next tick was already scheduled, so it does not re-fire every pump either.
+				SailfishExceptions.Report(ex, "a dispatcher timer");
+			}
 			if (start != 0)
 				ReportSlow(start, timer.TickSource);
 		}

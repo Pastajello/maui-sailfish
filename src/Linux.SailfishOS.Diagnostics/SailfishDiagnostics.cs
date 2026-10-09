@@ -7,7 +7,7 @@ namespace Microsoft.Maui.SailfishOS.Diagnostics;
 /// Opt-in entry point for the Qt-host diagnostics (MAUI_SAILFISH_QT_HOST_DIAG=1 plus per-leg
 /// *_DIAG switches). Call from CreateMauiApp; without it no diagnostics run.
 /// </summary>
-public static class SailfishDiagnostics
+public static partial class SailfishDiagnostics
 {
 	/// <summary>Registers the diagnostics legs with the Qt host.</summary>
 	public static void Register() =>

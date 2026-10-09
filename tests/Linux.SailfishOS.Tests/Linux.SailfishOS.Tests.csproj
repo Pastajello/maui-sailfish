@@ -20,6 +20,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- SkiaSharp brings its native library for macOS and Windows only; a Linux host (CI) needs it separately.
+         NoDependencies: no fontconfig on the build machine. The version of the SkiaSharp the backend builds on. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.116.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +30,7 @@
     <ProjectReference Include="../../src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.Build.Tasks/Linux.SailfishOS.Build.Tasks.csproj" />
     <!-- The build tasks run in MSBuild; their tests host them with the same assemblies. -->
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />

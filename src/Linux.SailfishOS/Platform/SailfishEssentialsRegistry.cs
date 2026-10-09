@@ -40,10 +40,11 @@ internal static class SailfishEssentialsRegistry
 		new(typeof(IAppInfo), typeof(AppInfo), "SetCurrent", () => new SailfishAppInfo(), Early: true),
 		new(typeof(IDeviceInfo), typeof(DeviceInfo), "SetCurrent", () => new SailfishDeviceInfo(), Early: true),
 		new(typeof(IClipboard), typeof(Clipboard), "SetDefault", () => new SailfishClipboard()),
-		new(typeof(ISecureStorage), typeof(SecureStorage), "SetDefault", () => new SailfishSecureStorage()),
+		// Early: a MauiProgram that reads it before Build got MAUI's throwing default (tracker S12); neither needs Qt to exist.
+		new(typeof(ISecureStorage), typeof(SecureStorage), "SetDefault", () => new SailfishSecureStorage(), Early: true),
 		new(typeof(IBrowser), typeof(Browser), "SetDefault", () => new SailfishBrowser()),
 		new(typeof(ILauncher), typeof(Launcher), "SetDefault", () => new SailfishLauncher()),
-		new(typeof(IDeviceDisplay), typeof(DeviceDisplay), "SetCurrent", () => new SailfishDeviceDisplay()),
+		new(typeof(IDeviceDisplay), typeof(DeviceDisplay), "SetCurrent", () => new SailfishDeviceDisplay(), Early: true),
 		new(typeof(IBattery), typeof(Battery), "SetDefault", () => new SailfishBattery()),
 		new(typeof(IConnectivity), typeof(Connectivity), "SetCurrent", () => new SailfishConnectivity()),
 		new(typeof(IVibration), typeof(Vibration), "SetDefault", () => new SailfishVibration()),
@@ -71,7 +72,24 @@ internal static class SailfishEssentialsRegistry
 		new(typeof(IAppActions), typeof(AppActions), "SetCurrent", () => new SailfishAppActions()),
 		new(typeof(IWebAuthenticator), typeof(WebAuthenticator), "SetDefault", () => new SailfishWebAuthenticator()),
 		new(typeof(IContacts), typeof(Contacts), "SetDefault", () => new SailfishContacts()),
+		// Nothing in MAUI 11 registers a screen reader; its static default throws on Announce (tracker S12: was a special case).
+		new(typeof(Microsoft.Maui.Accessibility.ISemanticScreenReader), typeof(Microsoft.Maui.Accessibility.SemanticScreenReader), "SetDefault",
+			() => new SailfishSemanticScreenReader()),
+		// MAUI's own implementation (internal, platform-neutral) over the Sailfish Preferences and AppInfo rows; without
+		// a row IVersionTracking did not resolve from the services (tracker S09).
+		new(typeof(IVersionTracking), typeof(VersionTracking), "SetDefault", CreateVersionTracking),
 	];
+
+	/// <summary>MAUI's VersionTrackingImplementation(IPreferences, IAppInfo): internal, so made by reflection (rooted for
+	/// the trimmer), over the rows' default Preferences and AppInfo.</summary>
+	[DynamicDependency(DynamicallyAccessedMemberTypes.PublicConstructors, "Microsoft.Maui.ApplicationModel.VersionTrackingImplementation", "Microsoft.Maui.Essentials")]
+	[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "The constructor is rooted by the DynamicDependency above.")]
+	[UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "The constructor is rooted by the DynamicDependency above.")]
+	private static object CreateVersionTracking()
+	{
+		var type = typeof(VersionTracking).Assembly.GetType("Microsoft.Maui.ApplicationModel.VersionTrackingImplementation", throwOnError: true)!;
+		return Activator.CreateInstance(type, DefaultFor(ByService[typeof(IPreferences)]), DefaultFor(ByService[typeof(IAppInfo)]))!;
+	}
 
 	private static readonly Dictionary<Type, EssentialsEntry> ByService = Entries.ToDictionary(e => e.Service);
 

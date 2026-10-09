@@ -252,6 +252,27 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			});
 		};
 
+		// MAUI_SAILFISH_DIAG_CRASH=1 (tracker S59, D11): a Clicked handler throws 2 s after the first page rendered and no
+		// SailfishExceptions.Unhandled handler handles it, so the app must end with the exception and its stack in the log.
+		if (SailfishEnv.Flag("MAUI_SAILFISH_DIAG_CRASH"))
+		{
+			var armed = false;
+			QtHost.QtHostRuntime.QmlEvent += (name, _) =>
+			{
+				if (name != "rendered" || armed)
+					return;
+				armed = true;
+				dispatcher.DispatchDelayed(TimeSpan.FromSeconds(2), () =>
+				{
+					Console.Error.WriteLine("[Sailfish] crash diag: a Clicked handler throws now; the app must end");
+					var button = new Button { Text = "crash" };
+					button.Clicked += (_, _) => throw new InvalidOperationException("MAUI_SAILFISH_DIAG_CRASH: unhandled in a Clicked handler");
+					button.SendClicked();
+					Console.Error.WriteLine("[Sailfish] crash diag: FAIL — the app is still running");
+				});
+			};
+		}
+
 		// MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN=1: once the injected tap has navigated and the next page rendered, run the enabled legs, then tear down.
 		if (SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN"))
 		{
@@ -289,6 +310,14 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				_qtPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_PULLEY_DIAG");
 				// Pulley menus following the selected tab (QtHostDiagnosticsRunner.TabPulley.cs).
 				_qtTabPulleyDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_TABPULLEY_DIAG");
+				// Header: TitleView, HasNavigationBar, TabBarIsVisible (QtHostDiagnosticsRunner.Header.cs).
+				_qtHeaderDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_HEADER_DIAG");
+				// Canvas: DrawString baseline, EvenOdd fills, Antialias (QtHostDiagnosticsRunner.Canvas.cs).
+				_qtCanvasDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_CANVAS_DIAG");
+				// The legacy ListView on the list adapter (QtHostDiagnosticsRunner.LegacyList.cs).
+				_qtLegacyListDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_LEGACYLIST_DIAG");
+				// Chained/background dialogs and unanimated navigation (QtHostDiagnosticsRunner.NavDialog.cs).
+				_qtNavDialogDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_NAVDIALOG_DIAG");
 				// Native Silica idioms behind MAUI APIs (QtHostDiagnosticsRunner.Silica.cs).
 				_qtSilicaDiag = SailfishEnv.Flag("MAUI_SAILFISH_QT_HOST_SILICA_DIAG");
 				// Recording scenes for docs/sailfish-apis.md (QtHostDiagnosticsRunner.ApiDemo.cs).
@@ -1000,8 +1029,12 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				Console.Error.WriteLine($"[Sailfish] Qt shapes diag: mauiWantHash push failed rc={rc} ({QtHost.QtHostRuntime.LastErrorText})");
 		}
 		Console.Error.WriteLine($"[Sailfish] Qt shapes diag: leg B — pixel readback armed on {shapes.Count + canvases.Count} Canvas adapters");
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200),
-			() => VerifyQtShapesPaint(shapes, canvases, images));
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), () =>
+		{
+			VerifyQtShapesPaint(shapes, canvases, images);
+			RunQtImageChecks();
+			RunQtDrawImageCheck(renderer, dispatcher, FinishQtShapesDiagnostics);
+		});
 	}
 
 	/// <summary>Shapes leg C: every Canvas adapter really painted pixels, the IDrawable stream was replayed and Qt decoded all four Aspect modes.</summary>
@@ -1035,7 +1068,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			Console.Error.WriteLine($"[Sailfish] Qt shapes diag: canvas executed={executed} skipped={skipped} hash={hash}");
 		}
 		_qtShapesChecks.Check($"IDrawable stream replayed in Qt: executed={executed} skipped={skipped} pixels={canvasPixels} " +
-		            "(grid + filled path + circle + text; the skips are the Qt 5.6 gaps: line dash, clip subtraction, images)",
+		            "(grid + filled path + circle + text; the skips are the Qt 5.6 gaps: line dash, clip subtraction)",
 			executed >= 20 && canvasPixels > 0);
 
 		// The extended IDrawable stream carries a LinearGradientPaint fill (fpaint) and a ClipRectangle (clipr); the adapter counts both.
@@ -1049,7 +1082,6 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtShapesChecks.Check($"images decoded by Qt: {loaded}/{images.Count} aspects=[{aspects}] (Fill/AspectFit/AspectFill/Center)",
 			images.Count >= 4 && loaded == images.Count);
 
-		FinishQtShapesDiagnostics();
 	}
 
 	/// <summary>The painted-pixel count of a mauiPixelHash witness ("hash:painted/total").</summary>
@@ -1829,6 +1861,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var ctxTwo = new MenuFlyoutItem { Text = "ctx two" };
 		ctxFlyout.Add(ctxOne);
 		ctxFlyout.Add(ctxTwo);
+		// Tracker S15: a separator (dropped) and a sub item (a label row, then its items inline).
+		ctxFlyout.Add(new MenuFlyoutSeparator());
+		var ctxSub = new MenuFlyoutSubItem { Text = "ctx more" };
+		ctxSub.Add(new MenuFlyoutItem { Text = "ctx three" });
+		ctxFlyout.Add(ctxSub);
 		// .NET 11: ContextFlyout is an attached property on FlyoutBase.
 		FlyoutBase.SetContextFlyout(ctxLabel, ctxFlyout);
 
@@ -2290,8 +2327,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(800), () =>
 		{
 			// Forensics during the hold: the menu fired at 600 ms and must be open while the finger is down.
-			var dump = QtHost.QtHostRuntime.Eval(
-				"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;return JSON.stringify({a:m.active,hc:m.hasContent,dh:m._displayHeight,ch:m._contentHeight,aa:m._activeAllowed,pg:m._page!==null,w:m.width,h:m.height,n:m.__items.length,par:m.parent!==null});}}return '{}';})()");
+			var dump = QtHost.QtHostRuntime.Eval(CtxMenuStateJs);
 			Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg F — context menu state during hold: {dump}");
 		});
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1000), () =>
@@ -2302,11 +2338,36 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		});
 	}
 
+	/// <summary>The page's ContextMenu adapter: open state, geometry, parent (z, clip) and each row's scene y/height.</summary>
+	private const string CtxMenuStateJs =
+		"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;var rows=[];for(var i=0;i<m.__items.length;i++){var it=m.__items[i];rows.push(Math.round(it.mapToItem(null,0,0).y)+'/'+Math.round(it.height)+(it.visible?'':'h')+'@'+Math.round(it.opacity*100));}" +
+		"var cc=m._contentColumn;var f=m._flickable;var anc=[];for(var x=m.parent;x&&anc.length<8;x=x.parent){if(x.clip||x.layer&&x.layer.enabled)anc.push((x.objectName||String(x).split('(')[0])+(x.clip?':clip':'')+(x.layer&&x.layer.enabled?':layer':'')+'@'+Math.round(x.mapToItem(null,0,0).y)+'+'+Math.round(x.height));}" +
+		"return JSON.stringify({a:m.active,hc:m.hasContent,dh:m._displayHeight,ch:m._contentHeight,aa:m._activeAllowed,pg:m._page!==null,w:m.width,h:m.height,n:m.__items.length,par:m.parent!==null," +
+		"y:Math.round(m.mapToItem(null,0,0).y),z:m.z,pz:m.parent?m.parent.z:null,pname:m.parent?(m.parent.objectName||String(m.parent).split('(')[0]):'',clip:m.parent?m.parent.clip:null,rows:rows," +
+		"mclip:m.clip,mop:m.opacity,py:m.parent?Math.round(m.parent.mapToItem(null,0,0).y):null,ph:m.parent?Math.round(m.parent.height):null,ccy:cc?Math.round(cc.y):null,ccop:cc?cc.opacity:null,ccclip:cc?cc.clip:null," +
+		"fl:f?(f.objectName||String(f).split('(')[0]):null,fcy:f?Math.round(f.contentY):null,fy:f?Math.round(f.mapToItem(null,0,0).y):null,fh:f?Math.round(f.height):null,clips:anc});}}return '{}';})()";
+
 	private void VerifyQtCtlContextMenu(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
+		Console.Error.WriteLine($"[Sailfish] Qt controls diag: leg F — context menu state at the check: {QtHost.QtHostRuntime.Eval(CtxMenuStateJs)}");
 		var active = CtlSyntheticActive("context-menu");
 		_qtCtlChecks.Check($"long-press → Silica ContextMenu open: active={active}==1 (router holds fired={_qtInputRouter?.LongPressFired ?? 0}>=1)",
 			active == "1" && (_qtInputRouter?.LongPressFired ?? 0) >= 1);
+		var rows = QtHost.QtHostRuntime.Eval(
+			"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;var t=[];for(var i=0;i<m.__items.length;i++){var it=m.__items[i];t.push((it.hasOwnProperty('down')?'':'#')+it.text);}return t.join('|');}}return '';})()");
+		_qtCtlChecks.Check($"ContextMenu rows '{rows}'=='ctx one|ctx two|#ctx more|ctx three' (separator dropped, sub item a label row), navigation held while open ({renderer.ContextMenuOpen})",
+			rows == "ctx one|ctx two|#ctx more|ctx three" && renderer.ContextMenuOpen);
+		// The menu hangs below its target (Silica anchors it to the bottom of a parent that grows by its height): it
+		// used to sit above a MAUI target, outside the layer Silica draws it through, and only a slice showed.
+		var below = QtHost.QtHostRuntime.Eval(
+			"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;var a=m.parent;if(!a||a.baseHeight===undefined)return 'no anchor';" +
+			"var my=m.mapToItem(null,0,0).y;var top=a.mapToItem(null,0,0).y;return Math.round(my)+'>='+Math.round(top+a.baseHeight)+(my>=top+a.baseHeight-1?' ok':' above');}}return 'none';})()");
+		_qtCtlChecks.Check($"ContextMenu opens below its target ({below})", below.EndsWith(" ok", StringComparison.Ordinal));
+		Shot(dispatcher, "controls-context-menu", () => TapFirstContextItem(renderer, dispatcher));
+	}
+
+	private void TapFirstContextItem(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
+	{
 		// Tap the first MenuItem (scene position read through the adapter).
 		var pt = QtHost.QtHostRuntime.Eval(
 			"(function(){var h=pageStack.currentPage.__hosts;for(var k in h){if(h[k].uri==='context-menu'){var m=h[k].item;if(!m.active||!m.__items.length)return '-1,-1';var it=m.__items[0];var p=it.mapToItem(null,it.width/2,it.height/2);return p.x+','+p.y;}}return '-1,-1';})()");
@@ -2322,8 +2383,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(800), () =>
 		{
 			var closed = CtlSyntheticActive("context-menu");
-			_qtCtlChecks.Check($"ContextMenu pick → MAUI MenuFlyoutItem: Clicked fired={_qtCtlCtxClicks}>=1, activations={renderer.ContextMenuActivations}>=1, menu closed after the pick={closed}==0",
-				_qtCtlCtxClicks >= 1 && renderer.ContextMenuActivations >= 1 && closed == "0");
+			_qtCtlChecks.Check($"ContextMenu pick → MAUI MenuFlyoutItem: Clicked fired={_qtCtlCtxClicks}>=1, activations={renderer.ContextMenuActivations}>=1, menu closed after the pick={closed}==0, navigation released ({!renderer.ContextMenuOpen})",
+				_qtCtlCtxClicks >= 1 && renderer.ContextMenuActivations >= 1 && closed == "0" && !renderer.ContextMenuOpen);
 			RunQtCtlPulleyLeg(renderer, dispatcher);
 		});
 	}
@@ -2604,8 +2665,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		var mauiDepth = nav.Navigation.NavigationStack.Count + nav.Navigation.ModalStack.Count;
 		_qtNavChecks.Check($"baseline: native model pages [{string.Join(",", renderer.NativePageIds)}] mirror the MAUI depth (native={_qtNavBaseDepth} maui={mauiDepth}) — the startup push already mapped",
 			_qtNavBaseDepth == mauiDepth && _qtNavBaseDepth >= 2);
-		_qtNavChecks.Check($"activation bridge: window lifecycle events delivered to MAUI = {renderer.ActivationEvents} >= 1 (Created/Resumed/Activated)",
-			renderer.ActivationEvents >= 1);
+		// Created comes from MAUI and startup raises no Resumed (Android: Created → Activated); Activated follows
+		// Qt.application.active, false when the run starts with the screen off or locked.
+		_qtNavChecks.Check($"activation bridge: Activated {renderer.ActivatedSent} matches the window (active={renderer.LastWindowActive?.ToString() ?? "?"}), no Resumed/Stopped at startup ({renderer.ResumedSent}/{renderer.StoppedSent})",
+			(renderer.LastWindowActive == true ? renderer.ActivatedSent >= 1 : renderer.ActivatedSent == 0) &&
+			renderer.ResumedSent == 0 && renderer.StoppedSent == 0);
 
 		// Leg A: managed PushAsync → native pageStack.push.
 		var pageA = BuildNavLegPage("Q12 Nav A", "leg A — pushed through NavigationPage.PushAsync");
@@ -3256,8 +3320,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	private void RunStressLegD(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, NavigationPage nav)
 	{
 		// Leg D: background → suspend → resume, injected at the QPA boundary (the channel lipstick drives in production). The app-state part
-		// is deterministic; window activation needs the compositor to grant it, which an SSH-launched run never gets, so without an active
-		// window the checks require no spurious activation events instead.
+		// is deterministic. Activation follows Qt.application.active (tracker S03: window.active of Silica's ApplicationWindow is undefined,
+		// which made every run look "not granted"); a run that starts with the screen off or locked is not active, and then the checks
+		// require no spurious activation events instead.
 		var activeAtStart = renderer.LastWindowActive == true;
 		var deact0 = renderer.DeactivatedSent;
 		var stop0 = renderer.StoppedSent;
@@ -3269,31 +3334,33 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		{
 			var stateQml = QtHost.QtHostRuntime.Eval("(typeof Qt!=='undefined'&&Qt.application?Qt.application.state:-1)");
 			if (activeAtStart)
-				_qtStressChecks.Check($"leg D background: Deactivated +{renderer.DeactivatedSent - deact0}>=1 (window.active mirror={renderer.LastWindowActive?.ToString() ?? "?"}==False), Qt.application.state='{stateQml}'=='2', Stopped not fired yet (+{renderer.StoppedSent - stop0}==0)",
+				_qtStressChecks.Check($"leg D background: Deactivated +{renderer.DeactivatedSent - deact0}>=1 (window.active mirror={renderer.LastWindowActive?.ToString() ?? "?"}==False), Qt.application.state='{stateQml}'=='2', Stopped (OnSleep) +{renderer.StoppedSent - stop0}==1 — the cover is Inactive, as Android's onStop on going to the background",
 					renderer.DeactivatedSent > deact0 && renderer.LastWindowActive == false &&
-					stateQml == "2" && renderer.StoppedSent == stop0);
+					stateQml == "2" && renderer.StoppedSent - stop0 == 1);
 			else
-				_qtStressChecks.Check($"leg D background: Qt.application.state='{stateQml}'=='2' via QPA injection, Stopped not fired yet (+{renderer.StoppedSent - stop0}==0); window.active was never granted by the compositor in this launch mode (mirror={renderer.LastWindowActive?.ToString() ?? "?"}) — no Deactivated can ride it and NONE fired spuriously (+{renderer.DeactivatedSent - deact0}==0)",
-					stateQml == "2" && renderer.StoppedSent == stop0 &&
+				_qtStressChecks.Check($"leg D background: Qt.application.state='{stateQml}'=='2' via QPA injection, Stopped (OnSleep) +{renderer.StoppedSent - stop0}==1; window.active was never granted by the compositor in this launch mode (mirror={renderer.LastWindowActive?.ToString() ?? "?"}) — no Deactivated can ride it and NONE fired spuriously (+{renderer.DeactivatedSent - deact0}==0)",
+					stateQml == "2" && renderer.StoppedSent - stop0 == 1 &&
 					renderer.DeactivatedSent == deact0 && renderer.LastWindowActive == false);
 			Console.Error.WriteLine("[Sailfish] Qt stress diag: leg D — suspend (QPA: ApplicationSuspended)");
 			QtHost.QtHostRuntime.DiagSetAppState(0 /*Qt::ApplicationSuspended*/, -1 /*activation unchanged*/);
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(500), () =>
 			{
-				_qtStressChecks.Check($"leg D suspend: Stopped +{renderer.StoppedSent - stop0}==1 (appState mirror={renderer.LastAppState}==0)",
+				_qtStressChecks.Check($"leg D suspend: no second Stopped, still +{renderer.StoppedSent - stop0}==1 (appState mirror={renderer.LastAppState}==0)",
 					renderer.StoppedSent - stop0 == 1 && renderer.LastAppState == 0);
 				Console.Error.WriteLine("[Sailfish] Qt stress diag: leg D — resume app (QPA: activate window + ApplicationActive)");
 				QtHost.QtHostRuntime.DiagSetAppState(4 /*Qt::ApplicationActive*/, 1 /*activate*/);
 				dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(700), () =>
 				{
 					var stateQml2 = QtHost.QtHostRuntime.Eval("(typeof Qt!=='undefined'&&Qt.application?Qt.application.state:-1)");
+					var activeQml2 = QtHost.QtHostRuntime.Eval("(typeof Qt!=='undefined'&&Qt.application?String(Qt.application.active):'?')");
+					Console.Error.WriteLine($"[Sailfish] Qt stress diag: leg D resume — Qt.application.active='{activeQml2}' state='{stateQml2}' window.active='{QtHost.QtHostRuntime.Eval("String(window.active)")}'");
 					if (activeAtStart)
-						_qtStressChecks.Check($"leg D resume: Activated +{renderer.ActivatedSent - act0}>=1 AND Resumed +{renderer.ResumedSent - res0}>=1 (window.active mirror={renderer.LastWindowActive?.ToString() ?? "?"}==True, Qt.application.state='{stateQml2}'=='4')",
-							renderer.ActivatedSent > act0 && renderer.ResumedSent > res0 &&
+						_qtStressChecks.Check($"leg D resume: Activated +{renderer.ActivatedSent - act0}>=1 AND Resumed (OnResume) +{renderer.ResumedSent - res0}==1 (window.active mirror={renderer.LastWindowActive?.ToString() ?? "?"}==True, Qt.application.state='{stateQml2}'=='4')",
+							renderer.ActivatedSent > act0 && renderer.ResumedSent - res0 == 1 &&
 							renderer.LastWindowActive == true && stateQml2 == "4");
 					else
-						_qtStressChecks.Check($"leg D resume: Resumed +{renderer.ResumedSent - res0}>=1 on appState 0→4 (Qt.application.state='{stateQml2}'=='4'); Activated +{renderer.ActivatedSent - act0}==0 — window.active stays compositor-denied in this launch mode (mirror={renderer.LastWindowActive?.ToString() ?? "?"}), no spurious activation",
-							renderer.ResumedSent > res0 && stateQml2 == "4" &&
+						_qtStressChecks.Check($"leg D resume: Resumed (OnResume) +{renderer.ResumedSent - res0}==1 on appState 0→4 (Qt.application.state='{stateQml2}'=='4'); Activated +{renderer.ActivatedSent - act0}==0 — window.active stays compositor-denied in this launch mode (mirror={renderer.LastWindowActive?.ToString() ?? "?"}), no spurious activation",
+							renderer.ResumedSent - res0 == 1 && stateQml2 == "4" &&
 							renderer.ActivatedSent == act0 && renderer.LastWindowActive == false);
 					RunStressLegE(renderer, dispatcher, nav);
 				});
@@ -3446,14 +3513,9 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			SelectionMode = SelectionMode.Single,
 			Header = "Q14 collection header",
 			Footer = "Q14 collection footer",
-			ItemTemplate = new DataTemplate(() =>
-			{
-				var label = SelfTextLabel();
-				label.FontSize = 18;
-				label.TextColor = Colors.White;
-				label.Margin = new Thickness(16, 10);
-				return label;
-			}),
+			// A DataTemplateSelector (tracker S01): every item ending in 0 or 5 takes a bordered card, the rest a plain label.
+			// CreateContent on a selector throws, so before the fix every row was empty and 0 dp high.
+			ItemTemplate = new Q14Selector(),
 		};
 		list.SelectionChanged += (_, _) => _qtColSelections++;
 		list.Scrolled += (_, e) => { _qtColScrolled++; _qtColLastScroll = e; };
@@ -3786,6 +3848,38 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		});
 	}
 
+	/// <summary>Q14's item template: a plain label, and a bordered card for every item whose text ends in 0 or 5.</summary>
+	private sealed class Q14Selector : DataTemplateSelector
+	{
+		private static readonly DataTemplate Plain = new(() =>
+		{
+			var label = SelfTextLabel();
+			label.FontSize = 18;
+			label.TextColor = Colors.White;
+			label.Margin = new Thickness(16, 10);
+			return label;
+		});
+
+		private static readonly DataTemplate Card = new(() =>
+		{
+			var label = SelfTextLabel();
+			label.FontSize = 18;
+			label.TextColor = Colors.White;
+			return new Border
+			{
+				Margin = new Thickness(16, 4),
+				Padding = new Thickness(12, 6),
+				Stroke = Colors.Orange,
+				StrokeThickness = 2,
+				Content = label,
+			};
+		});
+
+		internal static bool IsCard(object? item) => item is string text && (text.EndsWith('0') || text.EndsWith('5'));
+
+		protected override DataTemplate OnSelectTemplate(object item, BindableObject container) => IsCard(item) ? Card : Plain;
+	}
+
 	private void FinishQtCollectionDiagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher,
 		long scrollsBefore, int scrolledBefore, bool expectScroll, int settle = 0)
 	{
@@ -3829,6 +3923,17 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				: $"virtualization: dataset fits the viewport — all {live} rows live == {bridge.TotalRows} total (correct virtualization at this scale; the strict live<total rule applies at scrollable scales)",
 			live > 0 && (expectScroll ? live < bridge.TotalRows : (recycled || live == bridge.TotalRows)));
 		CheckColVisibleRows(bridge.FirstListObjectName, "final");
+		// The selector's two templates both built rows, and no row is empty or 0 dp high (tracker S01).
+		if (_qtColView is { } selectorList && bridge.AdapterOf(selectorList) is { } selectorAdapter)
+		{
+			var itemRows = selectorAdapter.Rows.Where(r => r.Kind == QtHost.QtHostCollectionBridge.KindItem).ToList();
+			var cards = itemRows.Count(r => r.CellViews.FirstOrDefault() is Border);
+			var plain = itemRows.Count(r => r.CellViews.FirstOrDefault() is Label);
+			var expectedCards = itemRows.Count(r => Q14Selector.IsCard(r.CellItems.FirstOrDefault()));
+			var empty = itemRows.Count(r => r.CellViews.Count == 0 || r.CellViews[0] is null || r.HeightDp <= 0);
+			_qtColChecks.Check($"template selector: {cards} card rows == {expectedCards} selected, {plain} label rows, {empty} empty or 0 dp rows == 0 (of {itemRows.Count})",
+				cards == expectedCards && cards >= 1 && plain >= 1 && cards + plain == itemRows.Count && empty == 0);
+		}
 		var rc = QtHost.QtHostRuntime.GrabPng("/tmp/q14-collection-d.png");
 		Console.Error.WriteLine($"[Sailfish] Qt collection diag: screenshot rc={rc} -> /tmp/q14-collection-d.png");
 		Console.Error.WriteLine($"[Sailfish] Qt collection diag: counters: rowsBuilt={bridge.RowsBuilt} materialized={bridge.ItemsMaterialized} destroyed={bridge.ItemsDestroyed} listEvents={bridge.ListEvents} selections={bridge.SelectionsApplied} scrolls={bridge.ScrollsReported}");
@@ -3840,10 +3945,18 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		{
 			_qtColChecks.Check($"idle: no row rebuilt while nothing changed (materialized {idleMaterialized}→{bridge.ItemsMaterialized}, destroyed {idleDestroyed}→{bridge.ItemsDestroyed} over 1.5 s of resync polls)",
 				bridge.ItemsMaterialized == idleMaterialized && bridge.ItemsDestroyed == idleDestroyed);
-			_qtColChecks.Accept("OK — Q14 CollectionView runs on the native virtualized ListView: MAUI owns item content, selection authority and scroll state while QML owns delegates/flicking (PLAN Q14)");
-			Console.Error.WriteLine("[Sailfish] Qt diag: collection diag done; auto-shutdown in 20s (compositor screenshot window)");
-			dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
+			RunColChatChecks(renderer, dispatcher,
+				() => RunColItemStateChecks(renderer, dispatcher,
+					() => RunColSizingChecks(renderer, dispatcher,
+						() => RunColUnboundedCheck(renderer, dispatcher, () => FinishColAcceptance(dispatcher)))));
 		});
+	}
+
+	private void FinishColAcceptance(SailfishDispatcher dispatcher)
+	{
+		_qtColChecks.Accept("OK — Q14 CollectionView runs on the native virtualized ListView: MAUI owns item content, selection authority and scroll state while QML owns delegates/flicking (PLAN Q14)");
+		Console.Error.WriteLine("[Sailfish] Qt diag: collection diag done; auto-shutdown in 20s (compositor screenshot window)");
+		dispatcher.DispatchDelayed(TimeSpan.FromSeconds(20), () => QtHost.QtHostRuntime.Shutdown());
 	}
 
 	// Input diag: real Qt pointer events follow the event-ownership contract. The startup tap on a Silica button was QML-consumed;
@@ -3906,7 +4019,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			for (var i = 1; i <= 5; i++)
 				QtHost.QtHostRuntime.InjectPointer(2, cx + i * 20.0, cy);
 			QtHost.QtHostRuntime.InjectPointer(1, cx + 100.0, cy);
-			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () => VerifyQtInputDiagnostics(renderer, dispatcher, router));
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600),
+				() => RunQtRouterChecks(renderer, dispatcher,
+					() => RunQtDragHoldChecks(renderer, dispatcher,
+						() => RunQtGraphicsInteractionCheck(renderer, dispatcher,
+							() => RunQtDragDropCheck(renderer, dispatcher, () => VerifyQtInputDiagnostics(renderer, dispatcher, router))))));
 		});
 	}
 
@@ -3934,8 +4051,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		Console.Error.WriteLine($"[Sailfish] Qt input diag: router counters after injection — {router.CounterSummary()}");
 		Console.Error.WriteLine($"[Sailfish] Qt input diag: focus transitions={renderer.FocusTransitions} (leg armed={_qtInputFocusLeg})");
 		var focusOk = !_qtInputFocusLeg || renderer.FocusTransitions >= 1;
-		var ok = router.TapsFired >= 1 && router.PanUpdatesFired >= 2 && router.NativeConsumed >= 1 && focusOk;
-		Console.Error.WriteLine($"[Sailfish] Qt input diag: ACCEPTANCE taps={router.TapsFired}>=1 pans={router.PanUpdatesFired}>=2 qml-consumed={router.NativeConsumed}>=1 focus={renderer.FocusTransitions}{(_qtInputFocusLeg ? ">=1" : "(n/a)")} => " +
+		var ok = router.TapsFired >= 1 && router.PanUpdatesFired >= 2 && router.NativeConsumed >= 1 && focusOk && _qtInputChecks.Failed == 0;
+		Console.Error.WriteLine($"[Sailfish] Qt input diag: ACCEPTANCE taps={router.TapsFired}>=1 pans={router.PanUpdatesFired}>=2 qml-consumed={router.NativeConsumed}>=1 focus={renderer.FocusTransitions}{(_qtInputFocusLeg ? ">=1" : "(n/a)")} router-checks={_qtInputChecks.Count - _qtInputChecks.Failed}/{_qtInputChecks.Count} => " +
 			(ok
 				? "OK — native Silica button tap consumed by QML (bridge → SendClicked); MAUI gesture target received the tap+pan sequences"
 				: "FAIL — pointer events did not reach the expected owners"));
@@ -4065,10 +4182,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 	/// </summary>
 	private void RunQtErrorDiagnostics(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => RunQtErrorLegs(renderer));
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(400), () => RunQtErrorLegs(renderer, dispatcher));
 	}
 
-	private void RunQtErrorLegs(QtHost.QtHostPageRenderer renderer)
+	private void RunQtErrorLegs(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher)
 	{
 		var baseErrors = QtHost.QtHostDiag.TotalErrors;
 		var injected = 0;
@@ -4125,7 +4242,32 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtErrorChecks.Check($"leg D channels: observed {observed}/11 after the touch pass ({observedBefore}/11 from the run itself)",
 			observed == 11);
 
-		// Leg E: no unexpected errors; all channel errors come from the injected legs A–C.
+		// Leg F (tracker S59, D11): an app exception on the UI thread that a SailfishExceptions.Unhandled handler marks
+		// handled keeps the app running (unhandled, it would end it: MAUI_SAILFISH_DIAG_CRASH checks that on its own).
+		var hookSaw = new List<string>();
+		void Handle(object? sender, SailfishUnhandledExceptionEventArgs e)
+		{
+			hookSaw.Add($"{e.Source}: {e.Exception.Message}");
+			e.Handled = true;
+		}
+		SailfishExceptions.Unhandled += Handle;
+		var ranAfter = false;
+		dispatcher.Dispatch(() => throw new InvalidOperationException("error diag leg F"));
+		dispatcher.Dispatch(() => ranAfter = true);
+		injected++;   // Report logs the exception as an error
+		// The two actions run on the next loop turns: the rest of the leg waits for them.
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(300), () =>
+		{
+			SailfishExceptions.Unhandled -= Handle;
+			_qtErrorChecks.Check($"leg F handled app exception: the hook saw [{string.Join(" | ", hookSaw)}], the loop went on ({ranAfter})",
+				hookSaw.Count == 1 && hookSaw[0] == "dispatched work: error diag leg F" && ranAfter);
+			FinishQtErrorLegs(baseErrors, injected);
+		});
+	}
+
+	private void FinishQtErrorLegs(long baseErrors, int injected)
+	{
+		// Leg E: no unexpected errors; all channel errors come from the injected legs A–C and F.
 		var totalErrors = QtHost.QtHostDiag.TotalErrors;
 		_qtErrorChecks.Check($"leg E error budget: total channel errors {totalErrors} == baseline {baseErrors} + injected {injected} (no unexpected errors)",
 			totalErrors == baseErrors + injected);
@@ -4162,6 +4304,10 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		(_qtContainersDiag, (r, d, _) => RunQtContainersDiagnostics(r, d)),
 		(_qtPulleyDiag, (r, d, _) => RunQtPulleyDiagnostics(r, d)),
 		(_qtTabPulleyDiag, (r, d, _) => RunQtTabPulleyDiagnostics(r, d)),
+		(_qtHeaderDiag, (r, d, _) => RunQtHeaderDiagnostics(r, d)),
+		(_qtCanvasDiag, (r, d, _) => RunQtCanvasDiagnostics(r, d)),
+		(_qtLegacyListDiag, (r, d, _) => RunQtLegacyListDiagnostics(r, d)),
+		(_qtNavDialogDiag, (r, d, _) => RunQtNavDialogDiagnostics(r, d)),
 		(_qtSilicaDiag, (r, d, _) => RunQtSilicaDiagnostics(r, d)),
 		(_qtApiDemo is not null, (r, d, _) => RunQtApiDemo(r, d)),
 		(_qtF3Diag, (r, d, _) => RunQtF3Diagnostics(r, d)),
@@ -4199,6 +4345,11 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtPerfBaseDepth = renderer.NativePageIds.Count;
 		_qtPerfBaseLive = qml0.Live;
 		_perfS0 = Snap();
+		// Launch to first frame: the process age now, minus the shim clock's age, plus the shim's first frame. Covers what
+		// firstFrameMs does not (runtime start, assembly loading and JIT before the shim starts), where trimming and
+		// ReadyToRun differ.
+		var processAgeMs = (long)(DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime).TotalMilliseconds;
+		var processToFirstFrameMs = processAgeMs - _perfS0.UptimeMs + _perfS0.FirstFrameMs;
 		_perfA0 = GC.GetTotalAllocatedBytes(true);
 		// Idle-churn attribution baselines.
 		_perfLayoutPasses0 = renderer.LayoutPasses;
@@ -4207,7 +4358,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_perfGeoReads0 = _perfS0.GeometryReads;
 		_perfRowsBuilt0 = renderer.Collection.RowsBuilt;
 		var loopOk = _perfS0.RenderLoop is "QSGThreadedRenderLoop" or "QSGWindowsRenderLoop";
-		Console.Error.WriteLine($"[Sailfish] QT PERF startup: firstFrameMs={_perfS0.FirstFrameMs} frames={_perfS0.Frames} renderLoop={_perfS0.RenderLoop} " +
+		Console.Error.WriteLine($"[Sailfish] QT PERF startup: processToFirstFrameMs={processToFirstFrameMs} firstFrameMs={_perfS0.FirstFrameMs} frames={_perfS0.Frames} renderLoop={_perfS0.RenderLoop} " +
 			$"uptimeMs={_perfS0.UptimeMs} cpuMs={_perfS0.CpuMs} rssKb={_perfS0.RssKb} qmlObjects={_perfS0.QmlObjects} qmlItems={_perfS0.QmlItems} | " +
 			$"evals={_perfS0.Evals} opsEvals={_perfS0.OpsEvals} propsBatches={_perfS0.PropsBatches} geometryBatches={_perfS0.GeometryBatches} " +
 			$"textMeasures={_perfS0.TextMeasures} findObjects={_perfS0.FindObjects} grabs={_perfS0.Grabs} " +

@@ -39,6 +39,7 @@ internal static partial class AdapterSnapshots
 				: html ? label.Text ?? string.Empty
 				: Microsoft.Maui.Controls.Internals.TextTransformUtilities.GetTransformedText(label.Text ?? string.Empty, label.TextTransform),
 			["mauiTextFormat"] = spans is not null || html ? 1 : 0,   // Text.RichText / Text.PlainText
+			["mauiSpanLinks"] = spans?.Any(s => s.GestureRecognizers.OfType<TapGestureRecognizer>().Any()) == true,
 			["mauiEmphasis"] = label.FontSize >= 24 ? "header" : "normal",
 			// Transparent keeps the emphasis-derived theme color.
 			["mauiColor"] = label.TextColor ?? Colors.Transparent,
@@ -89,28 +90,40 @@ internal static partial class AdapterSnapshots
 	};
 
 	/// <summary>
-	/// FormattedText spans → escaped HTML rich text (colors as "#AARRGGBB", sizes in device px). Per-span
-	/// CharacterSpacing/LineHeight are not supported; the label-level values apply.
+	/// FormattedText spans → escaped HTML rich text (colors as "#AARRGGBB", sizes in device px), with each span's
+	/// BackgroundColor, CharacterSpacing and TextTransform (tracker S42). A span with a TapGestureRecognizer is a
+	/// "span:N" link (N its index in Spans), which Label.qml reports as "span-tapped". Per-span LineHeight is not
+	/// supported (Qt's rich text spaces whole lines); the label-level value applies.
 	/// </summary>
-	private static string BuildSpanHtml(IList<Span> spans, double density)
+	internal static string BuildSpanHtml(IList<Span> spans, double density)
 	{
 		var sb = new StringBuilder();
-		foreach (var span in spans)
+		for (var index = 0; index < spans.Count; index++)
 		{
-			var text = span.Text ?? string.Empty;
+			var span = spans[index];
+			var text = Microsoft.Maui.Controls.Internals.TextTransformUtilities.GetTransformedText(span.Text ?? string.Empty, span.TextTransform);
 			if (text.Length == 0)
 				continue;
+			var tappable = span.GestureRecognizers.OfType<TapGestureRecognizer>().Any();
+			if (tappable)
+				sb.Append("<a href=\"span:").Append(index.ToString(CultureInfo.InvariantCulture)).Append("\">");
 			sb.Append("<span style=\"");
+			if (tappable)
+				sb.Append("text-decoration:none;");   // a tappable span keeps its own look, not the link style
 			if (span.TextColor is { } color)
 				sb.Append("color:").Append(BridgeValue.ColorString(color)).Append(';');
+			if (span.BackgroundColor is { } background)
+				sb.Append("background-color:").Append(BridgeValue.ColorString(background)).Append(';');
+			if (span.CharacterSpacing != 0)
+				sb.Append("letter-spacing:").Append((span.CharacterSpacing * density).ToString("0.##", CultureInfo.InvariantCulture)).Append("px;");
 			if ((span.FontAttributes & FontAttributes.Bold) != 0)
 				sb.Append("font-weight:bold;");
 			if ((span.FontAttributes & FontAttributes.Italic) != 0)
 				sb.Append("font-style:italic;");
 			if (!string.IsNullOrEmpty(span.FontFamily))
 				sb.Append("font-family:'").Append(QtHostFonts.Resolve(span.FontFamily).Replace("\\", "\\\\").Replace("'", "\\'")).Append("';");
-			if (span.FontSize > 0)
-				sb.Append("font-size:").Append((span.FontSize * density).ToString("F0", CultureInfo.InvariantCulture)).Append("px;");
+			if (Platform.Text.LabelTextMapper.SpanFontSize(span) is { } spanSize)
+				sb.Append("font-size:").Append((spanSize * density).ToString("F0", CultureInfo.InvariantCulture)).Append("px;");
 			var underline = (span.TextDecorations & TextDecorations.Underline) != 0;
 			var strike = (span.TextDecorations & TextDecorations.Strikethrough) != 0;
 			if (underline && strike)
@@ -120,6 +133,8 @@ internal static partial class AdapterSnapshots
 			else if (strike)
 				sb.Append("text-decoration:line-through;");
 			sb.Append("\">").Append(HtmlEscape(text)).Append("</span>");
+			if (tappable)
+				sb.Append("</a>");
 		}
 		return sb.ToString();
 	}

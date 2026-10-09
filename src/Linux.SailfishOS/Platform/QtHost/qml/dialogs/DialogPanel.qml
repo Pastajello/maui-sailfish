@@ -22,6 +22,10 @@ Item {
 
     property string mauiTitle: ""
     property string mauiMessage: ""
+    // The page's FlowDirection is RightToLeft: the buttons and text mirror (LayoutMirroring).
+    property bool mauiMirrored: false
+    LayoutMirroring.enabled: mauiMirrored
+    LayoutMirroring.childrenInherit: true
 
     // Button texts; an empty text hides its button.
     property string acceptText: ""
