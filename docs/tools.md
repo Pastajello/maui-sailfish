@@ -94,18 +94,22 @@ output.
 
 ## CI and code style
 
-`tools/ci/host-ci.sh [style] [build] [test] [pack] [template]` is the host-only CI. It needs no phone and no native
+`tools/ci/host-ci.sh [style] [build] [test] [pack] [samples] [template]` is the host-only CI. It needs no phone and no native
 toolchain, and `.github/workflows/host-ci.yml` runs the same script: a Linux job that gates, and a Windows job under
 Git Bash that does not gate yet. Every stage but `style` first installs the workload manifest into
 `artifacts/ci/manifests` (`sailfish-workload install --manifest-root`) and sets `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`,
-so a runner whose SDK has never seen it knows `net11.0-sailfish`. With no arguments it runs every stage:
+so a runner whose SDK has never seen it knows `net11.0-sailfish`. Restores are hermetic: `artifacts/ci/nuget.config`
+(the CI feed and nuget.org only) and a NuGet cache under `artifacts/ci/packages`, so a local feed or cached packages
+on the developer's machine cannot make a local run pass that fails on a fresh runner. With no arguments it runs
+every stage:
 
 | Stage | What |
 |---|---|
 | `style` | `dotnet run tools/ci/style-check.cs`: LF line endings, a final newline, no trailing whitespace, C# indented with tabs. `--fix` repairs all of it except indentation. |
-| `build` | `tools/ci/Linux.Sailfish.ci.slnf` in Release: everything except the template app, whose Android/iOS heads need MAUI workloads |
+| `build` | `tools/ci/Linux.Sailfish.ci.slnf` in Release: the backend, tools, tests and the sample that takes the backend by ProjectReference. The template app (Android/iOS heads need MAUI workloads) and the package-based samples are left out |
 | `test` | `tests/Linux.SailfishOS.Tests` |
 | `pack` | every package into `artifacts/ci/feed`, the backend without the native shim (`SailfishAllowMissingShim=true`) |
+| `samples` | SailfishKitchen and SkiaSharpProbe (they take the backend as a package) for `net11.0-sailfish`, against the CI feed |
 | `template` | `dotnet new maui-sailfish --sailfish-only` from the packed template, with its own NuGet cache, template hive and workload manifest (`DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`), then `dotnet build` and a Release `dotnet publish` that must write the RPM |
 
 `.editorconfig` holds the conventions and `.gitattributes` keeps LF in every checkout, Windows too. `dotnet format

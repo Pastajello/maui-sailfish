@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Host CI (style, build, test, pack, template)
+      - name: Host CI (style, build, test, pack, samples, template)
         run: tools/ci/host-ci.sh
       - name: Packages
         if: always()
@@ -49,5 +49,5 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Host CI (build, test, pack, template)
-        run: tools/ci/host-ci.sh build test pack template
+      - name: Host CI (build, test, pack, samples, template)
+        run: tools/ci/host-ci.sh build test pack samples template

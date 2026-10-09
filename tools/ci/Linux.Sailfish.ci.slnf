@@ -3,8 +3,6 @@
     "path": "../../Linux.Sailfish.slnx",
     "projects": [
       "samples/Linux.SailfishOS.Sample/Linux.SailfishOS.Sample.csproj",
-      "samples/SailfishKitchen/SailfishKitchen.csproj",
-      "samples/SkiaSharpProbe/SkiaSharpProbe.csproj",
       "src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.WorkloadManifest.csproj",
       "src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj",
       "src/Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj",

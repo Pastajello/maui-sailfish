@@ -1626,6 +1626,10 @@ Notes:
   - Fix: `ensure_manifest` before every stage but style. It runs the repo's workload tool `install --manifest-root artifacts/ci/manifests` and exports `DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`; the template stage uses the same.
   - On Windows (Git Bash) the env vars and the generated `nuget.config` get `cygpath -w` paths, since only arguments are translated there.
   - Reproduced the runner here: the SDK's installed manifest moved aside, a fresh copy, and `host-ci.sh` passed every stage (641 tests, smoke RPM). Counter-check in the same state without the variable: SkiaSharpProbe fails with the runner's NETSDK1139. The manifest was restored afterwards.
+  - Second GitHub run: past the manifest, both jobs failed restoring SailfishKitchen and SkiaSharpProbe (NU1101 `Microsoft.Maui.Platforms.SailfishOS`). They take the backend as a package, which exists only after `pack`. Locally the global NuGet source `maui-sailfish-local` had hidden that.
+  - Fix: the two samples moved out of the slnf into a new `samples` stage after `pack` (`-f net11.0-sailfish`, Kitchen's iOS head stays out).
+  - Every restore is now hermetic: `artifacts/ci/nuget.config` with `<clear/>`, the CI feed and nuget.org, via `RestoreConfigFile`; `NUGET_PACKAGES` under `artifacts/ci/packages`. The pack drops cached `microsoft.maui.platforms.sailfishos*` so later restores take the new packages.
+  - Reproduced the runner: fresh copy, the SDK's manifest moved aside, an empty NuGet cache, and the developer's global sources out of play (`RestoreConfigFile`). All six stages passed: 641 tests, both samples built, smoke RPM.
   - Not yet seen: the next GitHub run, in particular Windows.
 - Verified: a fresh copy of the working tree (tracked + untracked files, no artifacts/bin/obj) runs `tools/ci/host-ci.sh` end to end on this Mac: style 591 files clean, build, 637 tests, 8 packages, template RPM 16.7 MB. Not run on GitHub: the user commits and pushes. Open: "passes on a branch" and the first Windows result.
 
