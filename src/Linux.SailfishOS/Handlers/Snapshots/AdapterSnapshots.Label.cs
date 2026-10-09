@@ -122,8 +122,8 @@ internal static partial class AdapterSnapshots
 				sb.Append("font-style:italic;");
 			if (!string.IsNullOrEmpty(span.FontFamily))
 				sb.Append("font-family:'").Append(QtHostFonts.Resolve(span.FontFamily).Replace("\\", "\\\\").Replace("'", "\\'")).Append("';");
-			if (span.FontSize > 0)
-				sb.Append("font-size:").Append((span.FontSize * density).ToString("F0", CultureInfo.InvariantCulture)).Append("px;");
+			if (Platform.Text.LabelTextMapper.SpanFontSize(span) is { } spanSize)
+				sb.Append("font-size:").Append((spanSize * density).ToString("F0", CultureInfo.InvariantCulture)).Append("px;");
 			var underline = (span.TextDecorations & TextDecorations.Underline) != 0;
 			var strike = (span.TextDecorations & TextDecorations.Strikethrough) != 0;
 			if (underline && strike)

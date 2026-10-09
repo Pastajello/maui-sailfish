@@ -33,7 +33,7 @@ Both clips are recorded on a Jolla phone (Sailfish OS 5.2) with real touch input
 | Where | What |
 |---|---|
 | Build machine | .NET SDK 11 RC1 (`11.0.100-rc.1.26425.128`, see `global.json`) |
-| Build machine | `ssh`, `python3` (RPM build) |
+| Build machine | OpenSSH (`ssh`, `scp`, `ssh-keygen`; Windows: the *OpenSSH Client* feature). macOS, Linux and Windows all build, deploy and run; a checkout's own `tools/sf` scripts (matrix, screenshots, native builds) need bash and python3 |
 | Build machine, only when working on this repo | `zig` (cross-compiles the native shim; no Sailfish SDK needed) |
 | Phone | Sailfish OS with developer mode and a Remote connection password (tested on SFOS 5.2, aarch64; armv7hl builds but has never run on a device) |
 
@@ -66,9 +66,17 @@ dotnet new maui-sailfish -n MyApp && cd MyApp     # --sailfish-only: just the Sa
 dotnet run -f net11.0-sailfish
 ```
 
-`dotnet build -f net11.0-sailfish -t:SailfishRun` does the same but returns once the app has started. The first run asks for the phone's address, user and the Remote connection password, installs your
+`dotnet build -f net11.0-sailfish -t:SailfishRun` does the same but returns once the app has started. Both run the
+`sailfish` device tool the package carries; installed on its own (`dotnet tool install -g
+Microsoft.Maui.Platforms.SailfishOS.Tools`) it also gives `sailfish setup | deploy | run --follow | kill | logs |
+screenshot` in the app's folder. The first run asks for the phone's address, user and the Remote connection password, installs your
 SSH key and saves the settings in `~/.config/maui-sailfish/connect.info`. Details and error messages:
 [docs/connecting-your-phone.md](docs/connecting-your-phone.md).
+
+The template follows the official `maui` template (`--applicationId`, `-f/--framework`, a fresh Windows
+`PhoneProductId`, `UseMaui`). Its `Resources/Styles/Styles.xaml` colours apply to Android, iOS, Mac Catalyst and
+Windows only (each colour sits in an `OnPlatform`), so on the phone the app takes the ambience colours and wallpaper
+like a native Sailfish app.
 
 `dotnet publish -f net11.0-sailfish` alone builds the RPM (`bin/SailfishRpm/harbour-<app>-<version>.aarch64.rpm`).
 

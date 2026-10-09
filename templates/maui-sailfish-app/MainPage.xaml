@@ -1,4 +1,4 @@
-﻿<ContentPage x:Class="MauiSailfishApp.MainPage">
+<ContentPage x:Class="MauiSailfishApp.MainPage">
 
     <ScrollView>
         <VerticalStackLayout
@@ -24,7 +24,7 @@
 
             <Button
                 x:Name="CounterBtn"
-                Text="Click me" 
+                Text="Click me"
                 SemanticProperties.Hint="Counts the number of times you click"
                 Clicked="OnCounterClicked"
                 HorizontalOptions="Fill" />

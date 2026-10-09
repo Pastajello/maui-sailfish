@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Diagnostics (tracker S48): the F3 leg's HybridWebView page. JS → .NET "ready" on load; on .NET's "ping" it calls
+     InvokeDotNet('Multiply', [6, 7]) and answers "echo:ping:42"; add(a, b) serves InvokeJavaScriptAsync. -->
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="_framework/hybridwebview.js"></script>
+  <script>
+    function add(a, b) { return a + b; }
+    function log(line) { document.getElementById('log').textContent += '\n' + line; }
+    window.addEventListener('HybridWebViewMessageReceived', async function (e) {
+      var message = e.detail.message;
+      log('.NET → JS: ' + message);
+      if (message === 'ping') {
+        var product = await window.HybridWebView.InvokeDotNet('Multiply', [6, 7]);
+        log('InvokeDotNet Multiply(6, 7) → ' + product);
+        window.HybridWebView.SendRawMessage('echo:' + message + ':' + product);
+      }
+    });
+    window.addEventListener('load', function () {
+      log('JS → .NET: ready');
+      window.HybridWebView.SendRawMessage('ready');
+    });
+  </script>
+</head>
+<body style="background:#20303a;color:#fff;font-family:sans-serif;font-size:36px;margin:24px">
+  <h1 style="font-size:48px">Hybrid page</h1>
+  <pre id="log" style="white-space:pre-wrap">loaded from the HybridRoot</pre>
+</body>
+</html>

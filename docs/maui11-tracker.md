@@ -86,20 +86,20 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 **Phase G — navigation details, dialogs, drag & drop**
 - [x] [S37](#s37) `animated:false`, `InsertPageBefore`, `RemovePage` · 📱
 - [x] [S38](#s38) Dialogs: queue, thread hop, RTL, keyboard; Detail swap · 📱
-- [ ] [S39](#s39) Drag & drop: router core and drag ghost · 📱
-- [ ] [S40](#s40) Drag & drop: rows, leg, docs · 📱
+- [x] [S39](#s39) Drag & drop: router core and drag ghost · 📱
+- [x] [S40](#s40) Drag & drop: rows, leg, docs · 📱
 
 **Phase H — visuals, text, keyboard, theme, platform API**
 - [x] [S41](#s41) Gradient backgrounds on every view · ✅D10 · 📱
 - [x] [S42](#s42) FormattedText spans: properties and gestures · 📱
-- [ ] [S43](#s43) Mixed-font measure and `FontAutoScalingEnabled` · 📱
-- [ ] [S44](#s44) Keyboard avoidance · 📱
+- [x] [S43](#s43) Mixed-font measure and `FontAutoScalingEnabled` · 📱
+- [x] [S44](#s44) Keyboard avoidance · 📱
 - [ ] [S45](#s45) Upstream-seam workarounds: `SailfishKeyboard`, `Loaded` · 📱
-- [ ] [S46](#s46) Theme from the first frame, highlight colour, RTL locale · 📱
+- [x] [S46](#s46) Theme from the first frame, highlight colour, RTL locale · 📱
 - [x] [S47](#s47) `On<SailfishOS>()` platform configuration · ✅D13
-- [ ] [S48](#s48) `HybridWebView` · ✅D5 · 📱
-- [ ] [S49](#s49) Sailfish `IImage` · ✅D6 · 📱
-- [ ] [S50](#s50) `DrawImage`, `ImagePaint`, screenshot as `IImage` · 📱
+- [x] [S48](#s48) `HybridWebView` · ✅D5 · 📱
+- [x] [S49](#s49) Sailfish `IImage` · ✅D6 · 📱
+- [x] [S50](#s50) `DrawImage`, `ImagePaint`, screenshot as `IImage` · 📱
 
 **Phase I — build, SDK, developer experience**
 - [x] [S51](#s51) Resizetizer through MAUI's external-backend hook · 📱
@@ -109,7 +109,7 @@ Tick a session here when it is done. `📱` = needs the phone, `❓Dn` = needs o
 - [ ] [S55](#s55) Hot reload over SSH · ✅D7 · 📱 (deferred by D7 b)
 - [ ] [S56](#s56) Device tools out of the NuGet package · ✅D8
 - [ ] [S57](#s57) Host CI, code style, template smoke test
-- [ ] [S58](#s58) Template alignment · ✅D9 · 📱
+- [x] [S58](#s58) Template alignment · ✅D9 · 📱
 
 ## Decisions
 
@@ -482,6 +482,12 @@ Notes:
 - Host: `EssentialsDefectTests` +3 (mapping, picker permissions, registry rows); 432 green.
 - Device: `tools/sf matrix f4 features silica` 3/3 PASS (unsandboxed sample). Left: a sandboxed f4 run (a Harbour
   build launched through Sailjail); how the matrix launches a sandboxed build was not worked out this session.
+- 2026-10-09: a sandboxed launch exists now. `tools/remote/sf-run-remote.sh` starts `sailjail -p <pkg> -- /usr/bin/<pkg>` when the forwarded environment has `SF_SAILJAIL=1` (`SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1"` for the matrix; the `sailfish` tool embeds the same helper). `verify.sh` knows the Harbour layout (`/usr/share/<pkg>/lib`): L1/D4/D6 failed on it before.
+  - The sandboxed f4 runs:
+    1. Harbour build (`SF_PUBLISH_PROPS=-p:SailfishHarbour=true`, permissions Internet only): it ran inside Sailjail, 42/46. The 4 failures are the sandbox working as designed: Contacts → `PermissionException` naming `Contacts`; Flashlight unsupported (no Sailjail permission reaches the torch); accelerometer no readings (no `Sensors`); Geolocation `PermissionException` (no `Location`).
+    2. The f4 flashlight check now expects "unsupported" when `SailfishPermissions.IsSandboxed`.
+    3. A sandboxed build with `Contacts;Location;Sensors` (`-p:SailfishSandboxing=true -p:SailfishPermissions=Contacts%3BLocation%3BSensors`): no output, gone after ~80 s. sailjaild `GetLaunchAllowed(100000, harbour-sample)` = 0 (undecided): new permissions need the user's consent once (app-grid launch → allow), and a launch over SSH waits for it.
+  - Left: the user approves the permissions on the phone (the sandboxed build is installed), then `SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1" tools/sf matrix f4`. Not granted from here through sailjaild's `SetLaunchAllowed`/`SetGrantedPermissions`: that is the owner's security setting.
 
 <a id="s13"></a>
 ### S13 · Handler fixes: SwipeItem colours, Window title/RTL, mapper conventions
@@ -1259,26 +1265,34 @@ Notes:
 <a id="s39"></a>
 ### S39 · Drag & drop: router core and drag ghost
 Plan: §M28 · Audit: input I1 (design notes) · Phone: leg `input` · Depends: S17
-- [ ] drag start on the long-press timer → `SendDragStarting`
-- [ ] `DragGhost.qml`; back navigation and flickables off while dragging
-- [ ] `SendDragOver/Leave`, `SendDrop`, `SendDropCompleted` (also on cancel); args subclasses with positions
-- [ ] router test for the event order and text transfer
+- [x] drag start on the long-press timer → `SendDragStarting`
+- [x] `DragGhost.qml`; back navigation and flickables off while dragging
+- [x] `SendDragOver/Leave`, `SendDrop`, `SendDropCompleted` (also on cancel); args subclasses with positions
+- [x] router test for the event order and text transfer
 
 Done when: dragging a Label onto a drop target transfers its text on the phone.
 
 Notes:
--
+- 2026-10-09, `Platform/QtHost/QtHostInput.Drag.cs` (the router is now `partial`): a press on a view with a `DragGestureRecognizer { CanDrag: true }` (it or an ancestor) arms a 500 ms timer (`DragStartMs`, Android's long-press timeout). Travel beyond the tap slop first disarms it (a scroll or pan). When it fires, `SendDragStarting(owner, getPosition)` runs; `Cancel`/`Handled` leave the press to the other gestures. Otherwise the drag owns the finger: the pending long press is canceled, the context hold and tab swipe disarmed, `mauiHoldDrag` (S60) holds the back swipe and flickables, and the ghost shows. On each move a hit-test walks up the ancestors to a `DropGestureRecognizer { AllowDrop: true }`: `SendDragLeave` to the old target on a change, `SendDragOver` to the current one (each move, as Android's ACTION_DRAG_LOCATION), and `AcceptedOperation` drives the ghost's opacity. A release over an accepting target awaits `SendDrop(new SailfishDropEventArgs(package.View, …))` (MAUI's default `TrySetValue`), then `SendDropCompleted` on the source. A release elsewhere, a second finger or the page going away (`CancelDrag`) send DragLeave and DropCompleted without a drop, since MAUI has no cancel event. The release is no tap or pan. `SailfishDragEventArgs`/`SailfishDropEventArgs` override `GetPosition` (MAUI's position constructors are internal).
+- Ghost: no separate `DragGhost.qml`. It is a `ShaderEffectSource` in `MauiModelPage.qml` (`mauiDragGhost(json)`: show/x/y in window px/allowed/id): a still snapshot of the source host, the grab point kept under the finger, opacity 0.85 over an accepting target and 0.45 elsewhere, z above content and chrome. Found on the phone: `__hosts[id]` is a record whose QML item is `.item`, so the first build had no ghost (the check saw opacity −1).
+- Tests `DragDropTests` (6 here plus a row test for S40): MAUI order and text transfer, the ghost calls and `mauiHoldDrag` true/false; moving before the hold is no drag; leaving the target then releasing elsewhere gives DragOver, DragLeave and DropCompleted without a drop; `AcceptedOperation=None` gives no Drop; `Cancel` in DragStarting gives no ghost and no completion; a second finger ends without a drop. Timers advance through `SailfishRuntime.TickDueTimers`.
+- Phone: `input` leg step `RunQtDragDropCheck`: real press on "Drag me", held 750 ms, 20 moves onto "Drop here", screenshot mid-drag, release. CHECK OK: text 'Drag me', events `DragStarting,DragOver,Drop,DropCompleted`, ghost opacity 0.85, router drags 1 drops 1. Screenshots `input-dnd-dragging` (the ghost over the target) and `input-dnd-dropped` (the target reads "Drag me") checked.
+- Regression `tools/sf matrix input collection legacylist controls page shell navdialog shapes canvas features` 10/10 PASS. Suite 594/594.
 
 <a id="s40"></a>
 ### S40 · Drag & drop: rows, leg, docs
 Plan: §M28 step 6 · Phone: leg `input` · Depends: S39
-- [ ] drag source inside a CollectionView row
-- [ ] DnD check in the `input` leg; porting guide updated
+- [x] drag source inside a CollectionView row
+- [x] DnD check in the `input` leg; porting guide updated
 
 Done when: a row can be dragged to a target on the phone.
 
 Notes:
--
+- 2026-10-09: the ListView consumes the press; the delegate's `list-item-pressed` reaches `CaptureRow`, which now also arms a drag (`ArmRowDrag`, the source looked up from the element under the finger up to the cell root; `RowHasGesturesView` already counted a DragGestureRecognizer). At the start the row is held (`mauiHoldRow`, so the ListView does not flick), its tap is suppressed (`_rowGestureTook`: the release neither taps nor selects), and the ghost finds the delegate by name (`maui_<list>__r<row>`, `__findByName` in the page) since rows have no page host.
+- Visible defect fixed: the dragged row kept its press highlight during the drag, and the ghost (a snapshot of the delegate) carried it. New `mauiDragRow` on the ListView hides that row's highlight; a pan in a row keeps its highlight (it holds the row from the press, so `mauiHoldRow` would have hidden every pan row's).
+- Test `A_row_of_a_collection_view_can_be_dragged_onto_a_target`: the target gets "two", the row is held and marked while dragging and released after, nothing is selected, and the ghost names `maui_<list>__r1`.
+- Phone: `input` leg step `RunQtRowDragCheck` (row 2 of a 4-row CollectionView onto a target under it): CHECK OK, 'Row two', nothing selected, ghost visible. Screenshots `input-dnd-row-dragging` (no highlight on the row; the ghost over the target) and `input-dnd-row-dropped` checked. `input` leg 16/16.
+- Docs: `porting-existing-apps.md` (drag & drop as on Android, in-app only), `silica-parity.md` row. Regression: see S39.
 
 ## Phase H — visuals, text, keyboard, theme, platform API
 
@@ -1324,26 +1338,38 @@ Notes:
 <a id="s43"></a>
 ### S43 · Mixed-font measure and `FontAutoScalingEnabled`
 Plan: §M11 (measure, scaling) · Audit: graphics G7, lifecycle row 17 · Phone: legs `text controls` + native-build · Depends: —
-- [ ] FormattedText measured per run (shim `measure_text` gains runs)
-- [ ] Silica text-size ratio probed; explicit sizes scaled when `FontAutoScalingEnabled`
-- [ ] measure tests with two fonts
+- [x] FormattedText measured per run (shim `measure_text` gains runs)
+- [x] Silica text-size ratio probed; explicit sizes scaled when `FontAutoScalingEnabled`
+- [x] measure tests with two fonts
 
 Done when: a two-size FormattedText row does not clip (screenshot).
 
 Notes:
--
+- 2026-10-08, shim: `measure_text` takes an optional `runs` array (`s`/`n` UTF-16 offsets, family/px/bold/italic/ls). `measure_runs` lays each paragraph out as one `QTextLayout` with a `FormatRange` per run, the way the rich-text label does. Each line counts `line.height()` with leading included, so a line is as tall as its tallest run. Without runs the single-font path is unchanged. `tools/sf native-build` done.
+- Managed: `SailfishMeasure.Label` sends runs only when the spans differ in font (`MixedFonts`); one font across spans keeps the tuned single-font path. `LabelTextMapper` now builds spans as the HTML paints them: a span without `FontSize` takes the label's painted size (`LabelFontSize ?? Theme.fontSizeMedium`, previously MAUI's 14 dp), and span text carries its `TextTransform`. `TextSpan.FontSize` is a double. The headless estimate uses the tallest span for the line advance.
+- Auto-scaling: SFOS has Settings › Display › Text size (`/desktop/jolla/theme/font/sizeCategory`: normal/large/huge/gigantic). Silica exposes `Theme.fontSizeMedium` (scaled) and `Theme.fontSizeMediumBase` (not), as found in `libsailfishsilica`'s moc data. `SailfishFontRules.TextScale()` is their ratio (clamped 0.5–4, 1 until the theme answers, read once per run). `AppFontSize`, the one place Label/Button/Entry/Editor/SearchBar/pickers/RadioButton decide their size, multiplies explicit sizes by it unless the element (`ITextStyle.Font.AutoScalingEnabled`, `Span.FontAutoScalingEnabled`) turned it off. Span HTML sizes and the measure use the same rule (`LabelTextMapper.SpanFontSize`).
+- Phone, `navdialog` step `MixedFontRow` (14/40 dp spans, bold, in an Auto grid row, a row below it): measured 50.2 dp, QML `contentHeight` 96 px = 50.2 dp, the next row at 66.2 ≥ 66.2. Screenshot `navdialog-4b-fonts`: "Total **1 234,56 zł** incl. VAT" in full, the next row underneath. With the old measure (first span's 14 dp font) the row would have been about a third of that height. The theme probe answers on the phone (`Theme.fontSizeMedium,Base` = `48,48` at the "normal" setting → factor 1.00). A non-default setting was **not** tried, since it would change the owner's phone settings; the hosts tests cover the arithmetic.
+- **Regression found by the matrix and fixed:** the `collection` leg's chat check failed (atYEnd false), reproducibly. A pre-S43 copy of the repo (`HEAD` in the scratchpad, same shim) passed, so it was S43. Row heights told the story: 155 px against 100 px before. A temporary log showed unsized labels measured at `fontSize=48` dp instead of 25: `SailfishMeasure.ThemeDp` cached its answer **in dp**, and `TextScale()` now asked for `Theme.fontSizeMedium` from `AppFontSize` before the screen size was known (density 1), so 48 px became 48 "dp" for the whole run. This latent bug only needed an earlier first query. Fix: the theme cache keeps Qt units and converts on every read (`_themeQt`, also the text-input margin probe). Test `A_theme_size_asked_before_the_screen_is_known_follows_the_density_that_comes_later` (fails on the old cache). Two symptom fixes tried first in `ListView.qml` (pinning to the end, an exact fractional end; on the phone `contentY` cannot hold a fraction, Silica rounds it) were reverted. The chat check keeps the geometry in its message.
+- Regression after the fix: `tools/sf matrix text controls page features collection shell navdialog` 7/7 PASS. The chat rows are back at the pre-S43 size (`contentHeight` 3307.33, atYEnd true), the mixed-font row is unchanged (50.2 dp = contentHeight).
+- Tests: `MixedFontMeasureTests` (6): runs and tallest line, one font without runs, inherited size and TextTransform, auto-scaling on and off for Label, span sizes in HTML and measure, the theme cache across a density change. `FakeShim` honours runs and keeps `LastMeasureRequest`; `TestStatics` clears the theme cache. Docs: `porting-existing-apps.md` (mixed spans, Text size).
 
 <a id="s44"></a>
 ### S44 · Keyboard avoidance
 Plan: §M12 steps 1–2 · Audit: lifecycle L4, input design notes · Phone: legs `input text` · Depends: —
-- [ ] device check: long form with the keyboard up, portrait and landscape (screenshots)
-- [ ] keyboard height as a bottom inset; focused field scrolled into view
-- [ ] harness test: inset → layout pass
+- [x] device check: long form with the keyboard up, portrait and landscape (screenshots)
+- [x] keyboard height as a bottom inset; focused field scrolled into view
+- [x] harness test: inset → layout pass
 
 Done when: the last Entry of a long form stays visible with the keyboard open.
 
 Notes:
--
+- 2026-10-09, device check first: a new `navdialog` step `KeyboardForm` covers a ScrollView form (14 fields) and a plain one (8 fields portrait, 3 landscape, so it fits the page; a field below the screen is unreachable without a ScrollView on any platform). It calls `SailfishKeyboard.Show(last)` and checks in the page's own coordinates (they turn with the orientation) that the field lies within `0..page.height`. For the plain page it also checks that the page is back where it was once the keyboard hides.
+- What Silica does on its own: `ApplicationWindow` shrinks the page area by the keyboard panel (`height − panelSize`, clipped), and `TextBase`'s `VerticalAutoScroll` keeps the cursor line visible in the nearest Flickable. **ScrollView forms already worked** in both orientations (the field's bottom exactly at the keyboard's top). **Plain content failed, nondeterministically:** MAUI got a layout pass at the shrunk height (`mauiContentHeight` 1436 / 416), so the page flickable had nothing to scroll and the field stayed clipped. One early run passed because Silica's scroll won the race.
+- Fix (`MauiModelPage.qml`): `__keyboardInset` = `pageStack.panelSize` while the page is active. When the keyboard opens and the focused item has no Flickable between it and the page flickable (`__focusInScrollingContainer`), `__keyboardPan` makes the page report `pageHeight: page.height + inset`. MAUI keeps the full layout, and `__panToFocus` scrolls the page flickable so the whole host is in view (the ancestor on `canvas`; the focused item is only the inner `textEditor`, which left the underline 26 px under the keyboard). That runs 250 ms after the last inset, height or content change, once Silica's own cursor scroll has settled. When the keyboard closes the page goes back (`contentY = 0` when the page does not scroll). Fields in a ScrollView or list keep Silica's resize. During the panel animation `page.height + inset` stays constant, so MAUI sees no intermediate sizes.
+- Found on the way: `Qt.callLater` does not exist in Qt 5.6 (TypeError on the phone), replaced by a Timer. An unqualified `import QtQuick.Window` shadowed Silica's `Screen` (`Screen.topCutout` TypeError ×10), now imported as `QtWindow`. The page's two `onHeightChanged` handlers were merged.
+- Phone, after the fix: portrait and landscape, 16/16 checks each. Screenshots `navdialog-6-form`/`-7-form-plain`, both orientations, checked: the focused field with its underline above the keyboard, the page back afterwards. Regression `tools/sf matrix input text navdialog page controls shell containers navback pulley features collection` 11/11 PASS.
+- 2026-10-09, regression found by the `f3` leg (S48 run) and fixed: `__panToFocus` scrolled to "the ancestor on `canvas`", and on a page whose form sits in a layout with its own host (a background) that is the whole form, so the page scrolled to its end and the focused Entry went off screen under the keyboard. The F3 K clear-button tap then hit nothing. The pan now targets the nearest adapter (`mauiId`), the field itself (contract assert in `KeyboardInsetTests`). `f3` 112/112, `navdialog` 16/16 after the fix.
+- Tests `KeyboardInsetTests` (3): a shorter reported page lays out again and moves the bottom field up; the full height while panning leaves the layout alone; the QML contract (the inset in `pageHeight`, the qualified Window import, no `Qt.callLater`). Suite 587/587. Docs: `porting-existing-apps.md` (resize in a ScrollView, pan in plain content).
 
 <a id="s45"></a>
 ### S45 · Upstream-seam workarounds: `SailfishKeyboard`, `Loaded`
@@ -1367,14 +1393,18 @@ Notes:
 <a id="s46"></a>
 ### S46 · Theme from the first frame, highlight colour, RTL locale
 Plan: §M13 · Audit: lifecycle L5 · Phone: legs `silica features` · Depends: —
-- [ ] first render waits for (or is seeded with) the ambience theme
-- [ ] `SailfishTheme.HighlightColor`/`PrimaryColor`
-- [ ] `RequestedLayoutDirection` from Qt; `LANG`/ICU note in `sailfishos-packaging.md`
+- [x] first render waits for (or is seeded with) the ambience theme
+- [x] `SailfishTheme.HighlightColor`/`PrimaryColor`
+- [x] `RequestedLayoutDirection` from Qt; `LANG`/ICU note in `sailfishos-packaging.md`
 
 Done when: a dark-ambience start shows no light frame (recording).
 
 Notes:
--
+- 2026-10-09, measured before changing anything: a `tools/sf record` of the template app's start (its Styles use `AppThemeBinding`, dark ambience "fresh") already showed no light frame. The theme service ran before the first render (`StartRendering` dispatches `OnHostReady` before `Render`), and the per-frame brightness of the compositor frames (`ffmpeg signalstats`, `mpdecimate`) fell monotonically 111 → 51 with the window fading in over the ambience; a white page would push it towards 200. The gap was earlier: code reading `RequestedTheme` in the app's constructor or `CreateWindow` got `Unspecified` (AppThemeBinding falls back to Light), so colours set once at start stayed wrong.
+- Seed: `SailfishTheme.Seed()` at the very start of `Run()` reads the dconf key `/desktop/jolla/theme/color_scheme` (0 light text on dark = Dark, 1 = Light, unset = Silica's default Dark) on a background task while MAUI builds the app. `SailfishTheme.Current` waits for it (200 ms at most) while still Unspecified. The theme service's `Theme.colorScheme` stays authoritative: it confirms, or corrects with ThemeChanged. On the phone, inside the sandbox: "theme: seeded Dark from dconf in 30 ms" (a process start, overlapping with BuildApplication). Recording again after the change: brightness 110 → 51 with no rise.
+- Colours: the theme service's QML object exposes `palette` (highlight|primary|secondary|secondaryHighlight). It is read at start and `svc-theme-palette` reports changes (another ambience may keep the same light/dark, which ThemeChanged would not report). Public `SailfishTheme.HighlightColor/PrimaryColor/SecondaryColor/SecondaryHighlightColor` (Color?, null before the window) and `event ColorsChanged`. The `f4` leg checks that HighlightColor matches `Theme.highlightColor` (#bffe7f): CHECK OK.
+- Layout direction: `SailfishAppInfo.RequestedLayoutDirection` → `SailfishLayoutDirection`: Qt's `Qt.application.layoutDirection` (from the locale) read at host ready, the current UI culture before (an InvariantGlobalization build only gets Qt's answer). Phone: LeftToRight for the English phone. An RTL language was not tried on the phone (it changes the owner's settings); the harness test covers Qt answering 1.
+- Tests `ThemeSeedTests` (7): dconf parsing, the seed reaching AppInfo before the host, the palette and ColorsChanged once per change, Qt's RTL reaching RequestedLayoutDirection. `TestStatics` restores the layout direction and the seed. Legs `f4 silica features` 3/3 PASS. Suite 601/601. Docs: `sailfish-apis.md` (colours, the theme from the start), `sailfishos-packaging.md` "Locale and right to left" (LANG, ICU 73, InvariantGlobalization, Qt's direction).
 
 <a id="s47"></a>
 ### S47 · `On<SailfishOS>()` platform configuration
@@ -1396,37 +1426,50 @@ Notes:
 <a id="s48"></a>
 ### S48 · `HybridWebView`
 Plan: §M15 step 7 · Audit: handlers H1 · Decision: D5 · Phone: leg `features` (if built) · Depends: —
-- [ ] (D5 a, chosen) handler on the Gecko adapter with the JS bridge and three commands — split into S48a/S48b if it does not fit
+- [x] (D5 a, chosen) handler on the Gecko adapter with the JS bridge and three commands — split into S48a/S48b if it does not fit
 - [x] ~~(D5 b) one warning + porting guide entry~~ — not chosen
 
 Done when: a `HybridWebView` page loads its `HybridRoot`, and JS → .NET (`RawMessageReceived`) and .NET → JS messages work on the phone.
 
 Notes:
--
+- 2026-10-09: fit in one session, no split. What decided the design: MAUI's `hybridwebview.js` (embedded in `Microsoft.Maui.dll` as `_framework/hybridwebview.js`) talks HTTP on its Android path. JS → .NET is `fetch` POST to `<origin>/__hwvSendMessage` (raw messages, InvokeJavaScript results) and `<origin>/__hwvInvokeDotNet`, with the `X-Maui-Invoke-Token` header; .NET → JS is a `message` event without a source window. On plain `net11.0` the matching handler logic (`MessageReceived`, `InvokeDotNetAsync`, `MapInvokeJavaScriptAsyncImpl`) is internal and the commands are no-ops, so the backend rebuilds it.
+- `Platform/QtHost/HybridWebViewServer.cs`: an `HttpListener` per view on `http://127.0.0.1:<free port>/` serves `HybridRoot` files from the app root (where MauiAssets land; read directly, as SailfishFileSystem does), the embedded script, and both endpoints. Posts need the token plus an Origin or Referer of this page (MAUI's `HasExpectedHeaders`), otherwise 403.
+- `Handlers/SailfishHybridWebViewHandler.cs` (factory row `HybridWebView`): the snapshot loads `origin/DefaultFile` in the Gecko adapter (`MauiWebView.qml`, unchanged). `EvaluateJavaScriptAsync` goes through the adapter's js command (`AdapterEventRouter` now routes `webview-js` to this handler as well). `InvokeJavaScriptAsync` follows MAUI's sequence: a task id, `HybridWebView.__InvokeJavaScript(id, method, [args])`, a result or error posted back, deserialized with the request's `JsonTypeInfo`; errors throw `SailfishHybridWebViewJavaScriptException` (MAUI's exception and task manager are internal), and the `HybridWebView.InvokeJavaScriptThrowsExceptions` switch is honoured. `SendRawMessage` dispatches `new MessageEvent('message', {data})`. `InvokeDotNet` runs `Invoker.InvokeMethodAsync` on the main thread and answers in MAUI's JSON shape. Disconnect stops the server and cancels pending calls. Same WebView-permission warning as WebView. Release build: 0 trim warnings.
+- Tests `HybridWebViewTests` (6, real HTTP against the server): origin URL and the script, HybridRoot files with content type and 404, raw message to `RawMessageReceived` and 403 without the token, InvokeDotNet → `Target.Add`, SendRawMessage → message event, InvokeJavaScriptAsync completed (3) and failed (TypeError → exception). `PublicSurface.txt` +2 (handler, exception).
+- Phone, `f3` leg step N (sample `Resources/Raw/hybridroot/index.html` as Content): the page loads from `http://127.0.0.1:39067` and says "ready" (JS → .NET); `SendRawMessage("ping")` reaches it, it calls `InvokeDotNet('Multiply', [6, 7])` and answers "echo:ping:42"; `InvokeJavaScriptAsync("add", [2, 3])` → 5. Screenshot `f3-n-hybrid` (the page's own log of the round trip) checked. The same run found the S44 pan regression (F3 K, fixed, see S44). After the fix `f3` 112/112, `navdialog` 16/16. Suite 607/607.
+- Docs: `porting-existing-apps.md` (HybridWebView as on Android, HybridRoot, permission, exception type; BlazorWebView stays out).
 
 <a id="s49"></a>
 ### S49 · Sailfish `IImage`
 Plan: §M18 · Audit: graphics G8 · Decision: D6 · Phone: leg `shapes` + native-build · Depends: S11
-- [ ] `IImage` backed per D6 (decode, `Downsize`, `Resize`, `Save`)
-- [ ] `PlatformImage.FromStream` users get it (registration or documented factory)
-- [ ] tests
+- [x] `IImage` backed per D6 (decode, `Downsize`, `Resize`, `Save`)
+- [x] `PlatformImage.FromStream` users get it (registration or documented factory)
+- [x] tests
 
 Done when: an `IImage` loads, resizes and saves on the phone.
 
 Notes:
--
+- 2026-10-09: on plain `net11.0`, MAUI's `PlatformImage` keeps the bytes and reads the PNG/JPEG size; `Downsize`/`Resize` throw `PlatformNotSupportedException`, and the `PlatformImage.FromStream` static cannot be redirected. So the backend has its own image plus the service, and the docs say so (porting-existing-apps.md).
+- Native `Native/host_image.cpp` (added to native-build.sh): `sailfish_host_image_info` (QImageReader size, EXIF orientation) and `sailfish_host_image_transform` (op JSON `{w,h,mode,format,quality}`: `stretch`/`fit` letterboxed with transparent bars/`fill` cover + centre crop/`keep`, then `QImage::save`; JPEG/BMP converted to RGB32 first). Stateless, bytes in and bytes out, so no handle and no Qt thread needed: no `CheckThread`. The result size is returned and a second call is made when the first buffer (w·h·4 + 64 KiB) is too small.
+- Managed: public `Microsoft.Maui.SailfishOS.Graphics.SailfishImage : IImage` (`FromStream`, `FromBytes`, `From(IImage)` for a `PlatformImage`), format sniffed from the header. `Downsize` keeps the aspect and returns an unscaled copy when the image already fits. `Resize` maps `Fit`→fit, `Bleed`→fill, `Stretch`→stretch. `Save` passes the bytes through when the format matches (and JPEG quality is 1), otherwise it re-encodes; GIF is read-only in Qt, so a resized GIF becomes PNG and `Save(Gif)` throws `NotSupportedException`. `ToPlatformImage` returns itself, `Draw` → `canvas.DrawImage` (drawn by S50). `SailfishImageLoadingService` is answered by `SailfishServiceOverlay` for `IImageLoadingService` unless the app registers one. Native calls go through `IQtHostShim.TryImageInfo`/`ImageTransform`.
+- Tests `SailfishImageTests` (10; FakeShim answers with PNG IHDR / format magic at the op's size): size and format, garbage → `InvalidDataException`, Downsize aspect and no shim call when small, the three modes and rounding, Save pass-through vs JPEG q80, SaveAsync = Save, GIF → PNG, disposeOriginal, service + `PlatformImage` conversion. `PublicSurface.txt` +2. Suite 617/617.
+- Phone, `shapes` leg (6 new checks, `QtHostDiagnosticsRunner.Image.cs`; `DiagPng.Encode` writes a 400×200 PNG, red left half, blue right): the loader is `SailfishImageLoadingService`; Downsize(100) → 100×50 red/blue; Fit 64×64 has transparent bars (0,0,0,0) with red/blue image; Bleed 64×64 is opaque at the top (centre crop); Stretch 50×100; JPEG 2476 B at 0.95 > 2036 B at 0.05, BMP reads back 400×200. Pixels decoded from QImage's output on the device, not just properties. `shapes` 11/11. Nothing is drawn on screen yet, so no screenshot here; the visible check comes with S50.
 
 <a id="s50"></a>
 ### S50 · `DrawImage`, `ImagePaint`, screenshot as `IImage`
 Plan: §M18 · Audit: graphics G5, G8 · Phone: leg `shapes` · Depends: S49
-- [ ] `ICanvas.DrawImage` in the Canvas adapter
-- [ ] `SetFillPaint(ImagePaint)`
-- [ ] `IScreenshotResult` → `IImage`
+- [x] `ICanvas.DrawImage` in the Canvas adapter
+- [x] `SetFillPaint(ImagePaint)`
+- [x] `IScreenshotResult` → `IImage`
 
 Done when: a GraphicsView draws an image on the phone (screenshot).
 
 Notes:
--
+- 2026-10-09: Context2D loads images by URL, so `Platform/QtHost/QtHostDrawnImages.cs` writes an image's encoded bytes once per image object (ConditionalWeakTable) to `~/.cache/<app>/drawn/<sha1>.<ext>`. The file is written to a temp name and renamed, and the folder is emptied once per process. Bytes come from `SailfishImage.Data`, MAUI's plain `PlatformImage.Bytes`, or `Save` for any other `IImage`. The recorder records `["img", url, x, y, w, h]`; an empty URL (disposed image) is a skip.
+- `GraphicsView.qml`: `__imageReady(url)` calls `loadImage` once, logs a load error once, and `onImageLoaded: requestPaint()`. `img` → `ctx.drawImage(url, x, y, w, h)`. `fpaint ["image", url]` (from `QtHostShapes.PaintSpec(ImagePaint)`) → `ctx.createPattern(url, "repeat")`, tiled from the canvas origin, one image pixel per dp. New counter `mauiImageOps`. Known difference (porting guide): the first paint of a new image draws without it and the load paints again.
+- Screenshot: MAUI 11 has no public screenshot → `IImage` API on any target, so there is a public `SailfishScreenshotExtensions.ToImageAsync(this IScreenshotResult)` → `SailfishImage` (reads the grabbed PNG directly for ours, otherwise through `OpenReadAsync`). `IViewScreenshot` was already in place.
+- Tests `DrawImageTests` (5): the cache file holds the bytes and the op the rectangle, same image same URL, `PlatformImage` from its bytes, disposed → empty URL, `ImagePaint` → image fill spec, the QML contract, screenshot → 1080×2160 image. `PublicSurface.txt` +1. Suite 622/622.
+- Phone, `shapes` leg (2 new checks plus shots `shapes-gallery`, `shapes-drawimage`, `shapes-drawimage-late`): `Screenshot.Default` → `ToImageAsync` 1032×2272; a pushed GraphicsView page reports 3 image ops; `CaptureViewAsync` of the view (573×344 px at density 1.91) reads red (255,0,0)/blue (0,0,255) from the drawn IImage and green (0,200,0)/yellow (255,220,0) from the ImagePaint tiles. Screenshot checked: the red/blue image, the striped ImagePaint fill and the gallery screenshot drawn small next to them. `shapes` 13/13 (on-device log; the local run.log stopped capturing earlier, as usual). In the first run the early shot showed the page without the canvas content, although the view grab 600 ms before already had it. That run had one 5.9 s render frame (the first start after a deploy). The second run's early shot has the content, and the empty shot did not happen again.
 
 ## Phase I — build, SDK, developer experience
 
@@ -1516,36 +1559,70 @@ Notes:
 <a id="s56"></a>
 ### S56 · Device tools out of the NuGet package
 Plan: §M22 · Audit: build-sdk B5 · Decision: D8 · Phone: — · Depends: S07
-- [ ] D8 (b): what a package user needs from `tools/sf` (setup, deploy, run, screenshot, logs) as a C# dotnet tool (works on Windows
+- [x] D8 (b): what a package user needs from `tools/sf` (setup, deploy, run, screenshot, logs) as a C# dotnet tool (works on Windows
   too); the repo's own matrix/shots tooling may stay bash
-- [ ] the package no longer ships the bash scripts; the `SailfishRun`/`SailfishSetup` targets call the tool
-- [ ] docs: `tools.md`, `connecting-your-phone.md`, README
+- [x] the package no longer ships the bash scripts; the `SailfishRun`/`SailfishSetup` targets call the tool
+- [x] docs: `tools.md`, `connecting-your-phone.md`, README
 
 Done when: a template app is set up, deployed and run on the phone from Windows (or a clean macOS) with only the dotnet tool.
 
 Notes:
--
+- 2026-10-09, split. A dotnet tool alone does not make Windows work: the RPM was built by host `rpmbuild` or `python3 tools/py/sf-rpmbuild.py`, and the targets ran `chmod`, `ln -sf`, `find` and `command -v`. Parts: **S56a** packaging with no Unix program; **S56b** the `sailfish` dotnet tool (setup/pair, deploy, run `--follow`, kill, screenshot, logs) over the system `ssh`/`scp` (OpenSSH ships with Windows 10+), with the askpass transport and devel-su on stdin as in `sf-lib.sh`; **S56c** the package stops shipping the bash scripts, `SailfishRun`/`SailfishSetup`/`DeployToDevice`/`dotnet run` call the tool, docs.
+- S56a (done): `Build.Tasks/SailfishRpmPack.cs` ports the writer of `sf-rpmbuild.py` (lead, tag-sorted headers with the immutable-region trailer, type-aligned store, sha256 file digests, the signature semantics the phone's rpm 4.16 checks, payload digest). The metadata comes from MSBuild, so there is no spec parser. Differences from the python writer: the payload is gzip (no xz in the BCL; sample 18.2 MB vs 14.1 MB). Modes come from content (dirs and ELF/`#!` 0755, else 0644, the same on every host; the python builder took host modes, `.so` 0744 on this Mac). `/usr/bin/<pkg>` is a declared symlink (0777). The targets use the task by default; `-p:SailfishRpmBuilder=rpmbuild` keeps host rpmbuild, and the chmod/ln/find Execs now run only on that path. The store metadata sha256 uses `GetFileHash` instead of python3. Same buildroot through both writers: 161 entries, identical paths, sizes and digests (sf-rpmquery), `bsdtar` reads the gzip payload. Tests `RpmPackTests` (4): files, modes, digests and link read back from the headers and the cpio; the signature as rpm checks it; missing listed path → error; the targets run no python3/`command -v`, and chmod/ln/find only for rpmbuild. Suite 626/626.
+- Phone: `tools/sf deploy` with the task-built RPM: install OK, verify L1/D1–D6 passed (D2 161/161 files, D3 `rpm -V` clean). The matrix refused while the phone was locked; once it was unlocked, the task-built RPM ran the `shapes` leg 13/13 through the new tool (below), and the sample rendered (screenshot).
+- S56b (done): `src/Linux.SailfishOS.Tools` (net10.0, RollForward Major, `PackAsTool`, command `sailfish`, package `Microsoft.Maui.Platforms.SailfishOS.Tools`). Commands `setup [--force|--if-needed]`, `deploy [--run] [--follow]`, `run [--follow] [--env N=V]`, `kill`, `logs [--follow]`, `screenshot [-o]`; options `--project`, `-c`, `-f`, `--rid` (default from the phone's `uname -m`), `--package`, `--property`, `--connect-info`.
+  - Transport as `sf-lib.sh`: the system `ssh`/`scp` with the same options, the script on stdin, and the host key pinned in `~/.config/maui-sailfish/known_hosts` (Windows `%APPDATA%\maui-sailfish`). The password reaches ssh through the tool acting as `SSH_ASKPASS` (`SSH_ASKPASS_REQUIRE=force`; a temp script under `dotnet sailfish.dll` on Unix), and devel-su gets it base64'd on stdin.
+  - The phone side is the embedded `tools/remote` scripts, pushed in one round trip.
+  - `setup` asks again on errors and rejects a malformed address. With an empty password ssh asks itself. With no console it uses `/dev/tty` (Unix; MSBuild Exec), else it prints the command to run.
+  - Deploy follows `sf deploy`: publish, one RPM, kill, scp, sha256 check, `rpm -Uvh` as root (or pkcon), `rpm -q`, rm. Not ported: `verify.sh`'s digest diff and `sf-depscheck.py`; they stay checkout-only.
+  - A Debug build without `--package` installs as `<pkg>-debug`, as `tools/sf` does.
+- S56c (done): the backend csproj packs `artifacts/sailfish-tool/sailfish.{dll,runtimeconfig.json,deps.json}` under `buildTransitive/net11.0/tools/sailfish/` (ProjectReference, no output reference) instead of the 26 bash/python files. The targets run `"$(DOTNET_HOST_PATH)" "$(SailfishToolDll)" …`: SailfishRun → `setup --if-needed` + `deploy --run`, SailfishSetup → `setup [--force]`, Run.targets DeployToDevice → `deploy`, RunCommand = dotnet, RunArguments = `sailfish.dll run --follow --project … -f … -c … --package … --rid …`. No `bash`, `/usr/bin/env` or `SailfishToolsDir` is left in the targets. pack-local also packs the tool package. The template's `.vscode` keeps `SF_TOOLS_DIR` (a checkout's tools).
+- Fixed on the way: `run --follow` (tool and `tools/cmd/run.sh`) treated an app that finished inside the helper's 10 s launch window as a failed start. It now reports the logged exit code (shapes leg: 13/13, exit 0). Ctrl+C used to be `CancelKeyPress` only; it is now `PosixSignalRegistration` SIGINT+SIGTERM, so an IDE or `dotnet run` stopping the tool also stops the app.
+- Tests: `SailfishToolTests` (10: connect.info read/write and 0600, options, env blob quoting, root script hides the password and the script, RID/arch, quoting, embedded scripts); `ToolsPackagingTests` rewritten (the package carries the tool and nothing from tools/, the targets call packed files and no bash, the template's `SF_TOOLS_DIR` files exist); `BuildTargetsTests` run arguments. Suite 635/635.
+- Phone (this Mac):
+  - `sailfish deploy --run` of the sample → `logs` → `screenshot` (checked) → `kill`.
+  - `run --follow` of the shapes leg → 13/13, exit 0.
+  - SIGINT and SIGTERM during `--follow` → rc 130 and the app stopped on the phone.
+  - Askpass checked with key login off: wrong password rc 255, right one rc 0.
+  - A `dotnet new maui-sailfish` app outside the repo, `dotnet run -f net11.0-sailfish` with the repo's tools off PATH: built (Debug, 35.5 MB), uploaded, installed, started, streamed, stopped by SIGTERM (test package removed afterwards).
+  - Not done: a Windows run (no Windows machine here) and a truly clean macOS, so S56 stays open on its "done when". The interactive `setup` was exercised through a pty only up to its key-install path (the askpass part was checked separately as above).
 
 <a id="s57"></a>
 ### S57 · Host CI, code style, template smoke test
 Plan: §M23 · Audit: build-sdk B7 · Phone: — · Depends: S52
-- [ ] host-only CI workflow (build slnx, `dotnet test`, pack with `SailfishAllowMissingShim=true`)
-- [ ] `.editorconfig` + `dotnet format --verify-no-changes`
-- [ ] template `dotnet new` + build smoke test
+- [x] host-only CI workflow (build slnx, `dotnet test`, pack with `SailfishAllowMissingShim=true`)
+- [x] `.editorconfig` + `dotnet format --verify-no-changes` (format replaced by `tools/ci/style-check.cs`, see notes)
+- [x] template `dotnet new` + build smoke test
 
 Done when: the workflow passes on a branch.
 
 Notes:
--
+- 2026-10-09: `tools/ci/host-ci.sh` (stages style, build, test, pack, template) is the CI, and `.github/workflows/host-ci.yml` runs it: an ubuntu-latest job (gate, uploads the packages and the smoke RPM) and a windows-latest job under Git Bash (build, test, pack, template; `continue-on-error` until it has passed once — it is also the Windows proof S56 is missing).
+  - Build uses `tools/ci/Linux.Sailfish.ci.slnf`: the slnx minus the template app, whose Android/iOS heads need MAUI workloads a Linux runner lacks. The template is covered by the template stage instead.
+- Style: `dotnet format whitespace --verify-no-changes` was measured and rejected. It reports ~6600 items, and applied to one file it re-indented comments to column 60 and broke aligned continuation lines (tabs plus space alignment). The gate is `tools/ci/style-check.cs`, a file-based app: LF, a final newline, no trailing whitespace except Markdown, tab-indented C#; `--fix` repairs all but indentation. `.editorconfig` documents these and the C# layout. `.gitattributes` (`* text=auto eol=lf`) keeps LF on Windows checkouts, where CRLF would break the scripts under Git Bash; the index held only LF and binary files. The fixes: 37 files without a final newline or with trailing whitespace (`--fix`), `SailfishIconSet.cs` and one line of `sf-trace-analyze.cs` re-indented with tabs. SailfishKitchen's `Resources/Seed` data is excluded.
+- The template stage installs everything from the packages only:
+  - its own NuGet cache, the manifest through the packed workload tool's `--manifest-root`, the template from the packed template package into a custom hive;
+  - `dotnet new maui-sailfish --sailfish-only`, `dotnet build`, then a Release `dotnet publish` with `SailfishSkipNativeCheck`, which must write the RPM.
+- Two real bugs this found on the first fresh-copy runs:
+  1. The `sailfish-workload` tool (S54) never had `WorkloadManifest.Run.targets`: MSBuild read `.Run.` as the culture "run" and put the file in a `Run/` satellite assembly, so `install` failed. Fixed with `WithCulture="false"`; test `Every_manifest_file_is_embedded_in_the_tool_itself`.
+  2. A Release `dotnet publish` of a package-based app on a clean NuGet cache failed with NETSDK1094. NuGet evaluates with `ExcludeRestorePackageImports`, so the package's ReadyToRun/trim settings never reached the restore and crossgen2 was not downloaded; it only worked where the packs were already cached. The workload manifest now sets `PublishReadyToRun`/`PublishTrimmed` during restore only, unless `SailfishReadyToRun`/`SailfishTrim=false`. Test `The_restore_brings_the_ready_to_run_and_trimming_packs_…`.
+- Verified: a fresh copy of the working tree (tracked + untracked files, no artifacts/bin/obj) runs `tools/ci/host-ci.sh` end to end on this Mac: style 591 files clean, build, 637 tests, 8 packages, template RPM 16.7 MB. Not run on GitHub: the user commits and pushes. Open: "passes on a branch" and the first Windows result.
 
 <a id="s58"></a>
 ### S58 · Template alignment
 Plan: §M24 · Audit: build-sdk B8 · Decision: D9 · Phone: template app · Depends: S07
-- [ ] official symbols (`applicationId`, `Framework`, fresh `PhoneProductId`)
-- [ ] `UseMaui=true` on the head when the MAUI SDK is present
-- [ ] `Styles.xaml` per D9
+- [x] official symbols (`applicationId`, `Framework`, fresh `PhoneProductId`)
+- [x] `UseMaui=true` on the head when the MAUI SDK is present
+- [x] `Styles.xaml` per D9
 
 Done when: a generated app builds for Android and Sailfish and runs on the phone (screenshot).
 
 Notes:
--
+- 2026-10-09, symbols from the MAUI 11 `maui-mobile` template (`microsoft.maui.templates.net11` 11.0.0-rc.1.26451.6):
+  - `applicationId` → `nameToLower`/`nameToAppId`/`defaultAppId`/`finalAppId`, which replaces `com.companyname.mauisailfishapp`. The audit's "always com.companyname.mauisailfishapp" was only half true: sourceName already lower-cased the name into it; what was missing was the override.
+  - `Framework` (choice net11.0, replaces `net11.0`, `-f/--framework` through `dotnetcli.host.json` as officially) and `HostIdentifier`.
+  - `PhoneProductId`: the guid generator replaces the fixed `1FB9328B-…` in `Package.appxmanifest`; the literal stays, so the in-repo project still builds.
+- `UseMaui`: `<UseMaui>true</UseMaui>` unconditional in the multi-head variant, as in the official template. That machine has the MAUI workload anyway for Android, and the Sailfish head built with it: implicit `Microsoft.Maui.Controls` from the workload, the resizetizer through S51's external-backend hook. `--sailfish-only` sets none: no workload there. In the repo both `#if` branches are active, so building `templates/maui-sailfish-app` in place needs the MAUI workload; CI builds the slnf without it and checks the template through generation.
+- D9 (b): all 72 colour setters in `Styles.xaml` (`*Color` with `AppThemeBinding`/`StaticResource`) are wrapped in `<OnPlatform x:TypeArguments="Color"><On Platform="Android, iOS, MacCatalyst, WinUI" …/>`, with a comment at the top of the file. On SailfishOS no branch matches, the value stays null and the backend takes the Silica theme. It covers Page/Shell/NavigationPage backgrounds too: wrapping only Button/Entry/Label left an opaque OffBlack page over the wallpaper (first phone experiment, screenshot). Android compiles the `On` value as before. Porting guide and README describe it.
+- Tests `TemplateTests` (3): the symbols replace what the files contain, no colour setter outside an in-box-only OnPlatform, UseMaui only in the multi-head branch. Suite 640/640; style clean; `host-ci.sh build pack template` passes (smoke RPM 16.9 MB).
+- Generated apps (pack-local): AlphaApp (`com.companyname.alphaapp`, PhoneProductId 9719B947-…), Beta.App with `--applicationId org.example.betatest` (92004C81-…), Gamma `--sailfish-only` (net11.0-sailfish, no UseMaui), Delta with `-f net11.0`. AlphaApp: `dotnet build -f net11.0-android` OK; `sailfish deploy --run -f net11.0-sailfish` → screenshot: ambience wallpaper behind the page, headings in the highlight colour, translucent Silica button, the Shell flyout as the pull-down indicator. Test packages removed from the phone afterwards.

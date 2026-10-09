@@ -514,6 +514,8 @@
   </PropertyGroup>
   <UsingTask TaskName="Microsoft.Maui.SailfishOS.Build.Tasks.SailfishPatchLauncherRpath"
              AssemblyFile="$(SailfishBuildTasksAssembly)" TaskFactory="TaskHostFactory" />
+  <UsingTask TaskName="Microsoft.Maui.SailfishOS.Build.Tasks.SailfishRpmPack"
+             AssemblyFile="$(SailfishBuildTasksAssembly)" TaskFactory="TaskHostFactory" />
 
   <!-- ================= Generate Launcher (symlink to ELF binary) ================= -->
   <!-- invoker + sailjail require /usr/bin/PKG to be an ELF (a script is killed), so it is a symlink to the apphost or the native launcher. -->
@@ -522,19 +524,21 @@
           AfterTargets="_PrepareSailfishRpmStaging"
           BeforeTargets="CreateSailfishRpm">
 
-    <Exec Command="chmod +x '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)'" Condition="'$(SailfishHarbour)' != 'true' And Exists('$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)')" />
+    <!-- File modes and the /usr/bin symlink are on disk for host rpmbuild only (SailfishRpmBuilder=rpmbuild, Unix);
+         the SailfishRpmPack task sets the modes itself (ELF/#! → 0755) and declares the link, so no chmod/ln runs. -->
+    <Exec Command="chmod +x '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)'" Condition="'$(SailfishRpmBuilder)' == 'rpmbuild' And '$(SailfishHarbour)' != 'true' And Exists('$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/$(AssemblyName)')" />
 
     <!-- Relative symlink avoids rpmbuild's absolute-symlink warning -->
-    <Exec Command="ln -sf '../share/$(SailfishPackageName)/$(AssemblyName)' '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishHarbour)' != 'true'" />
+    <Exec Command="ln -sf '../share/$(SailfishPackageName)/$(AssemblyName)' '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishRpmBuilder)' == 'rpmbuild' And '$(SailfishHarbour)' != 'true'" />
 
     <!-- Harbour: the native launcher is /usr/bin/PKG with rpath to the package lib dir; non-ELF payload files must not be executable. -->
     <Copy SourceFiles="$(PublishDir)sailfish-launcher" DestinationFiles="$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)" Condition="'$(SailfishHarbour)' == 'true'" />
     <SailfishPatchLauncherRpath File="$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)"
                                 Rpath="$ORIGIN/../share/$(SailfishPackageName)/lib"
                                 Condition="'$(SailfishHarbour)' == 'true'" />
-    <Exec Command="chmod 0755 '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishHarbour)' == 'true'" />
+    <Exec Command="chmod 0755 '$(_SailfishBuildRoot)/usr/bin/$(SailfishPackageName)'" Condition="'$(SailfishRpmBuilder)' == 'rpmbuild' And '$(SailfishHarbour)' == 'true'" />
     <Exec Command="find '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib' -type f -exec chmod 0644 {} + &amp;&amp; find '$(_SailfishBuildRoot)$(_SailfishInstallPrefix)/lib' -type f -name '*.so*' -exec chmod 0755 {} +"
-          Condition="'$(SailfishHarbour)' == 'true'" />
+          Condition="'$(SailfishRpmBuilder)' == 'rpmbuild' And '$(SailfishHarbour)' == 'true'" />
 
     <Message Importance="normal" Text="SailfishRpm: /usr/bin/$(SailfishPackageName) → ../share/$(SailfishPackageName)/$(AssemblyName)" Condition="'$(SailfishHarbour)' != 'true'" />
     <Message Importance="normal" Text="SailfishRpm: /usr/bin/$(SailfishPackageName) = native launcher (Harbour profile)" Condition="'$(SailfishHarbour)' == 'true'" />
@@ -696,22 +700,16 @@ $(_SailfishDBusServiceFile)
   </Target>
 
   <!-- ================= Build RPM Package ================= -->
-  <!-- Host rpmbuild when present, else the packaged Python fallback with the same command line. -->
+  <!-- The SailfishRpmPack task writes the package on any host (no rpmbuild, python3 or shell: Windows too, tracker S56).
+       SailfishRpmBuilder=rpmbuild uses a host rpmbuild with the generated spec instead (Unix; needed for signing). -->
   <Target Name="_ResolveSailfishRpmBuilder"
           Condition="'$(_SailfishRpmEnabled)' == 'true'"
           BeforeTargets="CreateSailfishRpm">
-    <Exec Command="command -v rpmbuild" ContinueOnError="WarnAndContinue"
-          StandardOutputImportance="low">
-      <Output TaskParameter="ExitCode" PropertyName="_SailfishRpmbuildProbe" />
-    </Exec>
     <PropertyGroup>
-      <!-- Packaged: tools/ next to this file; in-repo: the repo root's tools/. -->
-      <_SailfishRpmFallbackPy Condition="Exists('$(MSBuildThisFileDirectory)tools/py/sf-rpmbuild.py')">$(MSBuildThisFileDirectory)tools/py/sf-rpmbuild.py</_SailfishRpmFallbackPy>
-      <_SailfishRpmFallbackPy Condition="'$(_SailfishRpmFallbackPy)' == ''">$(MSBuildThisFileDirectory)../../../tools/py/sf-rpmbuild.py</_SailfishRpmFallbackPy>
-      <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' == '0'">rpmbuild</_SailfishRpmBuilder>
-      <_SailfishRpmBuilder Condition="'$(_SailfishRpmbuildProbe)' != '0'">python3 "$(_SailfishRpmFallbackPy)"</_SailfishRpmBuilder>
+      <_SailfishRpmBuilder Condition="'$(SailfishRpmBuilder)' == 'rpmbuild'">rpmbuild</_SailfishRpmBuilder>
+      <_SailfishRpmBuilder Condition="'$(SailfishRpmBuilder)' != 'rpmbuild'">SailfishRpmPack</_SailfishRpmBuilder>
     </PropertyGroup>
-    <Message Importance="high" Text="SailfishRpm: builder = $(_SailfishRpmBuilder)" />
+    <Message Importance="normal" Text="SailfishRpm: builder = $(_SailfishRpmBuilder)" />
   </Target>
 
   <Target Name="CreateSailfishRpm"
@@ -723,13 +721,31 @@ $(_SailfishDBusServiceFile)
 
     <PropertyGroup>
       <_SailfishOutputPath>$(SailfishRpmOutputDir)/$(SailfishRpmFileName)</_SailfishOutputPath>
+      <_SailfishRpmRequires Condition="'$(SailfishSecureStorage)' == 'Secrets'">sailfishsecretsdaemon, sailfishsecretsdaemon-secretsplugins-default</_SailfishRpmRequires>
     </PropertyGroup>
+    <!-- The spec's %files list (_GenerateSailfishRpmSpec); /usr/bin/PKG is the apphost symlink outside Harbour. -->
+    <ItemGroup>
+      <_SailfishRpmFiles Include="/usr/bin/$(SailfishPackageName)" Condition="'$(SailfishHarbour)' == 'true'" />
+      <_SailfishRpmFiles Include="$(_SailfishInstallPrefix);/usr/share/applications/$(SailfishPackageName).desktop;$(_SailfishDBusServiceFile)" />
+      <_SailfishRpmFiles Include="@(_SailfishIconFiles)" />
+      <_SailfishRpmLinks Include="/usr/bin/$(SailfishPackageName)" Condition="'$(SailfishHarbour)' != 'true'">
+        <LinkTarget>../share/$(SailfishPackageName)/$(AssemblyName)</LinkTarget>
+      </_SailfishRpmLinks>
+    </ItemGroup>
 
     <Message Importance="high" Text="SailfishRpm: Creating $(SailfishRpmFileName)..." />
 
+    <SailfishRpmPack Condition="'$(_SailfishRpmBuilder)' == 'SailfishRpmPack'"
+                     BuildRoot="$(_SailfishBuildRoot)" OutputFile="$(_SailfishOutputPath)"
+                     Name="$(SailfishPackageName)" Version="$(SailfishVersion)" Release="$(SailfishRelease)" Arch="$(SailfishRpmArch)"
+                     Summary="$(SailfishSummary)" Description="$(SailfishDescription)" License="$(SailfishLicense)"
+                     Vendor="$(SailfishVendor)" Requires="$(_SailfishRpmRequires)"
+                     Files="@(_SailfishRpmFiles)" Symlinks="@(_SailfishRpmLinks)" />
+
     <!-- rpmbuild narrates every step; keep it out of a normal publish log (-v n shows it; a failure still fails the
          build through the exit code). -->
-    <Exec Command="$(_SailfishRpmBuilder) -bb --target $(SailfishRpmTarget) --buildroot '$(_SailfishBuildRoot)' --define '_topdir $(_SailfishTopDir)' --define '_buildhost localhost' --define '_rpmdir $(SailfishRpmOutputDir)' --define '_rpmfilename %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' '$(_SailfishSpecFile)'"
+    <Exec Condition="'$(_SailfishRpmBuilder)' == 'rpmbuild'"
+          Command="rpmbuild -bb --target $(SailfishRpmTarget) --buildroot '$(_SailfishBuildRoot)' --define '_topdir $(_SailfishTopDir)' --define '_buildhost localhost' --define '_rpmdir $(SailfishRpmOutputDir)' --define '_rpmfilename %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' '$(_SailfishSpecFile)'"
           StandardOutputImportance="low"
           StandardErrorImportance="normal" />
 
@@ -737,7 +753,7 @@ $(_SailfishDBusServiceFile)
   </Target>
 
   <!-- ================= Release signing + store metadata ================= -->
-  <!-- Opt-in: SailfishRpmSignKey signs with host rpm (the Python fallback cannot sign); SailfishStoreMetadata writes an OpenRepos-style YAML. -->
+  <!-- Opt-in: SailfishRpmSignKey signs with host rpm (rpm addsign, any builder); SailfishStoreMetadata writes an OpenRepos-style YAML. -->
   <Target Name="_SignSailfishRpm"
           Condition="'$(SailfishRpmSignKey)' != ''"
           AfterTargets="CreateSailfishRpm">
@@ -750,27 +766,41 @@ $(_SailfishDBusServiceFile)
   <Target Name="_GenerateSailfishStoreMetadata"
           Condition="'$(SailfishStoreMetadata)' == 'true'"
           AfterTargets="CreateSailfishRpm;_SignSailfishRpm">
-    <Exec Command="python3 -c &quot;import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())&quot; '$(SailfishRpmOutputDir)/$(SailfishRpmFileName)' > '$(SailfishRpmOutputDir)/$(SailfishRpmFileName).sha256'" />
+    <GetFileHash Files="$(SailfishRpmOutputDir)/$(SailfishRpmFileName)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_SailfishRpmSha256" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(SailfishRpmOutputDir)/$(SailfishRpmFileName).sha256" Lines="$(_SailfishRpmSha256.ToLowerInvariant())" Overwrite="true" />
     <WriteLinesToFile File="$(SailfishRpmOutputDir)/$(SailfishRpmFileName).yaml" Overwrite="true"
                       Lines="name: $(SailfishPackageName);version: $(SailfishVersion);release: $(SailfishRelease);arch: $(SailfishRpmArch);summary: $(ApplicationTitle);description: $(ApplicationTitle) — .NET MAUI app for Sailfish OS;rpm: $(SailfishRpmFileName);sha256: $([System.IO.File]::ReadAllText('$(SailfishRpmOutputDir)/$(SailfishRpmFileName).sha256').Trim())" />
     <Message Importance="high" Text="SailfishRpm: store metadata at $(SailfishRpmOutputDir)/$(SailfishRpmFileName).yaml" />
   </Target>
 
   <!-- ================= Device run verb ================= -->
-  <!-- -t:SailfishRun deploys over SSH and streams the device log; tools come from the repo clone or the package. -->
+  <!-- The sailfish tool (src/Linux.SailfishOS.Tools): packed beside these targets, or a checkout's build output. It runs
+       on the dotnet that runs the build, with no shell, so these verbs work on Windows too (tracker S56). -->
   <PropertyGroup>
-    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == '' and Exists('$(MSBuildThisFileDirectory)../../../tools/sf')">$(MSBuildThisFileDirectory)../../../tools/</SailfishToolsDir>
-    <SailfishToolsDir Condition="'$(SailfishToolsDir)' == ''">$(MSBuildThisFileDirectory)tools/</SailfishToolsDir>
+    <SailfishToolDll Condition="'$(SailfishToolDll)' == '' and Exists('$(MSBuildThisFileDirectory)tools/sailfish/sailfish.dll')">$(MSBuildThisFileDirectory)tools/sailfish/sailfish.dll</SailfishToolDll>
+    <SailfishToolDll Condition="'$(SailfishToolDll)' == ''">$(MSBuildThisFileDirectory)../../../artifacts/sailfish-tool/sailfish.dll</SailfishToolDll>
+    <_SailfishDotnet Condition="'$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</_SailfishDotnet>
+    <_SailfishDotnet Condition="'$(_SailfishDotnet)' == ''">dotnet</_SailfishDotnet>
+    <_SailfishTool>&quot;$(_SailfishDotnet)&quot; &quot;$(SailfishToolDll)&quot;</_SailfishTool>
   </PropertyGroup>
+  <Target Name="_SailfishToolArgs">
+    <PropertyGroup>
+      <_SailfishToolArgs>--project &quot;$(MSBuildProjectFullPath)&quot; -f $(TargetFramework) -c $(Configuration) --package $(SailfishPackageName)</_SailfishToolArgs>
+      <_SailfishToolArgs Condition="'$(RuntimeIdentifier)' != ''">$(_SailfishToolArgs) --rid $(RuntimeIdentifier)</_SailfishToolArgs>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(SailfishToolDll)')"
+           Text="The sailfish device tool is missing at $(SailfishToolDll). In a checkout, build src/Linux.SailfishOS.Tools; or set -p:SailfishToolDll=." />
+  </Target>
 
-  <!-- No Publish dependency: `sf deploy` publishes itself, and a dependency would publish twice. -->
+  <!-- No Publish dependency: deploy publishes itself, and a dependency would publish twice. -->
   <Target Name="SailfishRun"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
-    <Error Condition="!Exists('$(SailfishToolsDir)sf')"
-           Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf&quot; setup --if-needed" />
-    <Message Importance="high" Text="SailfishRun: deploying $(SailfishPackageName) and launching on the device (tools: $(SailfishToolsDir))..." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; bash &quot;$(SailfishToolsDir)sf&quot; deploy --run" />
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'"
+          DependsOnTargets="_SailfishToolArgs">
+    <Exec Command="$(_SailfishTool) setup --if-needed --project &quot;$(MSBuildProjectFullPath)&quot;" />
+    <Message Importance="high" Text="SailfishRun: deploying $(SailfishPackageName) and launching it on the phone..." />
+    <Exec Command="$(_SailfishTool) deploy --run $(_SailfishToolArgs)" />
   </Target>
 
   <!-- ================= dotnet run ================= -->
@@ -780,12 +810,11 @@ $(_SailfishDBusServiceFile)
           Condition="'$(_SailfishLegPlatform)' == 'sailfish' And '$(_SailfishIsApp)' == 'true'" />
 
   <!-- ================= Build-time Warning ================= -->
-  <!-- One-time phone setup: -t:SailfishSetup (-p:SailfishSetupForce=true to redo). -->
+  <!-- One-time phone setup: -t:SailfishSetup (-p:SailfishSetupForce=true to redo); it asks on the terminal (/dev/tty). -->
   <Target Name="SailfishSetup"
-          Condition="'$(_SailfishLegPlatform)' == 'sailfish'">
-    <Error Condition="!Exists('$(SailfishToolsDir)sf')"
-           Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf&quot; setup$(_SailfishSetupForceArg)" />
+          Condition="'$(_SailfishLegPlatform)' == 'sailfish'"
+          DependsOnTargets="_SailfishToolArgs">
+    <Exec Command="$(_SailfishTool) setup$(_SailfishSetupForceArg) --project &quot;$(MSBuildProjectFullPath)&quot;" />
   </Target>
   <PropertyGroup>
     <_SailfishSetupForceArg Condition="'$(SailfishSetupForce)' == 'true'"> --force</_SailfishSetupForceArg>

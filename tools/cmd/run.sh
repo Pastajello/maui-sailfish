@@ -70,8 +70,8 @@ if [ -n "$FOLLOW" ]; then
 		exit 130
 	}
 	trap _sf_run_stop INT TERM
-	sf_ssh "/tmp/sf-run-remote.sh $SF_PKG $SF_BIN - $ENV_B64" \
-		|| sf_die "the app did not stay alive on the device (see the log output above)"
+	# The exit code the app logs decides (below): an app done within the helper's 10 s launch window is no failed start.
+	sf_ssh "/tmp/sf-run-remote.sh $SF_PKG $SF_BIN - $ENV_B64" || true
 	sf_info "streaming the app log (Ctrl+C stops $SF_PKG)"
 	# The log from its first line (the launch window above showed part of it), until the process is gone. The bracketed
 	# first letter keeps pgrep from matching this shell. No expect timeout: a quiet app is not a dead ssh.

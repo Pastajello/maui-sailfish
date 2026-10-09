@@ -14,7 +14,7 @@ namespace Microsoft.Maui.SailfishOS.Platform.QtHost;
 /// taps, pans and swipes, the second one a pinch; wheel is not routed (Silica's flickables take it natively), and
 /// gestures are dispatched to the MAUI main thread.
 /// </summary>
-internal sealed class QtHostInputRouter
+internal sealed partial class QtHostInputRouter
 {
 	/* Pointer kinds exactly as the shim emits them (sailfish_host.h). */
 	private const int MousePress = 0;
@@ -329,6 +329,10 @@ internal sealed class QtHostInputRouter
 			return;
 		}
 
+		// A view with a DragGestureRecognizer starts a drag when held still (QtHostInput.Drag.cs); until then the press
+		// routes as usual.
+		ArmDrag(ve, host, dpX, dpY);
+
 		// A GraphicsView takes the touch itself, as on the other platforms: IGraphicsView Start/Drag/EndInteraction
 		// with points in its own coordinates (tracker S31); its recognizers, if any, follow below as anywhere else.
 		if (ve is IGraphicsView graphics)
@@ -386,12 +390,16 @@ internal sealed class QtHostInputRouter
 	/// <paramref name="hit"/> and <paramref name="cellRoot"/> takes the sequence as anywhere else. Taps stay with the
 	/// row's own path (list-item-tapped). <paramref name="hold"/> keeps the ListView from stealing a captured pan.
 	/// </summary>
-	internal bool CaptureRow(View hit, View cellRoot, Action<bool> hold)
+	internal bool CaptureRow(View hit, View cellRoot, Action<bool> hold, string? ghostName = null, Action<bool>? dragging = null)
 	{
 		// The delegate's press report can arrive after the release (events queued behind a fast tap): nothing to capture.
-		if (!_fingerDown || _captured is not null || !TryFindRecognizers(hit, out var owner, out _, out var pans, out var swipes,
-			    out var longPresses, out var pointers, out var pinches, stopAt: cellRoot, skipTaps: true))
+		if (!_fingerDown || _captured is not null)
 			return false;
+		// A DragGestureRecognizer in the row's template arms a drag as anywhere else (tracker S40).
+		var dragArmed = ArmRowDrag(hit, cellRoot, hold, ghostName, dragging);
+		if (!TryFindRecognizers(hit, out var owner, out _, out var pans, out var swipes,
+			    out var longPresses, out var pointers, out var pinches, stopAt: cellRoot, skipTaps: true))
+			return dragArmed;
 		_taps = null;
 		_pans = pans;
 		_swipes = swipes;
@@ -558,6 +566,8 @@ internal sealed class QtHostInputRouter
 
 	private void OnMove(int kind, double x, double y)
 	{
+		if (DragMove(x, y))
+			return;   // the drag owns the finger
 		if (_tabSwipeArmed)
 			TrackTabDrag(x, y);
 		if (_interaction is { } graphics)
@@ -607,6 +617,18 @@ internal sealed class QtHostInputRouter
 		_holdFlyout = null;
 		_holdFired = false;
 		_holdHostId = null;
+		if (DragRelease(x, y))
+		{
+			EndInteraction(x, y);
+			if (_captured is not null)
+			{
+				CancelLongPress();
+				ClearCapture();
+			}
+			if (_trace)
+				Trace(kind, x, y, "release ends a drag — no tap or pan");
+			return;
+		}
 		FinishTabSwipe(x, y);
 		EndInteraction(x, y);
 
@@ -778,7 +800,10 @@ internal sealed class QtHostInputRouter
 	private void OnSecondPoint(double x, double y, int fingersDown)
 	{
 		if (fingersDown >= 2)
+		{
 			CancelInteraction();
+			CancelDrag();
+		}
 		if (_captured is null || _pinches is null)
 			return;
 		var p1X = _pressDpX + _totalDpX;

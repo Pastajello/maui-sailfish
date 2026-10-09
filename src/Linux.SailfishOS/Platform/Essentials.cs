@@ -498,7 +498,10 @@ internal sealed class SailfishAppInfo : IAppInfo
 	/// <summary>Packaged when it was built as an RPM (the meta carries its package name).</summary>
 	public AppPackagingModel PackagingModel => _meta.Application is null ? AppPackagingModel.Unpackaged : AppPackagingModel.Packaged;
 
-	public LayoutDirection RequestedLayoutDirection => LayoutDirection.LeftToRight;
+	/// <summary>Right to left for an RTL locale: Qt's layout direction once the host runs (Qt derives it from the
+	/// locale, LANG), the current UI culture before. An InvariantGlobalization build has no culture to ask, so only Qt
+	/// answers there (sailfishos-packaging.md, "Locale and right-to-left").</summary>
+	public LayoutDirection RequestedLayoutDirection => SailfishLayoutDirection.Current;
 
 	public void ShowSettingsUI() =>
 		throw new FeatureNotSupportedException("Sailfish OS has no per-app settings page to open.");

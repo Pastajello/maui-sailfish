@@ -647,7 +647,18 @@ internal sealed class AdapterEventRouter
 		{
 			using var doc = JsonDocument.Parse(payload);
 			var root = doc.RootElement;
-			if (!_r.TryResolveHost(root, out _, out var host) || host.Element is not WebView web)
+			if (!_r.TryResolveHost(root, out _, out var host))
+				return;
+			// A HybridWebView rides the same Gecko adapter: its scripts answer here, its page loads are its own.
+			if (host.Element is HybridWebView { Handler: Handlers.SailfishHybridWebViewHandler hybrid })
+			{
+				if (name == "webview-js")
+					hybrid.CompleteJs(root.GetProperty("req").GetString() ?? string.Empty,
+						root.TryGetProperty("ok", out var hybridOk) && hybridOk.ValueKind == JsonValueKind.True,
+						root.TryGetProperty("result", out var hybridResult) ? hybridResult.GetString() : null);
+				return;
+			}
+			if (host.Element is not WebView web)
 				return;
 			var view = (IWebView)web;
 			switch (name)

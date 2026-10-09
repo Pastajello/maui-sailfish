@@ -234,12 +234,17 @@ the app.
 
 ```csharp
 AppTheme theme = SailfishTheme.Current;              // the ambience's light/dark, as Application.RequestedTheme
+Color? accent = SailfishTheme.HighlightColor;        // the ambience's highlight (also PrimaryColor, SecondaryColor,
+SailfishTheme.ColorsChanged += () => Restyle();      //   SecondaryHighlightColor); changes with every ambience
 SailfishOrientation o = SailfishDisplay.Orientation;  // Portrait, Landscape, …
 double density = SailfishDisplay.Density;            // pixels per dp
 SailfishDisplay.Changed += () => Relayout();
 ```
 
-Prefer `Application.RequestedTheme` and `DeviceDisplay` in shared code: they carry the same values.
+Prefer `Application.RequestedTheme` and `DeviceDisplay` in shared code: they carry the same values. The theme is right
+from the start: the app's constructor and `CreateWindow` already see the ambience's light or dark (read from its
+setting while MAUI builds the app), so the first frame never shows the other one. The colours are known once the app's
+window is up (null before).
 
 Shared code that branches per platform compares `DeviceInfo.Platform` with `SailfishPlatform.DevicePlatform`, as it
 does with `DevicePlatform.Android`.

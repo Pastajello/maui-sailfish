@@ -41,6 +41,7 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | `DockedPanel` | — | Sailfish API `SailfishBottomSheet` | controls H, popup D |
 | `Drawer` | — | internal interaction host only (no public API) | controls H |
 | `MouseArea { preventStealing: true }` (a drag the item keeps from the page) | `Pan`/`Swipe`/`PinchGestureRecognizer` on a view (default); `SailfishOSSpecific.VisualElement.KeepsDrag=false` opts out | native: back swipe and pulley wait for the drag | input |
+| Long-press drag of a list item or a view onto a target (`DragHandler`/`DropArea` in Qt Quick terms) | `DragGestureRecognizer` + `DropGestureRecognizer` (`DragStarting`, `DragOver`, `Drop`, `DropCompleted`), also from `CollectionView` rows | router + page ghost | input |
 | Pull to refresh | `RefreshView` (page without a pulley, or a list/ScrollView) | native gesture | collection, f3 L |
 | Refresh from the pulley | `RefreshView` on a page with `ToolbarItems` or a Shell/FlyoutPage flyout (the pulley owns the overscroll) | a **Refresh** `MenuItem` nearest the content sets `IsRefreshing`; the pulley bar pulses while it is true | pulley A2 |
 | `TapInteractionHint`, `InteractionHintLabel`, `FirstTimeUseCounter` | — | n/a (app-specific tutorials) | — |

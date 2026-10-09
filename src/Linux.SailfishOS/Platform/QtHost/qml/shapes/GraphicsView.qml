@@ -33,6 +33,30 @@ Canvas {
     property string mauiPixelHash: "0"
     property bool mauiWantHash: false
     property int mauiDashes: 0
+    property int mauiImageOps: 0
+
+    // DrawImage and ImagePaint name file URLs (QtHostDrawnImages); Context2D draws an image only once it is loaded,
+    // so the first paint asks for it and the load paints again.
+    property var __imageRequests: ({})
+    onImageLoaded: requestPaint()
+    function __imageReady(url) {
+        if (!url)
+            return false;
+        if (isImageLoaded(url))
+            return true;
+        if (isImageError(url)) {
+            if (__imageRequests[url] !== "error") {
+                __imageRequests[url] = "error";
+                console.log("[Sailfish] graphics " + objectName + ": image did not load: " + url);
+            }
+            return false;
+        }
+        if (!__imageRequests[url]) {
+            __imageRequests[url] = "loading";
+            loadImage(url);
+        }
+        return false;
+    }
 
     // Qt 5.6 cannot change strategy/target once the context exists, and pixel
     // readback (mauiWantHash) is unsupported in Cooperative mode, hence Immediate + FBO.
@@ -65,6 +89,7 @@ Canvas {
         ctx.clearRect(0, 0, width, height);
         mauiPaints++;
         mauiDashes = 0;
+        mauiImageOps = 0;
         var st = {
             fill: null, stroke: "#000000", lineWidth: 1, fontColor: "#000000",
             fontSize: 12, fontName: mauiFontFamily, fontWeight: 400, fontItalic: false,
@@ -219,8 +244,14 @@ Canvas {
                 st.executed++;
                 break;
             case "img":
-                /* IImage has no decoded pixels on this platform yet; counted as skipped. */
-                st.skipped++;
+                /* ["img", url, x, y, w, h]: skipped until the image has loaded (onImageLoaded paints again). */
+                if (c.length > 5 && __imageReady(c[1])) {
+                    ctx.drawImage(c[1], c[2], c[3], c[4], c[5]);
+                    mauiImageOps++;
+                    st.executed++;
+                } else {
+                    st.skipped++;
+                }
                 break;
             /* --- text --- */
             case "strp":
@@ -295,6 +326,13 @@ Canvas {
             if (spec[0] === "solid") {
                 ctx.fillStyle = spec[1];
                 st.hasFill = true;
+            } else if (spec[0] === "image") {
+                /* ImagePaint: a repeating pattern once the image has loaded; nothing fills until then. */
+                if (__imageReady(spec[1])) {
+                    ctx.fillStyle = ctx.createPattern(spec[1], "repeat");
+                    st.hasFill = true;
+                    mauiImageOps++;
+                }
             } else {
                 var g = PathOps.paintStyle(ctx, spec, null);
                 if (g) {

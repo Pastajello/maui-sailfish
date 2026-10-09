@@ -55,7 +55,8 @@ internal sealed partial class QtHostDiagnosticsRunner
 		void Check()
 		{
 			var atEnd = ListProp("atYEnd");
-			_qtColChecks.Check($"chat S26: KeepLastItemInView follows 3 appended messages to the end (atYEnd {atEnd}, last visible item {lastVisible}=={messages.Count - 1})",
+			_qtColChecks.Check($"chat S26: KeepLastItemInView follows 3 appended messages to the end (atYEnd {atEnd}, last visible item {lastVisible}=={messages.Count - 1}; " +
+				$"contentY {ListProp("contentY")}, contentHeight {ListProp("contentHeight")}, height {ListProp("height")})",
 				atEnd == "true" && lastVisible == messages.Count - 1);
 			Shot(dispatcher, "collection-chat", () =>
 			{

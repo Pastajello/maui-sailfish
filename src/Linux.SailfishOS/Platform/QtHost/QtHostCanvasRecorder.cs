@@ -162,10 +162,11 @@ internal sealed class QtHostCanvasRecorder : ICanvas
 
 	/* --- images --- */
 
-	/// <summary>IImage has no decoded pixels here, so this only records a skip. Fully qualified because
-	/// Microsoft.Maui.IImage (the view contract) shadows the Graphics one.</summary>
+	/// <summary>The image's cache file URL (QtHostDrawnImages); the adapter loads it and draws it into the rectangle
+	/// (S50). An empty URL (no bytes) is a skip. Fully qualified because Microsoft.Maui.IImage (the view contract)
+	/// shadows the Graphics one.</summary>
 	public void DrawImage(Microsoft.Maui.Graphics.IImage image, float x, float y, float width, float height) =>
-		Add("img");
+		Add("img", QtHostDrawnImages.Url(image) ?? string.Empty, Num(x), Num(y), Num(width), Num(height));
 
 	/* --- text --- */
 

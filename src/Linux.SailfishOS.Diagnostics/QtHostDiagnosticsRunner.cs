@@ -1029,8 +1029,12 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 				Console.Error.WriteLine($"[Sailfish] Qt shapes diag: mauiWantHash push failed rc={rc} ({QtHost.QtHostRuntime.LastErrorText})");
 		}
 		Console.Error.WriteLine($"[Sailfish] Qt shapes diag: leg B — pixel readback armed on {shapes.Count + canvases.Count} Canvas adapters");
-		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200),
-			() => VerifyQtShapesPaint(shapes, canvases, images));
+		dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), () =>
+		{
+			VerifyQtShapesPaint(shapes, canvases, images);
+			RunQtImageChecks();
+			RunQtDrawImageCheck(renderer, dispatcher, FinishQtShapesDiagnostics);
+		});
 	}
 
 	/// <summary>Shapes leg C: every Canvas adapter really painted pixels, the IDrawable stream was replayed and Qt decoded all four Aspect modes.</summary>
@@ -1064,7 +1068,7 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			Console.Error.WriteLine($"[Sailfish] Qt shapes diag: canvas executed={executed} skipped={skipped} hash={hash}");
 		}
 		_qtShapesChecks.Check($"IDrawable stream replayed in Qt: executed={executed} skipped={skipped} pixels={canvasPixels} " +
-		            "(grid + filled path + circle + text; the skips are the Qt 5.6 gaps: line dash, clip subtraction, images)",
+		            "(grid + filled path + circle + text; the skips are the Qt 5.6 gaps: line dash, clip subtraction)",
 			executed >= 20 && canvasPixels > 0);
 
 		// The extended IDrawable stream carries a LinearGradientPaint fill (fpaint) and a ClipRectangle (clipr); the adapter counts both.
@@ -1078,7 +1082,6 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 		_qtShapesChecks.Check($"images decoded by Qt: {loaded}/{images.Count} aspects=[{aspects}] (Fill/AspectFit/AspectFill/Center)",
 			images.Count >= 4 && loaded == images.Count);
 
-		FinishQtShapesDiagnostics();
 	}
 
 	/// <summary>The painted-pixel count of a mauiPixelHash witness ("hash:painted/total").</summary>
@@ -4016,7 +4019,8 @@ internal sealed partial class QtHostDiagnosticsRunner : IQtHostDiagnostics
 			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600),
 				() => RunQtRouterChecks(renderer, dispatcher,
 					() => RunQtDragHoldChecks(renderer, dispatcher,
-						() => RunQtGraphicsInteractionCheck(renderer, dispatcher, () => VerifyQtInputDiagnostics(renderer, dispatcher, router)))));
+						() => RunQtGraphicsInteractionCheck(renderer, dispatcher,
+							() => RunQtDragDropCheck(renderer, dispatcher, () => VerifyQtInputDiagnostics(renderer, dispatcher, router))))));
 		});
 	}
 

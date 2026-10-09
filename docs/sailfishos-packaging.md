@@ -72,13 +72,14 @@ bundled inside the package and no runtime dependencies are declared.
 
 ## Prerequisites
 
-- .NET SDK (net11.0)
-- `rpmbuild` on the build host:
-  - macOS: `brew install rpm`
-  - Linux: `sudo dnf install rpm-build` or `sudo apt install rpm`
-  - hosts without a package manager: nothing to install — `tools/lib/sf-lib.sh`
-    (`sf_use_rpm_shims`) falls back to the pure-Python `tools/py/sf-rpmbuild.py`,
-    which writes a byte-compatible RPM (cpio/xz payload) with the stdlib only
+- .NET SDK (net11.0). Nothing else builds the package: the `SailfishRpmPack` MSBuild task writes the RPM itself
+  (lead, signature and main header, gzip-compressed cpio payload), so `dotnet publish -p:CreateSailfishRpm=true`
+  works on macOS, Linux and Windows without `rpmbuild`, python3 or a shell. File modes do not come from the build
+  host: directories and ELF or `#!` files are 0755, everything else 0644. `/usr/bin/<package>` is a symlink declared
+  to the task, not created on disk.
+- `-p:SailfishRpmBuilder=rpmbuild` uses a host `rpmbuild` with the generated spec instead (Unix only; macOS
+  `brew install rpm`, Linux `rpm-build`). The payload is then xz, about a quarter smaller (the sample: 14.1 MB
+  instead of 18.2 MB). `SailfishRpmSignKey` (`rpm --addsign`) needs host `rpm` with either builder.
 
 > Note: the official Sailfish SDK (`sfdk`) is not required to *build* the RPM.
 > It is only needed if you want to build inside the Sailfish build engine or
@@ -134,7 +135,7 @@ Size         : 86304638
 | `SailfishDescription` | `$(Description)` or app title | RPM description |
 | `SailfishVendor` | `$(Authors)` | RPM vendor |
 | `SailfishLicense` | `$(PackageLicenseExpression)` or `MIT` | RPM license |
-| `SailfishRuntimeIdentifier` | *(empty)* → `linux-arm64` | RID of the `net11.0-sailfish` head only; `tools/sf deploy` passes it instead of a global `-r`, which would also reach the project's other heads |
+| `SailfishRuntimeIdentifier` | *(empty)* → `linux-arm64` | RID of the `net11.0-sailfish` head only; `sailfish deploy` and `tools/sf deploy` pass it instead of a global `-r`, which would also reach the project's other heads |
 | `SailfishRpmArch` | derived from RID | `x86_64` / `aarch64` / `armv7hl` |
 | `SailfishRpmOutputDir` | `bin/SailfishRpm` | Output directory |
 | `SailfishRpmFileName` | `<pkg>-<ver>-<rel>.<arch>.rpm` | Output file name |
@@ -207,6 +208,16 @@ RID to RPM architecture mapping:
 | `linux-arm64` | `aarch64` |
 | `linux-arm` | `armv7hl` |
 
+### Locale and right to left
+
+.NET takes the culture from `LANG`, which an app started from the app grid gets from the user's language setting, and
+formats through the phone's ICU (`libicu` 73 on SFOS 5.2), as on Linux desktops. With `InvariantGlobalization=true`
+(smaller, no ICU) every culture is the invariant one: dates and numbers format as in English and
+`CultureInfo.CurrentUICulture` says nothing about the user's language. `AppInfo.RequestedLayoutDirection` then still
+follows the language through Qt (`Qt.application.layoutDirection`, right to left for Arabic or Hebrew), read once the
+host runs; before that it comes from the current UI culture. An app started over SSH (`tools/sf run`) runs with the
+SSH session's `LANG`, which may be empty.
+
 ## Installing on a device
 
 From an app (template or package consumer): `dotnet run -f net11.0-sailfish`
@@ -214,7 +225,7 @@ publishes, installs and launches, then streams the app log until it exits (Ctrl+
 stops the app); `dotnet build -f net11.0-sailfish -t:SailfishRun` returns after
 the launch window instead. The first run asks for the
 phone (address, SSH user, developer-mode password — Settings > Developer tools >
-Remote connection) through `tools/sf setup`, stores it in
+Remote connection) through the `sailfish` tool's `setup` (the package carries it), stores it in
 `~/.config/maui-sailfish/connect.info` (0600; `known_hosts` next to it) and
 installs your SSH key; `-t:SailfishSetup` runs just that
 (`-p:SailfishSetupForce=true` to change the phone). Lookup order for the
@@ -224,7 +235,8 @@ address. The questions need a terminal: the .NET 11 CLI runs targets in the
 background MSBuild server, so from a shell use
 `DOTNET_CLI_USE_MSBUILD_SERVER=0 dotnet build -f net11.0-sailfish -t:SailfishSetup`
 (the template's VS Code F5 and tasks set it); otherwise, and in CI, the missing
-setup fails with the exact `bash …/sf-setup.sh` command and the file format.
+setup fails with the exact `dotnet "…/sailfish.dll" setup` command to run in a terminal (on Windows always: run it,
+or `sailfish setup`, once).
 
 
 Sailfish OS ships no `zypper` CLI; the system package-manager front-end is
@@ -247,9 +259,9 @@ remove → desktop/icon/permission compliance → launcher-path launches) is
 ./tools/sf package-test
 ```
 
-For day-to-day iteration use `tools/sf deploy --run --screenshot` (publish → upload →
-`rpm -Uvh --force` → verify → run → screenshot); it is faster than the
-PackageKit round-trip but bypasses the zypp stack.
+For day-to-day iteration use `dotnet run -f net11.0-sailfish` or `sailfish deploy --run` (publish → upload with a
+sha256 check → `rpm -Uvh --force` → run); in a checkout `tools/sf deploy --run --screenshot` adds the full
+verify (RPM vs device file digests, `rpm -V`). Both are faster than the PackageKit round-trip but bypass the zypp stack.
 
 ## harbour compliance notes
 
@@ -315,5 +327,5 @@ ships in the package next to the shim (`runtimes/<rid>/native/`).
   resampled to 86, 108, 128 and 172 px (`SailfishIconSizes`). Ship at least
   172x172 — smaller sources are upscaled with a build warning.
   `-p:SailfishSkipIconCheck=true` copies the file unchanged as the 108 px icon.
-- No `sfdk`/Sailfish SDK integration; the RPM is built with the host rpmbuild
-  (or the pure-Python fallback).
+- No `sfdk`/Sailfish SDK integration; the RPM is built by the `SailfishRpmPack` task
+  (or a host rpmbuild with `-p:SailfishRpmBuilder=rpmbuild`).

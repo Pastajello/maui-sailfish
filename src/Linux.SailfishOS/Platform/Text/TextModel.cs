@@ -14,7 +14,8 @@ internal sealed class TextSpan
 
 	public FontAttributes Attributes { get; init; }
 
-	public int FontSize { get; init; } = (int)Handlers.SailfishMeasure.DefaultFontSize;
+	/// <summary>Size in dp, as painted (auto-scaled, or inherited from the label).</summary>
+	public double FontSize { get; init; } = Handlers.SailfishMeasure.DefaultFontSize;
 
 	/// <summary>Extra tracking between characters, in device units.</summary>
 	public double CharacterSpacing { get; init; }

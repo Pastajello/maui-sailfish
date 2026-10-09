@@ -27,6 +27,7 @@ internal sealed class TestStatics : IDisposable
 	private readonly Action _cover = SailfishCover.CaptureForTests();
 	private readonly Action _openUrl = SailfishOpenUrl.CaptureForTests();
 	private readonly Action _theme = SailfishTheme.CaptureForTests();
+	private readonly Action _layoutDirection = SailfishLayoutDirection.CaptureForTests();
 	private readonly Action _remorse = SailfishRemorse.CaptureForTests();
 
 	public void Dispose()
@@ -36,6 +37,7 @@ internal sealed class TestStatics : IDisposable
 		QtHostTextMetrics.Enabled = _textMetrics;
 		QtHostTextMetrics.CacheEnabled = _textCache;
 		QtHostTextMetrics.ClearCache();
+		SailfishMeasure.ClearThemeCache();
 		SailfishMauiApplication.Diagnostics = _diagnostics;
 		_adapters();
 		_libraryHandlers();
@@ -47,6 +49,7 @@ internal sealed class TestStatics : IDisposable
 		_cover();
 		_openUrl();
 		_theme();
+		_layoutDirection();
 		_remorse();
 	}
 }

@@ -172,8 +172,10 @@ dotnet build   -f net11.0-sailfish -t:SailfishRun  # deploy + launch, back after
 ```
 
 `dotnet run` goes through the SDK's device protocol like the Android and iOS heads: it builds, runs `DeployToDevice`
-(`tools/sf deploy`: publish, install, verify) and then `tools/sf run --follow`, which streams the app's log until it
-exits and returns its exit code. `-p:SailfishRuntimeIdentifier=linux-arm` targets a 32-bit phone.
+(`sailfish deploy`: publish the RPM, upload it with a sha256 check, install it) and then `sailfish run --follow`,
+which streams the app's log until it exits and returns its exit code; Ctrl+C stops the app on the phone. The
+`sailfish` tool ships in the package (C# over the system OpenSSH), so this works from Windows too.
+`-p:SailfishRuntimeIdentifier=linux-arm` targets a 32-bit phone.
 
 Packaging and store properties (`SailfishPermissions`, `SailfishHarbour`, `SailfishCover`, …) are listed in
 [sailfishos-packaging.md](sailfishos-packaging.md). For F5 in VS Code install the

@@ -63,6 +63,19 @@ internal sealed partial class QtHostDiagnosticsRunner
 		var fresh = new SailfishPreferences();
 		_qtF4Checks.Check($"A Preferences persisted: a fresh store reads stamp {fresh.Get("f4_stamp", 0L)}=={stamp}", fresh.Get("f4_stamp", 0L) == stamp);
 
+		// Tracker S46: the ambience's colours as Silica has them, the theme seeded before the host ran, and the layout
+		// direction from Qt's locale.
+		var qtHighlight = QtHost.QtHostRuntime.Eval("Theme.highlightColor + ''");
+		var highlight = SailfishTheme.HighlightColor;
+		var qtScheme = QtHost.QtHostRuntime.Eval("Theme.colorScheme === Theme.DarkOnLight ? 'light' : 'dark'");
+		_qtF4Checks.Check($"A SailfishTheme S46: HighlightColor {highlight?.ToArgbHex(true)} matches Theme.highlightColor '{qtHighlight}', " +
+			$"PrimaryColor {SailfishTheme.PrimaryColor?.ToArgbHex(true)}, Current {SailfishTheme.Current} for a {qtScheme} ambience, " +
+			$"RequestedLayoutDirection {AppInfo.Current.RequestedLayoutDirection}",
+			highlight is not null && qtHighlight.StartsWith('#') && highlight.Equals(Microsoft.Maui.Graphics.Color.FromArgb(qtHighlight)) &&
+			SailfishTheme.PrimaryColor is not null &&
+			SailfishTheme.Current == (qtScheme == "light" ? AppTheme.Light : AppTheme.Dark) &&
+			AppInfo.Current.RequestedLayoutDirection == LayoutDirection.LeftToRight);
+
 		// Tracker S53: reflection-based System.Text.Json works in a trimmed Release, as on Android (the SDK turns it off for
 		// trimmed apps; the backend's targets turn it back on under TrimMode=partial).
 		try
@@ -119,8 +132,11 @@ internal sealed partial class QtHostDiagnosticsRunner
 			contactsLoaded = false;
 		}
 		_qtF4Checks.Check($"A Contacts.GetAllAsync → {contactsAnswer}", contactsLoaded);
+		// No Sailjail permission reaches the torch: a sandboxed app reports it unsupported (tracker S12).
 		var torch = await Flashlight.Default.IsSupportedAsync();
-		_qtF4Checks.Check($"A Flashlight.IsSupportedAsync={torch} (the sample is not sandboxed)", torch);
+		var sandboxed = SailfishPermissions.IsSandboxed;
+		_qtF4Checks.Check($"A Flashlight.IsSupportedAsync={torch} ({(sandboxed ? "sandboxed: expected unsupported" : "not sandboxed: expected supported")})",
+			torch != sandboxed);
 		var coverBefore = SailfishCover.Actions;
 		await AppActions.Current.SetAsync(new[] { new AppAction("f4a", "A", icon: "icon-cover-refresh"), new AppAction("f4b", "B") });
 		var cover = SailfishCover.Actions;

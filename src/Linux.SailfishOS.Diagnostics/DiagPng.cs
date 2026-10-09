@@ -58,6 +58,69 @@ internal sealed class DiagPng
 		}
 	}
 
+	/// <summary>Decodes PNG bytes (8-bit gray/RGB/RGBA, non-interlaced).</summary>
+	public static DiagPng FromBytes(byte[] png) => Decode(png);
+
+	/// <summary>An 8-bit RGBA PNG of <paramref name="width"/> × <paramref name="height"/> with the pixels
+	/// <paramref name="pixel"/> gives (unfiltered rows), to feed a decoder under test.</summary>
+	public static byte[] Encode(int width, int height, Func<int, int, (byte R, byte G, byte B, byte A)> pixel)
+	{
+		var raw = new byte[(width * 4 + 1) * height];
+		for (var y = 0; y < height; y++)
+		for (var x = 0; x < width; x++)
+		{
+			var (r, g, b, a) = pixel(x, y);
+			var o = y * (width * 4 + 1) + 1 + x * 4;
+			(raw[o], raw[o + 1], raw[o + 2], raw[o + 3]) = (r, g, b, a);
+		}
+		using var compressed = new MemoryStream();
+		using (var z = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+			z.Write(raw);
+		var ihdr = new byte[13];
+		BigEndian(ihdr, 0, width);
+		BigEndian(ihdr, 4, height);
+		(ihdr[8], ihdr[9]) = (8, 6);   // 8-bit RGBA; compression, filter, interlace 0
+		using var png = new MemoryStream();
+		png.Write([0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+		Chunk(png, "IHDR", ihdr);
+		Chunk(png, "IDAT", compressed.ToArray());
+		Chunk(png, "IEND", []);
+		return png.ToArray();
+	}
+
+	private static void BigEndian(byte[] buffer, int at, int value)
+	{
+		buffer[at] = (byte)(value >> 24);
+		buffer[at + 1] = (byte)(value >> 16);
+		buffer[at + 2] = (byte)(value >> 8);
+		buffer[at + 3] = (byte)value;
+	}
+
+	private static void Chunk(Stream png, string kind, byte[] data)
+	{
+		var head = new byte[8];
+		BigEndian(head, 0, data.Length);
+		System.Text.Encoding.ASCII.GetBytes(kind, 0, 4, head, 4);
+		png.Write(head);
+		png.Write(data);
+		var crc = new byte[4];
+		BigEndian(crc, 0, (int)Crc32(head.AsSpan(4), data));
+		png.Write(crc);
+	}
+
+	private static uint Crc32(ReadOnlySpan<byte> kind, ReadOnlySpan<byte> data)
+	{
+		var crc = 0xFFFFFFFFu;
+		foreach (var span in new[] { kind.ToArray(), data.ToArray() })
+		foreach (var b in span)
+		{
+			crc ^= b;
+			for (var k = 0; k < 8; k++)
+				crc = (crc & 1) != 0 ? 0xEDB88320u ^ (crc >> 1) : crc >> 1;
+		}
+		return crc ^ 0xFFFFFFFFu;
+	}
+
 	private static DiagPng Decode(byte[] png)
 	{
 		if (png.Length < 8 || png[1] != 'P' || png[2] != 'N' || png[3] != 'G')

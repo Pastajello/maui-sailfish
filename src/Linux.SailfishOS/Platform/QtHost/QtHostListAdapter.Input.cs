@@ -164,7 +164,8 @@ internal sealed partial class QtHostListAdapter
 		var hit = HitInCell(cellRoot, row.CellX[cellIndex], Horizontal, QtHostUnits.ToLogical(xQt), QtHostUnits.ToLogical(yQt), out _);
 		if (!hit.IsEnabled)
 			return;
-		var captured = router.CaptureRow(hit, cellRoot, hold => Push("mauiHoldRow", hold ? rowIndex : -1));
+		var captured = router.CaptureRow(hit, cellRoot, hold => Push("mauiHoldRow", hold ? rowIndex : -1), DelegatePrefix + rowIndex,
+			dragging => Push("mauiDragRow", dragging ? rowIndex : -1));
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"collection row {rowIndex} cell {cellIndex} pressed on {hit.GetType().Name} → router capture={captured}");
 	}
 

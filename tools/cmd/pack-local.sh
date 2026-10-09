@@ -40,6 +40,11 @@ dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.WorkloadManifest/Linux.SailfishOS.W
 echo "==> sailfish-workload tool → $FEED"
 dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" -c Release -o "$FEED" --nologo -v quiet
 rm -rf "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.workload/$VERSION"
+# and the sailfish device tool on its own (dotnet tool install -g Microsoft.Maui.Platforms.SailfishOS.Tools); the backend
+# package carries the same build for its targets.
+echo "==> sailfish tool → $FEED"
+dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj" -c Release -o "$FEED" --nologo -v quiet
+rm -rf "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.tools/$VERSION"
 if [ "$TEMPLATE" = 1 ]; then
 	echo "==> template package → $FEED"
 	dotnet pack "$REPO_ROOT/templates/sailfishos/SailfishOS.Templates.csproj" -c Release -o "$FEED" --nologo -v quiet

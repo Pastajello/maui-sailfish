@@ -27,6 +27,7 @@
     <ProjectReference Include="../../src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.Workload/Linux.SailfishOS.Workload.csproj" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.Tools/Linux.SailfishOS.Tools.csproj" />
     <ProjectReference Include="../../src/Linux.SailfishOS.Build.Tasks/Linux.SailfishOS.Build.Tasks.csproj" />
     <!-- The build tasks run in MSBuild; their tests host them with the same assemblies. -->
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />

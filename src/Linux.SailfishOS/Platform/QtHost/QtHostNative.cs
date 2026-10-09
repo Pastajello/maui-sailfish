@@ -149,6 +149,14 @@ internal static class QtHostNative
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_measure_text(string json, out double w, out double h);
 
+	/* IImage on QImage (host_image.cpp): decoded size, and resize/re-encode into outBuf (returns the encoded size; not
+	 * written when larger than cap). Any thread. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_image_info(byte[] data, int len, out int w, out int h);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+	public static extern int sailfish_host_image_transform(byte[] data, int len, string op, byte[]? outBuf, int cap);
+
 	/* Window/screen geometry as JSON; returns its length or -1. */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_screen_info(IntPtr outBuf, int cap);

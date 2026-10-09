@@ -1,4 +1,6 @@
 import QtQuick 2.6
+// Qualified: unqualified, its Screen would shadow Silica's (Screen.topCutout).
+import QtQuick.Window 2.2 as QtWindow
 import Sailfish.Silica 1.0
 import "lib/adapter.js" as Adapter
 
@@ -67,6 +69,58 @@ Page {
             else
                 backNavigation = __heldBack;
         }
+    }
+    // Drag & drop (tracker S39): the router shows a snapshot of the dragged host under the finger. json: {show, x, y
+    // (window px), allowed, id (the source host, on the first show)}. Dimmed while no drop target accepts it.
+    function mauiDragGhost(json) {
+        var o = {};
+        try { o = JSON.parse(json); } catch (e) { o = {}; }
+        if (!o.show) {
+            dragGhost.visible = false;
+            dragGhost.sourceItem = null;
+            return;
+        }
+        var p = page.mapFromItem(null, o.x, o.y);
+        if (o.id !== undefined || o.name !== undefined) {
+            var h;
+            if (o.id !== undefined) {
+                var rec = __hosts[o.id];   // the host record; its QML item is .item
+                h = rec !== undefined && rec.item ? rec.item : undefined;
+            } else {
+                var found = __findByName(page, o.name, 0);   // a list row's delegate (rows have no page host)
+                h = found !== null ? found : undefined;
+            }
+            dragGhost.sourceItem = h !== undefined ? h : null;
+            dragGhost.width = h !== undefined ? h.width : 0;
+            dragGhost.height = h !== undefined ? h.height : 0;
+            // Grabbed where the finger is: the ghost keeps that point under it.
+            var g = h !== undefined ? h.mapFromItem(null, o.x, o.y) : Qt.point(0, 0);
+            dragGhost.grabX = g.x;
+            dragGhost.grabY = g.y;
+            dragGhost.scheduleUpdate();
+        }
+        dragGhost.x = p.x - dragGhost.grabX;
+        dragGhost.y = p.y - dragGhost.grabY;
+        dragGhost.allowed = !!o.allowed;
+        dragGhost.visible = dragGhost.sourceItem !== null;
+    }
+    function __findByName(item, name, depth) {
+        if (!item || depth > 24)
+            return null;
+        if (item.objectName === name)
+            return item;
+        var kids = item.children;
+        for (var i = 0; kids && i < kids.length; i++) {
+            var hit = __findByName(kids[i], name, depth + 1);
+            if (hit !== null)
+                return hit;
+        }
+        if (item.contentItem && item.contentItem !== item && depth < 24) {
+            var inner = __findByName(item.contentItem, name, depth + 1);
+            if (inner !== null)
+                return inner;
+        }
+        return null;
     }
     property double mauiContentHeight: 0
     // Diag (MAUI_SAILFISH_OPEN_PULLEY): freeze managed ScrollY writes so an opened pulley stays open.
@@ -601,11 +655,72 @@ Page {
 
     // Reports page size and Silica insets (Qt units) to managed, which defines the root
     // coordinate space and relayouts. The only dp conversion happens in managed (QtHostUnits).
+    // Keyboard (tracker S44). Silica shrinks the page by the keyboard panel (ApplicationWindow: height − panelSize),
+    // which suits a field inside a scrolling container: the ScrollView or list gets shorter and Silica's
+    // VerticalAutoScroll scrolls it to the field (Android's adjustResize). A field in plain page content has nothing to
+    // scroll it, and MAUI laying the page out at the smaller height clipped it. There the page keeps its full height for
+    // MAUI (the keyboard is a bottom inset) and its own flickable pans the field into view (adjustPan), then back.
+    readonly property real __keyboardInset: (pageStack && pageStack.panelSize !== undefined && page.status === PageStatus.Active) ? pageStack.panelSize : 0
+    property bool __keyboardPan: false
+
+    function __focusInScrollingContainer() {
+        var item = QtWindow.Window.activeFocusItem;
+        for (var p = item ? item.parent : null; p && p !== page; p = p.parent) {
+            if (p === flick.contentItem)
+                return false;   // reached the page's own flickable: plain content
+            if (p.flickableDirection !== undefined)
+                return true;    // a ScrollView, CollectionView or other Flickable in between
+        }
+        return true;            // not on this page: leave Silica's behaviour alone
+    }
+
+    function __panToFocus() {
+        var item = QtWindow.Window.activeFocusItem;
+        if (!__keyboardPan || !item)
+            return;
+        // The focused item is the field's inner editor; the whole MAUI view (label, underline) is the nearest adapter
+        // above it (hosts nest: the item on the canvas can be a layout holding the whole form, tracker S44).
+        while (item && item !== canvas && item.mauiId === undefined)
+            item = item.parent;
+        if (!item || item === canvas)
+            return;
+        var bottom = item.mapToItem(flick.contentItem, 0, item.height).y + Theme.paddingMedium;
+        var top = item.mapToItem(flick.contentItem, 0, 0).y - Theme.paddingMedium;
+        var maxY = Math.max(0, flick.contentHeight - flick.height);
+        if (bottom > flick.contentY + flick.height)
+            flick.contentY = Math.min(maxY, bottom - flick.height);
+        else if (top < flick.contentY)
+            flick.contentY = Math.max(0, top);
+    }
+
+    on__KeyboardInsetChanged: {
+        if (__keyboardInset > 0 && !__keyboardPan && !__focusInScrollingContainer()) {
+            __keyboardPan = true;
+            reportWindowGeometry();
+        } else if (__keyboardInset === 0 && __keyboardPan) {
+            __keyboardPan = false;
+            reportWindowGeometry();
+            if (!page.mauiScrollEnabled)
+                flick.contentY = 0;   // the page does not scroll: put it back where it was
+            else
+                flick.contentY = Math.min(flick.contentY, Math.max(0, flick.contentHeight - flick.height));
+        }
+        if (__keyboardPan)
+            panTimer.restart();
+    }
+    // Pan once things settle: the keyboard panel animates (the inset changes every frame), the full-height layout lands
+    // after it (a managed pass), and Silica's VerticalAutoScroll, which only keeps the cursor line visible, scrolls the
+    // same flickable meanwhile. Afterwards the whole field (its underline and description too) is in view, so the
+    // cursor is as well and VerticalAutoScroll leaves it there.
+    onMauiContentHeightChanged: if (__keyboardPan) panTimer.restart()
+    Timer { id: panTimer; interval: 250; onTriggered: page.__panToFocus() }
+
     function reportWindowGeometry() {
         var status = (page.statusHeight !== undefined) ? page.statusHeight : 0;
         Adapter.pageEmit(page, "window-geometry", ({
             pageWidth: page.width,
-            pageHeight: page.height,
+            // While the keyboard pans the page, MAUI lays it out at the height it has without the keyboard.
+            pageHeight: page.height + (__keyboardPan ? __keyboardInset : 0),
             headerHeight: headerBox.height + searchBox.height + tabBar.height + subTabBar.height,
             titleHeight: headerBox.height,
             statusHeight: status
@@ -613,7 +728,11 @@ Page {
     }
 
     onWidthChanged: reportWindowGeometry()
-    onHeightChanged: reportWindowGeometry()
+    onHeightChanged: {
+        reportWindowGeometry();
+        if (__keyboardPan)
+            panTimer.restart();
+    }
 
     // Render evidence for managed: button/toggle geometry (for synthetic taps), counters, scroll.
     property int __emptyReports: 0
@@ -1155,5 +1274,21 @@ Page {
     PageBusyIndicator {
         objectName: "mauiPageBusy"
         running: page.mauiBusy && !page.mauiBusyOnPulley
+    }
+
+    // The drag ghost (mauiDragGhost): above the content and the chrome, a still snapshot of the source.
+    ShaderEffectSource {
+        id: dragGhost
+        property real grabX: 0
+        property real grabY: 0
+        property bool allowed: false
+        visible: false
+        z: 10000
+        live: false
+        hideSource: false
+        opacity: allowed ? 0.85 : 0.45
+        scale: 1.05
+        transformOrigin: Item.TopLeft
+        Behavior on opacity { NumberAnimation { duration: 120 } }
     }
 }

@@ -271,6 +271,7 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		Row<ListView, SailfishLegacyListViewHandler>(),   // the legacy list (ItemsView<Cell>, not an ItemsView)
 		Row<IndicatorView, SailfishIndicatorViewHandler>(),
 		Row<WebView, SailfishWebViewHandler>(),
+		Row<HybridWebView, SailfishHybridWebViewHandler>(),
 		Row<SwipeView, SailfishSwipeViewHandler>(),
 		Row<Stepper, SailfishStepperHandler>(),
 		Row<Entry, SailfishEntryHandler>(),

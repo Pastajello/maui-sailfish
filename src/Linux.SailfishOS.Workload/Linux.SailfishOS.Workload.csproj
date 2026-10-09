@@ -27,7 +27,9 @@
   <ItemGroup>
     <SailfishVersioned Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.json.in" TargetPath="WorkloadManifest.json" />
     <SailfishVersioned Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.targets.in" TargetPath="WorkloadManifest.targets" />
-    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.Run.targets" LogicalName="WorkloadManifest.Run.targets" />
+    <!-- WithCulture: MSBuild reads ".Run." as the culture "run" and moved the file into a Run/ satellite assembly, where
+         the tool never found it (tracker S57). -->
+    <EmbeddedResource Include="../Linux.SailfishOS.WorkloadManifest/data/WorkloadManifest.Run.targets" LogicalName="WorkloadManifest.Run.targets" WithCulture="false" />
     <AssemblyMetadata Include="SailfishWorkloadBand" Value="$(SailfishWorkloadBand)" />
     <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
   </ItemGroup>

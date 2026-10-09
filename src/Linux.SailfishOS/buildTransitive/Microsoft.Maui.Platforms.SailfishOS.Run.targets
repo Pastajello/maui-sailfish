@@ -1,29 +1,22 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <!-- `dotnet run -f net11.0-sailfish`, through the SDK's device protocol (as the Android and iOS heads): the CLI builds,
-       calls DeployToDevice, then starts RunCommand. Deploy publishes the RPM, installs and verifies it; run launches the
-       app, streams its log until it exits and stops it on Ctrl+C. SailfishRuntimeIdentifier (not -r) picks a 32-bit phone. -->
-  <Target Name="_SailfishToolEnv">
-    <PropertyGroup>
-      <_SailfishToolEnv>SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; SF_PKG=&quot;$(SailfishPackageName)&quot; SF_BIN=&quot;$(AssemblyName)&quot; SF_TFM=&quot;$(TargetFramework)&quot; SF_CONFIGURATION=&quot;$(Configuration)&quot; SF_RID=&quot;$(RuntimeIdentifier)&quot;</_SailfishToolEnv>
-    </PropertyGroup>
-  </Target>
-
+       calls DeployToDevice, then starts RunCommand, both the sailfish tool (_SailfishTool, in the main targets). Deploy
+       publishes the RPM, uploads it (sha256 checked) and installs it; run launches the app, streams its log until it
+       exits and stops it on Ctrl+C. SailfishRuntimeIdentifier (not -r) picks a 32-bit phone. -->
   <!-- The workload manifest declares DeployToDevice too (WorkloadManifest.Run.targets), so a first run before restore
        still deploys; this one serves older manifests. -->
   <Target Name="DeployToDevice" DependsOnTargets="_SailfishDeployToDevice" />
 
-  <Target Name="_SailfishDeployToDevice" DependsOnTargets="_SailfishToolEnv">
-    <Error Condition="!Exists('$(SailfishToolsDir)sf')"
-           Text="Sailfish device tools not found at $(SailfishToolsDir). Set -p:SailfishToolsDir= to a checkout's tools/ directory." />
-    <Exec Command="SF_SAMPLE_DIR=&quot;$(MSBuildProjectDirectory)&quot; bash &quot;$(SailfishToolsDir)sf&quot; setup --if-needed" />
-    <Exec Command="$(_SailfishToolEnv) bash &quot;$(SailfishToolsDir)sf&quot; deploy" />
+  <Target Name="_SailfishDeployToDevice" DependsOnTargets="_SailfishToolArgs">
+    <Exec Command="$(_SailfishTool) setup --if-needed --project &quot;$(MSBuildProjectFullPath)&quot;" />
+    <Exec Command="$(_SailfishTool) deploy $(_SailfishToolArgs)" />
   </Target>
 
-  <Target Name="_SailfishComputeRunArguments" BeforeTargets="ComputeRunArguments" DependsOnTargets="_SailfishToolEnv">
+  <Target Name="_SailfishComputeRunArguments" BeforeTargets="ComputeRunArguments" DependsOnTargets="_SailfishToolArgs">
     <PropertyGroup>
-      <RunCommand>/usr/bin/env</RunCommand>
-      <RunArguments>$(_SailfishToolEnv) bash &quot;$(SailfishToolsDir)sf&quot; run --follow</RunArguments>
+      <RunCommand>$(_SailfishDotnet)</RunCommand>
+      <RunArguments>&quot;$(SailfishToolDll)&quot; run --follow $(_SailfishToolArgs)</RunArguments>
       <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
     </PropertyGroup>
   </Target>

@@ -17,6 +17,7 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 	private SailfishFontManager? _fontManager;
 	private QtHostAlertSubscription? _alertSubscription;
 	private SailfishModalNavigationPlatformFactory? _modalFactory;
+	private Graphics.SailfishImageLoadingService? _imageLoading;
 	private Microsoft.Maui.Animations.AnimationManager? _animationManager;
 
 	// The window's render session: the host cache handlers and the renderer share, the renderer once it runs, and the
@@ -80,6 +81,10 @@ internal sealed class SailfishServiceOverlay : IServiceProvider
 			return _animationManager ??= new Microsoft.Maui.Animations.AnimationManager(new QtHost.SailfishFrameTicker());
 		if (existing is not null)
 			return existing;
+
+		// IImage on QImage (S49): MAUI's plain-net PlatformImage cannot resize.
+		if (serviceType == typeof(Microsoft.Maui.Graphics.IImageLoadingService))
+			return _imageLoading ??= new Graphics.SailfishImageLoadingService();
 
 		if (serviceType == typeof(Controls.Platform.IAlertManagerSubscription))
 			return _alertSubscription ??= new QtHostAlertSubscription(_session);

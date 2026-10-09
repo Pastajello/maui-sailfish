@@ -68,6 +68,21 @@ public sealed class BuildTargetsTests : IDisposable
 		return json.RootElement.GetProperty("Properties").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
 	}
 
+	// Tracker S57: restore never sees the package's targets (ExcludeRestorePackageImports), so the manifest puts the
+	// ReadyToRun and trimming packs into the restore; a Release publish on a clean NuGet cache failed with NETSDK1094.
+	[Fact]
+	public void The_restore_brings_the_ready_to_run_and_trimming_packs_and_the_build_decides_per_configuration()
+	{
+		var project = Project("Exe");
+		var restore = Properties(project, ["-p:ExcludeRestorePackageImports=true", "-p:Configuration=Debug"], "PublishReadyToRun", "PublishTrimmed");
+		var debug = Properties(project, ["-p:Configuration=Debug"], "PublishReadyToRun", "PublishTrimmed");
+		var optedOut = Properties(project, ["-p:ExcludeRestorePackageImports=true", "-p:SailfishReadyToRun=false", "-p:SailfishTrim=false"], "PublishReadyToRun", "PublishTrimmed");
+
+		Assert.Equal(("true", "true"), (restore["PublishReadyToRun"], restore["PublishTrimmed"]));
+		Assert.Equal((string.Empty, string.Empty), (debug["PublishReadyToRun"], debug["PublishTrimmed"]));
+		Assert.Equal((string.Empty, string.Empty), (optedOut["PublishReadyToRun"], optedOut["PublishTrimmed"]));
+	}
+
 	[Fact]
 	public void An_app_head_is_a_self_contained_device_payload_with_an_rpm_and_a_generated_main()
 	{
@@ -99,21 +114,23 @@ public sealed class BuildTargetsTests : IDisposable
 		Assert.Equal("linux-arm", p["RuntimeIdentifier"]);
 	}
 
-	// Tracker S54: `dotnet run -f net11.0-sailfish` runs the device tools (DeployToDevice, then RunCommand).
+	// Tracker S54/S56: `dotnet run -f net11.0-sailfish` runs the sailfish tool (DeployToDevice, then RunCommand) on the
+	// build's own dotnet: no /usr/bin/env or bash, so Windows runs it too.
 	[Fact]
-	public void Dotnet_run_streams_the_app_through_the_device_tools()
+	public void Dotnet_run_streams_the_app_through_the_sailfish_tool()
 	{
-		var project = Project("Exe", "<SailfishPackageName>harbour-probe</SailfishPackageName><SailfishToolsDir>/tools/</SailfishToolsDir>");
+		var tool = Path.Combine(Repo.Root, "artifacts", "sailfish-tool", "sailfish.dll");
+		var project = Project("Exe", $"<SailfishPackageName>harbour-probe</SailfishPackageName><SailfishToolDll>{tool}</SailfishToolDll>");
 		var (exit, output) = Dotnet(_dir, "msbuild", project, "-t:ComputeRunArguments", "-getProperty:RunCommand", "-getProperty:RunArguments");
 
 		Assert.True(exit == 0, output);
 		using var json = JsonDocument.Parse(output);
 		var props = json.RootElement.GetProperty("Properties");
-		Assert.Equal("/usr/bin/env", props.GetProperty("RunCommand").GetString());
+		Assert.Matches(@"(^|[/\\])dotnet(\.exe)?$", props.GetProperty("RunCommand").GetString());
 		var args = props.GetProperty("RunArguments").GetString()!;
-		Assert.Contains("SF_PKG=\"harbour-probe\"", args);
-		Assert.Contains("SF_RID=\"linux-arm64\"", args);
-		Assert.EndsWith("bash \"/tools/sf\" run --follow", args);
+		Assert.StartsWith($"\"{tool}\" run --follow --project ", args);
+		Assert.Contains("--package harbour-probe", args);
+		Assert.EndsWith("--rid linux-arm64", args);
 	}
 
 	// Tracker S53: the generated Main's CreateMauiApp() is rooted in the app assembly only, not in every assembly.

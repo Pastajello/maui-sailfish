@@ -159,6 +159,9 @@ internal static class QtHostShapes
 					stops,
 				};
 			}
+			// Tiled from the canvas origin, one image pixel per dp, as on Android (S50).
+			case ImagePaint { Image: var image } when QtHostDrawnImages.Url(image) is { } url:
+				return new List<object?> { "image", url };
 			default:
 				return Solid(paint.ForegroundColor);
 		}

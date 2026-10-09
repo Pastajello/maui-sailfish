@@ -19,14 +19,18 @@ internal static class LabelTextMapper
 
 		if (label is Microsoft.Maui.Controls.Label { FormattedText.Spans.Count: > 0 } formatted)
 		{
+			// What the rich-text label paints (AdapterSnapshots.BuildSpanHtml): a span without a size inherits the label's
+			// painted size (its own, else Theme.fontSizeMedium), an explicit one follows FontAutoScalingEnabled, and the
+			// text carries the span's TextTransform.
+			var labelSize = Handlers.SailfishFontRules.LabelFontSize(formatted) ?? Handlers.SailfishFontRules.SilicaMediumFontDp();
 			foreach (var span in formatted.FormattedText.Spans)
 			{
 				spans.Add(new TextSpan
 				{
-					Text = span.Text ?? string.Empty,
+					Text = Microsoft.Maui.Controls.Internals.TextTransformUtilities.GetTransformedText(span.Text ?? string.Empty, span.TextTransform),
 					Family = string.IsNullOrEmpty(span.FontFamily) ? baseFont.Family : span.FontFamily,
 					Attributes = span.FontAttributes == FontAttributes.None ? BaseAttributes(label) : span.FontAttributes,
-					FontSize = FontSize(span.FontSize, baseFont),
+					FontSize = SpanFontSize(span) ?? labelSize,
 					CharacterSpacing = span.CharacterSpacing,
 					LineHeight = span.LineHeight > 0 ? span.LineHeight : 1.0,
 					Decorations = span.TextDecorations,
@@ -67,9 +71,12 @@ internal static class LabelTextMapper
 	private static FontAttributes BaseAttributes(ILabel label) =>
 		label is Microsoft.Maui.Controls.Label controls ? controls.FontAttributes : FontAttributes.None;
 
-	private static int FontSize(double spanSize, Font baseFont)
-	{
-		var size = spanSize > 0 ? spanSize : (baseFont.Size > 0 ? baseFont.Size : DefaultFontSize);
-		return (int)Math.Round(size);
-	}
+	private static double FontSize(double spanSize, Font baseFont) =>
+		spanSize > 0 ? spanSize : (baseFont.Size > 0 ? baseFont.Size : DefaultFontSize);
+
+	/// <summary>A span's own size in dp (auto-scaled as painted), or null when it inherits the label's.</summary>
+	internal static double? SpanFontSize(Microsoft.Maui.Controls.Span span) =>
+		span.IsSet(Microsoft.Maui.Controls.Span.FontSizeProperty) && span.FontSize > 0
+			? span.FontSize * Handlers.SailfishFontRules.ScaleFor(span)
+			: null;
 }

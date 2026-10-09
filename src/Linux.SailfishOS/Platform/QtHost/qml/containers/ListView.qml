@@ -38,6 +38,9 @@ SilicaListView {
     // stays, the rows move under it), 2 KeepLastItemInView (rows added: the end comes into view, as a chat does).
     property int mauiUpdatingMode: 0
     property int mauiHoldRow: -1
+    // The row being dragged (drag & drop, tracker S40): its press highlight goes, as a pressed state ends when a drag
+    // starts on Android, and the drag ghost (a snapshot of the delegate) does not carry it.
+    property int mauiDragRow: -1
     property string mauiSelectedRows: ""
     property real mauiSpacing: 0
     property int mauiSpan: 1
@@ -443,7 +446,7 @@ SilicaListView {
                 height: dg.__grid && root.__horizontal ? root.mauiCellWidth : dg.height
                 radius: 8
                 color: Theme.rgba(Theme.highlightColor, 0.45)
-                visible: pressed
+                visible: pressed && root.mauiDragRow !== r
             }
         }
 

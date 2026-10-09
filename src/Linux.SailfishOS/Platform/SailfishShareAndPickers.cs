@@ -552,6 +552,9 @@ internal sealed class SailfishScreenshot : IScreenshot, IViewScreenshot
 
 		public int Height { get; }
 
+		/// <summary>The PNG as grabbed (SailfishScreenshotExtensions.ToImageAsync reads it without a copy).</summary>
+		internal byte[] Png => _png;
+
 		public Task<Stream> OpenReadAsync(ScreenshotFormat format = ScreenshotFormat.Png, int quality = 100) =>
 			Task.FromResult<Stream>(new MemoryStream(format == ScreenshotFormat.Jpeg ? Jpeg(quality) : _png, writable: false));
 

@@ -23,8 +23,12 @@
 
 		<OutputType>Exe</OutputType>
 		<RootNamespace>MauiSailfishApp</RootNamespace>
-		<!-- The in-box heads build through the MAUI workload; the Sailfish head needs none. -->
-		<UseMaui Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'sailfish'">true</UseMaui>
+<!--#if (!SailfishOnly) -->
+		<!-- As in the official template: the MAUI workload the Android/iOS heads need builds the Sailfish head too. -->
+		<UseMaui>true</UseMaui>
+<!--#else -->
+		<!-- Sailfish OS only: no MAUI workload on this machine; the Sailfish head builds without it. -->
+<!--#endif -->
 		<SingleProject>true</SingleProject>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>

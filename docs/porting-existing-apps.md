@@ -244,6 +244,10 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - `ContentPage.HideSoftInputOnTapped` works: a press outside a text field unfocuses the focused one, which closes the
   keyboard. (`HideSoftInputAsync`/`ShowSoftInputAsync` still throw on the plain `net` build MAUI ships for this
   head.)
+- A focused text field stays above the keyboard, in portrait and landscape. Inside a `ScrollView` (or a list) the page
+  gets shorter and the container scrolls to the field, like Android's `adjustResize`. In plain page content the page
+  keeps its layout and slides up until the field is in view, then back when the keyboard closes, like `adjustPan`.
+  A field that lies below the screen before the keyboard opens needs a `ScrollView`, as on every platform.
 - Shell and TabbedPage tabs are a row under the page header. Long titles shrink before they fade. A horizontal
   swipe across the page drags it with the finger, the next tab's title beside it; released past the threshold it
   slides on to that tab, otherwise back.
@@ -277,13 +281,20 @@ These follow Silica conventions. Port authors should expect them; none needs app
   controls), on the GPU; a gradient `Shadow.Brush` shadows in the average of its colours, as on iOS.
 - FormattedText spans take their `BackgroundColor`, `CharacterSpacing` and `TextTransform`, and a span with a
   `TapGestureRecognizer` fires it when tapped (the sender is the `Label`). A span's own `LineHeight` is not applied;
-  the label's is.
+  the label's is. Spans of different sizes or fonts are measured as one rich-text layout, so a line is as tall as
+  its largest span, and a span without a `FontSize` takes the label's.
 - A `GraphicsView` draws again when you call `Invalidate()`, when a property of it changes or when its size changes, as
   on Android and iOS; a drawable that changes its own state must call `Invalidate()` (it used to be redrawn on every
   update pass here). Touches arrive as `StartInteraction`, `DragInteraction` and `EndInteraction` (points in the
   view's own coordinates; a second finger sends `CancelInteraction`), and a drag on it does not swipe the page back.
   `DrawString(text, x, y, alignment)` draws with `y` on the text's baseline, as on Android; `FillPath`/`ClipPath` with
   `WindingMode.EvenOdd` leave holes, and `Antialias = false` turns antialiasing off for the whole view.
+  `DrawImage` draws any `IImage` (a `SailfishImage`, or MAUI's `PlatformImage` from its bytes), and
+  `SetFillPaint(new ImagePaint { Image = … })` tiles it, starting at the view's origin, one image pixel per dp. Images
+  load asynchronously: the image is written to a cache file and the canvas loads it from there, so the first frame of a
+  new image draws without it and the view draws again when it has loaded (Android draws it in the same frame).
+  `(await Screenshot.Default.CaptureAsync()).ToImageAsync()` (`Microsoft.Maui.SailfishOS.Graphics`) turns a screenshot
+  into a `SailfishImage` you can draw, resize or save.
 - The legacy `ListView` works for `TextCell`, `ImageCell` and `ViewCell` rows (a `DataTemplateSelector` too):
   `ItemTapped`, `ItemSelected` and `SelectedItem` behave as elsewhere, and `SelectionMode="None"` still reports taps.
   It renders on the same native list as `CollectionView`; `SwitchCell`, `EntryCell`, context actions and `TableView`
@@ -369,6 +380,14 @@ These follow Silica conventions. Port authors should expect them; none needs app
   `Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.SetKeepsDrag(view, false)`.
 - `PinchGestureRecognizer` works with two fingers (`Scale` is the change since the last update, `ScaleOrigin` the
   midpoint relative to the view, as on Android); the pinch takes over a pan in progress and the sequence is no tap.
+- Drag & drop works as on Android: a press held still for half a second on a view with a `DragGestureRecognizer`
+  (also inside a `CollectionView` row) starts the drag, a translucent copy of the view follows the finger, and the
+  `DropGestureRecognizer` under it gets `DragOver`/`DragLeave`. Releasing over a target that accepts (`AcceptedOperation`
+  not `None`) raises `Drop` (MAUI's default copies the text or image into the target), then `DropCompleted` on the
+  source. Moving before the half second is a scroll or pan, not a drag. `Cancel = true` in `DragStarting` leaves the
+  press to the view's other gestures. A second finger or a release elsewhere ends the drag with `DropCompleted` only.
+  While dragging, the back swipe, the pull-down menu and the list under the finger hold still. The data stays inside
+  the app: Sailfish has no system drag & drop between apps.
 - `RotationX`/`RotationY` turn the view in 3D with Android's default perspective (camera at 1280 dp), and
   `ScaleX`≠`ScaleY` or a rotation inside a scaled layout are drawn exactly. Taps on a 3D-turned view hit its
   unturned rectangle.
@@ -427,6 +446,33 @@ These follow Silica conventions. Port authors should expect them; none needs app
   theme size (`Theme.fontSizeMedium`), larger than MAUI's 14 dp, so unstyled text reads like the rest of the phone.
   A `FontSize` of exactly 18 counts as unset too, because 18 is the default MAUI reports when the app sets none.
   Use 17.9 or 18.1 to pin a size near 18.
+- Text follows the phone's Settings › Display › Text size, as on Android: unset sizes through Silica's theme, and an
+  explicit `FontSize` (also a span's) scaled by the same factor (`Theme.fontSizeMedium / Theme.fontSizeMediumBase`)
+  unless the element sets `FontAutoScalingEnabled="False"`. The factor is read once per start, so a changed setting
+  applies when the app is next opened.
+
+- Colours an app sets explicitly, such as the default MAUI template's `Styles.xaml` (white or near-black pages,
+  purple buttons), apply on Sailfish too and cover the ambience wallpaper and theme. A colour left unset follows the
+  ambience. To keep a style's colour for the other platforms only, as the `maui-sailfish` template does, wrap it:
+  `<Setter Property="TextColor"><OnPlatform x:TypeArguments="Color"><On Platform="Android, iOS, MacCatalyst, WinUI"
+  Value="{AppThemeBinding …}" /></OnPlatform></Setter>`. No branch matches on `SailfishOS`, so the property stays
+  unset there.
+- `HybridWebView` works on the Gecko web view: the page loads its `DefaultFile` from the `HybridRoot` folder
+  (`Resources/Raw/wwwroot` by default, shipped under the app root) through a loopback address of its own
+  (`http://127.0.0.1:<port>`), `_framework/hybridwebview.js` is served as on the other platforms, and
+  `SendRawMessage`/`RawMessageReceived`, `InvokeJavaScriptAsync`, `EvaluateJavaScriptAsync` and JavaScript's
+  `HybridWebView.InvokeDotNet` (with `SetInvokeJavaScriptTarget`) behave as on Android. A JavaScript error in
+  `InvokeJavaScriptAsync` throws `SailfishHybridWebViewJavaScriptException` (MAUI's own exception type is internal on
+  this target framework). Like `WebView` it needs the `WebView` Sailjail permission.
+- `Microsoft.Maui.Graphics.IImage` (resize, re-encode) is QImage on the phone. `PlatformImage.FromStream`
+  does not work here: on this target framework MAUI's `PlatformImage` only keeps the bytes, and its `Downsize` and
+  `Resize` throw `PlatformNotSupportedException`. MAUI cannot redirect that static. Use
+  `SailfishImage.FromStream`/`FromBytes` (`Microsoft.Maui.SailfishOS.Graphics`), or resolve `IImageLoadingService` from
+  the app's services (it gives `SailfishImage`s). `SailfishImage.From(image)` converts a `PlatformImage` you already
+  hold. `Downsize` keeps the aspect ratio and leaves a smaller image alone. `Resize`: `Fit` letterboxes with transparent
+  bars, `Bleed` crops the centre, `Stretch` distorts. `Save` writes PNG, JPEG (with quality), BMP or TIFF. Qt does not
+  write GIF, so a resized GIF comes out as PNG. Read formats are whatever the phone's Qt image plugins read (PNG, JPEG,
+  GIF, BMP, WebP, …). EXIF orientation is applied.
 
 ## Not supported yet
 
@@ -446,7 +492,8 @@ These follow Silica conventions. Port authors should expect them; none needs app
 - **Essentials the platform lacks:** `TextToSpeech` (no speech engine), `Geocoding` (no geocoder) and `Passkeys` (no
   WebAuthn authenticator) throw `FeatureNotSupportedException`, as MAUI does on a device without the feature;
   `TextToSpeech.GetLocalesAsync` returns no locales. `MediaPicker.CapturePhotoAsync`/`CaptureVideoAsync` likewise.
-  These stay out on purpose, as do `BlazorWebView` and `MauiSplashScreen` (Sailfish apps have no splash screen).
+  These stay out on purpose, as do `BlazorWebView` (`HybridWebView` covers web UI with a .NET bridge) and
+  `MauiSplashScreen` (Sailfish apps have no splash screen).
 - **`FileResult.OpenReadAsync()`** throws: MAUI's plain-`net` `FileBase` has no platform reader and the method is
   internal to MAUI. Read `File.OpenRead(result.FullPath)` instead. `ContentType` and `FileName` work.
 - **The instance form of a permission** (`new Permissions.Camera().CheckStatusAsync()`, `RequestAsync()`,

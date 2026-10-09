@@ -15,6 +15,9 @@ Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnOrientationChanged
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnQuitting
 Microsoft.Maui.LifecycleEvents.SailfishLifecycle+OnScreenLockChanged
 Microsoft.Maui.LifecycleEvents.SailfishLifecycleExtensions
+Microsoft.Maui.SailfishOS.Graphics.SailfishImage
+Microsoft.Maui.SailfishOS.Graphics.SailfishImageLoadingService
+Microsoft.Maui.SailfishOS.Graphics.SailfishScreenshotExtensions
 Microsoft.Maui.SailfishOS.Handlers.NullElementHandler
 Microsoft.Maui.SailfishOS.Handlers.NullViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishActivityIndicatorHandler
@@ -31,6 +34,8 @@ Microsoft.Maui.SailfishOS.Handlers.SailfishFlyoutPageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishGraphicsHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishGridHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishHandlersFactory
+Microsoft.Maui.SailfishOS.Handlers.SailfishHybridWebViewHandler
+Microsoft.Maui.SailfishOS.Handlers.SailfishHybridWebViewJavaScriptException
 Microsoft.Maui.SailfishOS.Handlers.SailfishImageHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishIndicatorViewHandler
 Microsoft.Maui.SailfishOS.Handlers.SailfishLabelHandler

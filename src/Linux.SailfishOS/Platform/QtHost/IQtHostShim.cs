@@ -20,6 +20,13 @@ internal interface IQtHostShim
 	int ApplyGeometry(string geoJson);
 	bool TryMeasureText(string json, out double widthPx, out double heightPx);
 	string ScreenInfo();
+
+	/// <summary>sailfish_host_image_info: the decoded size of encoded image bytes; false when they do not decode.</summary>
+	bool TryImageInfo(byte[] data, out int width, out int height);
+
+	/// <summary>sailfish_host_image_transform: the bytes re-encoded after the op (JSON {w,h,mode,format,quality}); null
+	/// when they do not decode or the format cannot be written.</summary>
+	byte[]? ImageTransform(byte[] data, string opJson);
 	void DestroyObject(long handle);
 	int PushPage(string qmlPath, string? propsJson);
 	int PopPage();

@@ -17,6 +17,12 @@
     <!-- Self-contained from restore on, so restore downloads the runtime pack (NETSDK1112 on a clean machine
          otherwise: the package's buildTransitive targets set it, too late for restore). -->
     <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
+    <!-- The payload profile's packs (crossgen2 for ReadyToRun, ILLink for trimming) must be in the restore too: NuGet
+         evaluates with ExcludeRestorePackageImports, so the package's SailfishReadyToRun/SailfishTrim never reach it, and
+         a Release publish on a clean NuGet cache failed with NETSDK1094 (tracker S57). Restore only: during the build
+         the package targets decide, per configuration. -->
+    <PublishReadyToRun Condition="'$(ExcludeRestorePackageImports)' == 'true' And '$(PublishReadyToRun)' == '' And '$(SailfishReadyToRun)' != 'false'">true</PublishReadyToRun>
+    <PublishTrimmed Condition="'$(ExcludeRestorePackageImports)' == 'true' And '$(PublishTrimmed)' == '' And '$(SailfishTrim)' != 'false'">true</PublishTrimmed>
   </PropertyGroup>
 
   <!-- The backend package comes with the TFM, like an in-box workload's packs: adding net11.0-sailfish to

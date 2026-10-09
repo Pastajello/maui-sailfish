@@ -4,29 +4,28 @@ using Xunit;
 
 namespace Linux.SailfishOS.Tests;
 
-/// <summary>The device tools ship in the NuGet package (buildTransitive/net11.0/tools) and are called by the
-/// MSBuild targets and the template's .vscode files. A tool that is referenced but not packed only fails on a
-/// package user's machine (that is how sf-preflight once called a missing sf-detect.sh), so the references are
-/// checked here against the csproj's pack list.</summary>
+/// <summary>The device tool ships in the NuGet package as the sailfish tool's build output (buildTransitive/net11.0/
+/// tools/sailfish, tracker S56) and the MSBuild targets call it; the bash scripts stay in the checkout (tools/), where
+/// the template's .vscode files (SF_TOOLS_DIR) and the matrix use them. A file the targets call but the package lacks
+/// only fails on a package user's machine, so the references are checked against the csproj's pack list.</summary>
 public class ToolsPackagingTests
 {
 	private const string PackPrefix = "buildTransitive/net11.0/tools/";
 	private static readonly string Tools = Path.Combine(Repo.Root, "tools");
 
-	/// <summary>Packed tool files as paths relative to the package's tools/ dir, e.g. "cmd/run.sh".</summary>
-	private static HashSet<string> Packed()
+	private static IEnumerable<(string Include, string PackagePath)> PackedItems() =>
+		XDocument.Load(Path.Combine(Repo.Root, "src/Linux.SailfishOS/Linux.SailfishOS.csproj")).Descendants("None")
+			.Where(i => (string?)i.Attribute("Pack") == "true")
+			.Select(i => ((string)i.Attribute("Include")!, (string?)i.Attribute("PackagePath") ?? ""));
+
+	/// <summary>Packed tool files as paths relative to the package's tools/ dir, e.g. "sailfish/sailfish.dll", with
+	/// their source in the checkout.</summary>
+	private static Dictionary<string, string> Packed()
 	{
-		var csproj = Path.Combine(Repo.Root, "src/Linux.SailfishOS/Linux.SailfishOS.csproj");
-		var packed = new HashSet<string>(StringComparer.Ordinal);
-		foreach (var item in XDocument.Load(csproj).Descendants("None"))
-		{
-			var packagePath = (string?)item.Attribute("PackagePath") ?? "";
-			if ((string?)item.Attribute("Pack") != "true" || !packagePath.StartsWith(PackPrefix, StringComparison.Ordinal))
-				continue;
-			var dir = packagePath[PackPrefix.Length..].Replace("%(Filename)%(Extension)", "");
-			foreach (var include in ((string)item.Attribute("Include")!).Split(';', StringSplitOptions.RemoveEmptyEntries))
-				packed.Add(dir.Contains('.') ? dir : dir + Path.GetFileName(include));
-		}
+		var packed = new Dictionary<string, string>(StringComparer.Ordinal);
+		foreach (var (include, packagePath) in PackedItems().Where(i => i.PackagePath.StartsWith(PackPrefix, StringComparison.Ordinal)))
+			foreach (var file in include.Split(';', StringSplitOptions.RemoveEmptyEntries))
+				packed[packagePath[PackPrefix.Length..] + Path.GetFileName(file)] = Path.GetFullPath(Path.Combine(Repo.Root, "src/Linux.SailfishOS", file));
 		return packed;
 	}
 
@@ -35,16 +34,12 @@ public class ToolsPackagingTests
 		Regex.Matches(File.ReadAllText(Path.Combine(Tools, "sf")), @"^([a-z-]+)\|(sh|py|cs)\|([^|]+)\|", RegexOptions.Multiline)
 			.ToDictionary(m => m.Groups[1].Value, m => m.Groups[3].Value);
 
-	/// <summary>NuGet reads a PackagePath without an extension as a folder, so "tools/%(Filename)" turned the
-	/// extension-less dispatcher into tools/sf/sf; folder paths ending in "/" keep every file name as is.</summary>
+	/// <summary>NuGet reads a PackagePath without an extension as a folder; folder paths ending in "/" keep every file
+	/// name as is.</summary>
 	[Fact]
 	public void Tool_pack_paths_are_folders()
 	{
-		var csproj = Path.Combine(Repo.Root, "src/Linux.SailfishOS/Linux.SailfishOS.csproj");
-		var paths = XDocument.Load(csproj).Descendants("None")
-			.Select(i => (string?)i.Attribute("PackagePath") ?? "")
-			.Where(p => p.StartsWith(PackPrefix, StringComparison.Ordinal))
-			.ToList();
+		var paths = PackedItems().Select(i => i.PackagePath).Where(p => p.StartsWith(PackPrefix, StringComparison.Ordinal)).ToList();
 		Assert.NotEmpty(paths);
 		Assert.All(paths, p => Assert.EndsWith("/", p));
 	}
@@ -55,21 +50,22 @@ public class ToolsPackagingTests
 	[Fact]
 	public void Extension_less_native_assets_are_packed_into_a_folder()
 	{
-		var csproj = Path.Combine(Repo.Root, "src/Linux.SailfishOS/Linux.SailfishOS.csproj");
-		var items = XDocument.Load(csproj).Descendants("None")
-			.Select(i => (Include: (string?)i.Attribute("Include") ?? "", Path: (string?)i.Attribute("PackagePath") ?? ""))
-			.Where(i => i.Path.StartsWith("runtimes/", StringComparison.Ordinal) && System.IO.Path.GetExtension(i.Include).Length == 0)
+		var items = PackedItems()
+			.Where(i => i.PackagePath.StartsWith("runtimes/", StringComparison.Ordinal) && Path.GetExtension(i.Include).Length == 0)
 			.ToList();
 		Assert.NotEmpty(items);   // the launchers
-		Assert.All(items, i => Assert.EndsWith("/", i.Path));
+		Assert.All(items, i => Assert.EndsWith("/", i.PackagePath));
 	}
 
 	[Fact]
-	public void Every_packed_tool_exists_in_the_checkout()
+	public void The_package_carries_the_sailfish_tool_and_no_bash_or_python()
 	{
 		var packed = Packed();
-		Assert.Contains("sf", packed);
-		Assert.All(packed, rel => Assert.True(File.Exists(Path.Combine(Tools, rel)), $"packed but missing: tools/{rel}"));
+
+		Assert.Equal(["sailfish/sailfish.deps.json", "sailfish/sailfish.dll", "sailfish/sailfish.runtimeconfig.json"], packed.Keys.Order());
+		Assert.All(packed.Values, source => Assert.StartsWith(Path.Combine(Repo.Root, "artifacts", "sailfish-tool"), source));
+		Assert.DoesNotContain(PackedItems(), i => i.Include.Contains("tools/", StringComparison.Ordinal) && !i.Include.Contains("sailfish-tool", StringComparison.Ordinal));
+		Assert.All(packed.Values, source => Assert.True(File.Exists(source), $"packed but not built: {source}"));
 	}
 
 	[Fact]
@@ -80,60 +76,24 @@ public class ToolsPackagingTests
 		Assert.All(commands, c => Assert.True(File.Exists(Path.Combine(Tools, c.Value)), $"sf {c.Key}: missing tools/{c.Value}"));
 	}
 
-	/// <summary>Calls a packed script makes only in a checkout (behind its IN_CHECKOUT test).</summary>
-	private static readonly HashSet<string> CheckoutOnlyCalls = new(StringComparer.Ordinal)
-	{
-		"cmd/doctor.sh -> cmd/sysroot.sh",        // doctor --fix builds the sysroot
-		"cmd/doctor.sh -> cmd/native-build.sh",   // doctor --fix builds the shim
-	};
-
 	[Fact]
-	public void Packed_scripts_only_call_packed_files()
+	public void Msbuild_targets_call_the_packed_tool_and_the_template_the_checkouts_tools()
 	{
 		var packed = Packed();
-		var commands = Commands();
-		var missing = new List<string>();
-		foreach (var rel in packed.Where(p => p.EndsWith(".sh", StringComparison.Ordinal) || p == "sf"))
-		{
-			var text = File.ReadAllText(Path.Combine(Tools, rel));
-			var dir = Path.GetDirectoryName(rel)!.Replace('\\', '/');
-			var calls = new List<string>();
-			// siblings and neighbours of a script in cmd/: "$SCRIPT_DIR/run.sh", "$SCRIPT_DIR/../remote/x.sh"
-			foreach (Match m in Regex.Matches(text, @"\$SCRIPT_DIR/(\.\./)?([A-Za-z0-9_./-]+\.(?:sh|py|cs))"))
-				calls.Add(m.Groups[1].Success ? m.Groups[2].Value : (dir.Length > 0 ? dir + "/" : "") + m.Groups[2].Value);
-			// the library's helpers: "$_SF_TOOLS_DIR/remote/sf-kill-remote.sh"
-			foreach (Match m in Regex.Matches(text, @"\$_SF_TOOLS_DIR/([A-Za-z0-9_./-]+\.(?:sh|py))"))
-				calls.Add(m.Groups[1].Value);
-			// shims: exec bash ".../sf" <command>
-			foreach (Match m in Regex.Matches(text, @"/sf"" ([a-z-]+)"))
-				calls.Add(commands.TryGetValue(m.Groups[1].Value, out var file) ? file : "sf " + m.Groups[1].Value);
-			missing.AddRange(calls.Where(c => !packed.Contains(c) && !CheckoutOnlyCalls.Contains($"{rel} -> {c}"))
-				.Select(c => $"tools/{rel} -> tools/{c}"));
-		}
-		Assert.Empty(missing);
-	}
-
-	[Fact]
-	public void Msbuild_targets_and_template_call_packed_tools()
-	{
-		var packed = Packed();
-		var commands = Commands();
 		var targets = File.ReadAllText(Path.Combine(Repo.Root, "src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets"));
-		foreach (Match m in Regex.Matches(targets, @"\$\(MSBuildThisFileDirectory\)tools/([A-Za-z0-9_./-]+)"))
-			Assert.Contains(m.Groups[1].Value, packed);
-		foreach (Match m in Regex.Matches(targets, @"\$\(MSBuildThisFileDirectory\)\.\./\.\./\.\./tools/([A-Za-z0-9_./-]+)"))
-			Assert.True(File.Exists(Path.Combine(Tools, m.Groups[1].Value)), $"targets: missing tools/{m.Groups[1].Value}");
-		var vscode = Directory.GetFiles(Path.Combine(Repo.Root, "templates/maui-sailfish-app/.vscode"), "*.json")
-			.Select(File.ReadAllText).Concat(new[] { targets });
-		foreach (var text in vscode)
+		var package = Regex.Matches(targets, @"\$\(MSBuildThisFileDirectory\)tools/([A-Za-z0-9_./-]+)").Select(m => m.Groups[1].Value).ToList();
+		Assert.NotEmpty(package);
+		Assert.All(package, file => Assert.Contains(file, packed.Keys));
+		Assert.DoesNotContain("bash ", targets);
+		Assert.DoesNotContain("SailfishToolsDir", targets);
+
+		var commands = Commands();
+		foreach (var text in Directory.GetFiles(Path.Combine(Repo.Root, "templates/maui-sailfish-app/.vscode"), "*.json").Select(File.ReadAllText))
 		{
-			foreach (Match m in Regex.Matches(text, @"(?:SF_TOOLS_DIR\}/|SailfishToolsDir\)|&quot;)sf(?:&quot;)? ([a-z-]+)"))
-			{
-				Assert.True(commands.TryGetValue(m.Groups[1].Value, out var file), $"unknown command: sf {m.Groups[1].Value}");
-				Assert.Contains(file, packed);
-			}
+			foreach (Match m in Regex.Matches(text, @"SF_TOOLS_DIR\}/sf ([a-z-]+)"))
+				Assert.True(commands.ContainsKey(m.Groups[1].Value), $"unknown command: sf {m.Groups[1].Value}");
 			foreach (Match m in Regex.Matches(text, @"SF_TOOLS_DIR\}/(sf-[a-z-]+\.sh)"))
-				Assert.Contains(m.Groups[1].Value, packed);
+				Assert.True(File.Exists(Path.Combine(Tools, m.Groups[1].Value)), $"template: missing tools/{m.Groups[1].Value}");
 		}
 	}
 }

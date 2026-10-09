@@ -660,6 +660,36 @@ public static class QtHostRuntime
 		return rc == 0;
 	}
 
+	/// <summary>The decoded size of encoded image bytes (QImageReader, EXIF orientation applied). Any thread: QImage
+	/// needs no Qt loop.</summary>
+	public static bool TryImageInfo(byte[] data, out int width, out int height)
+	{
+		if (TestShim is { } shim)
+			return shim.TryImageInfo(data, out width, out height);
+		return QtHostNative.sailfish_host_image_info(data, data.Length, out width, out height) == 0;
+	}
+
+	/// <summary>Decodes, transforms and re-encodes image bytes with QImage (op JSON {w,h,mode,format,quality}); null on
+	/// error (<see cref="LastErrorText"/> says why). Any thread.</summary>
+	public static byte[]? ImageTransform(byte[] data, string opJson, int widthHint, int heightHint)
+	{
+		if (TestShim is { } shim)
+			return shim.ImageTransform(data, opJson);
+		// Uncompressed pixels plus headers fit any format QImage writes; PNG and JPEG come out far smaller.
+		var cap = (int)Math.Min(int.MaxValue - 64, (long)Math.Max(1, widthHint) * Math.Max(1, heightHint) * 4 + 65536);
+		var buffer = new byte[cap];
+		var len = QtHostNative.sailfish_host_image_transform(data, data.Length, opJson, buffer, cap);
+		if (len > cap)
+		{
+			buffer = new byte[len];
+			len = QtHostNative.sailfish_host_image_transform(data, data.Length, opJson, buffer, len);
+		}
+		if (len < 0 || len > buffer.Length)
+			return null;
+		Array.Resize(ref buffer, len);
+		return buffer;
+	}
+
 	/// <summary>Window and screen geometry as JSON in device pixels (empty on error).</summary>
 	public static string ScreenInfo()
 	{

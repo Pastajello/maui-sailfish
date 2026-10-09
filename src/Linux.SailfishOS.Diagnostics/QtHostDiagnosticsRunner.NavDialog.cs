@@ -169,14 +169,62 @@ internal sealed partial class QtHostDiagnosticsRunner
 				Shot(dispatcher, "navdialog-4-span", () =>
 				{
 					var popped = navigation.PopAsync(false);
-					WaitFor(dispatcher, () => popped.IsCompleted, 4000, () => KeyboardApi(dispatcher, navigation));
+					WaitFor(dispatcher, () => popped.IsCompleted, 4000, () => MixedFontRow(renderer, dispatcher, navigation));
+				});
+			});
+		});
+	}
+
+	/// <summary>Tracker S43: a FormattedText row with a 14 dp and a 40 dp span, in an Auto grid row, gets the height its
+	/// rich text needs (the QML label's contentHeight), so the tall span is not clipped and the next row does not
+	/// overlap it.</summary>
+	private void MixedFontRow(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, INavigation navigation)
+	{
+		var mixed = new Label
+		{
+			FormattedText = new FormattedString
+			{
+				Spans =
+				{
+					new Span { Text = "Total ", FontSize = 14 },
+					new Span { Text = "1 234,56 zł", FontSize = 40, FontAttributes = FontAttributes.Bold },
+					new Span { Text = " incl. VAT", FontSize = 14 },
+				},
+			},
+		};
+		var below = new Label { Text = "the row below", BackgroundColor = Microsoft.Maui.Graphics.Colors.DarkSlateGray };
+		var grid = new Grid { Padding = 16, RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Auto) } };
+		grid.Add(mixed, 0, 0);
+		grid.Add(below, 0, 1);
+		var pushed = navigation.PushAsync(new ContentPage { Title = "ND fonts", Content = grid }, false);
+		WaitFor(dispatcher, () => pushed.IsCompleted && mixed.Height > 0, 4000, () =>
+		{
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(600), () =>
+			{
+				var js = DiagQml.ItemJs(DiagQml.HostOf(renderer, mixed));
+				var raw = QtHost.QtHostRuntime.Eval($"(function(){{var t={js};return t?(t.contentHeight+','+t.contentWidth+','+t.height):'';}})()");
+				var parts = raw.Split(',');
+				var density = Microsoft.Maui.SailfishOS.Platform.SailfishDisplay.Density;
+				var contentDp = parts.Length == 3 && double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ch) ? ch / density : -1;
+				var scale = Microsoft.Maui.SailfishOS.Handlers.SailfishFontRules.TextScale();
+				var themeSizes = QtHost.QtHostRuntime.Eval("Theme.fontSizeMedium + ',' + Theme.fontSizeMediumBase");
+				_qtNavDialogChecks.Check($"mixed fonts S43: the 14/40 dp FormattedText row is {mixed.Height:F1} dp tall, its rich text needs {contentDp:F1} dp " +
+					$"(QML contentHeight/contentWidth/height px '{raw}'); the next row starts at {below.Y:F1} ≥ {mixed.Y + mixed.Height:F1}; " +
+					$"text scale {scale:F2} from Theme.fontSizeMedium,Base px '{themeSizes}'",
+					contentDp > 0 && mixed.Height + 0.5 >= contentDp && below.Y + 0.5 >= mixed.Y + mixed.Height &&
+					themeSizes.Split(',') is [var m, var b] && double.TryParse(m, System.Globalization.CultureInfo.InvariantCulture, out var mv) && mv > 0 &&
+					double.TryParse(b, System.Globalization.CultureInfo.InvariantCulture, out var bv) && bv > 0);
+				Shot(dispatcher, "navdialog-4b-fonts", () =>
+				{
+					var popped = navigation.PopAsync(false);
+					WaitFor(dispatcher, () => popped.IsCompleted, 4000, () => KeyboardApi(renderer, dispatcher, navigation));
 				});
 			});
 		});
 	}
 
 	/// <summary>Tracker S45: SailfishKeyboard.Show(entry) opens Maliit for it, Hide closes it and unfocuses it.</summary>
-	private void KeyboardApi(SailfishDispatcher dispatcher, INavigation navigation)
+	private void KeyboardApi(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, INavigation navigation)
 	{
 		var entry = new Entry { Placeholder = "keyboard API" };
 		var pushed = navigation.PushAsync(new ContentPage { Title = "ND keyboard", Content = new VerticalStackLayout { Padding = 16, Children = { entry } } }, false);
@@ -197,11 +245,80 @@ internal sealed partial class QtHostDiagnosticsRunner
 						_qtNavDialogChecks.Check($"keyboard API S45: Show(entry) focuses it ({focused}) and opens the keyboard ({shown}); Hide closes it " +
 							$"(showing {Microsoft.Maui.SailfishOS.Platform.SailfishKeyboard.IsShowing}) and unfocuses the entry ({entry.IsFocused})",
 							shown && focused && !Microsoft.Maui.SailfishOS.Platform.SailfishKeyboard.IsShowing && !entry.IsFocused);
-						_ = navigation.PopAsync(false);
-						dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), FinishNavDialog);
+						var popped = navigation.PopAsync(false);
+						WaitFor(dispatcher, () => popped.IsCompleted, 4000, () => KeyboardForm(renderer, dispatcher, navigation, scroll: true));
 					});
 				});
 			});
+		});
+	}
+
+	/// <summary>Tracker S44: the last Entry of a long form (in a ScrollView, then as a page's plain content) stays above the
+	/// keyboard once it has focus. Window coordinates: the field's bottom against Qt.inputMethod.keyboardRectangle.</summary>
+	private void KeyboardForm(QtHost.QtHostPageRenderer renderer, SailfishDispatcher dispatcher, INavigation navigation, bool scroll)
+	{
+		var fields = new VerticalStackLayout { Padding = 16, Spacing = 8 };
+		Entry? last = null;
+		// The ScrollView form is longer than the screen; the plain one fits, its last field low on the page (visible
+		// until the keyboard opens), as a form without a ScrollView must to be usable at all.
+		// The plain form fits the page in either orientation (8 fields in portrait, 3 in landscape).
+		var landscape = Microsoft.Maui.SailfishOS.Platform.SailfishDisplay.Orientation is
+			Microsoft.Maui.SailfishOS.Platform.SailfishOrientation.Landscape or Microsoft.Maui.SailfishOS.Platform.SailfishOrientation.LandscapeInverted;
+		for (var i = 1; i <= (scroll ? 14 : landscape ? 3 : 8); i++)
+		{
+			fields.Add(new Label { Text = $"Field {i}" });
+			fields.Add(last = new Entry { Placeholder = $"value {i}" });
+		}
+		var page = new ContentPage { Title = scroll ? "ND form" : "ND form plain", Content = scroll ? new ScrollView { Content = fields } : fields };
+		var pushed = navigation.PushAsync(page, false);
+		WaitFor(dispatcher, () => pushed.IsCompleted && last!.Height > 0, 4000, () =>
+		{
+			var before = QtHost.QtHostRuntime.Eval($"(function(){{var t={DiagQml.ItemJs(DiagQml.HostOf(renderer, last!))};if(!t)return '';var p=t.mapToItem(null,0,0);return p.y+','+(p.y+t.height);}})()");
+			Console.Error.WriteLine($"[Sailfish] Qt navdialog diag: keyboard form S44 ({(scroll ? "ScrollView" : "plain content")}) before the keyboard: last Entry y '{before}'");
+			Microsoft.Maui.SailfishOS.Platform.SailfishKeyboard.Show(last!);
+			dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1800), () =>
+			{
+				// In the page's own coordinates, which turn with the orientation: Silica shrinks the page by the keyboard
+				// (ApplicationWindow: height − panelSize), so the field is visible when it lies within 0..page.height.
+				var js = DiagQml.ItemJs(DiagQml.HostOf(renderer, last!));
+				var raw = QtHost.QtHostRuntime.Eval($"(function(){{var t={js};if(!t)return '';var pg=t;while(pg&&pg.mauiContentHeight===undefined)pg=pg.parent;if(!pg)return '';" +
+					"var f=null;for(var i=0;i<pg.children.length;i++){var c=pg.children[i];if(c.contentHeight!==undefined&&c.flickableDirection!==undefined)f=c;}" +
+					"var p=t.mapToItem(pg,0,0);return p.y+','+(p.y+t.height)+','+pg.height+','+Qt.inputMethod.visible+','+t.activeFocus+','+" +
+					"(f?f.contentY:-1)+','+(f?f.contentHeight:-1)+','+pg.mauiContentHeight;})()");
+				var parts = raw.Split(',');
+				double N(int i) => parts.Length > i && double.TryParse(parts[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : double.NaN;
+				var (top, bottom, pageH) = (N(0), N(1), N(2));
+				var shown = parts.Length > 3 && parts[3] == "true";
+				var visible = shown && top >= -1 && bottom <= pageH + 1;
+				_qtNavDialogChecks.Check($"keyboard form S44 ({(scroll ? "ScrollView" : "plain content")}): the focused last Entry spans y {top:F0}–{bottom:F0} px of the page, " +
+					$"which the keyboard leaves {pageH:F0} px tall (shown {shown}; raw top,bottom,page,shown,focus,contentY,contentHeight,mauiContentHeight '{raw}')", visible);
+				Shot(dispatcher, scroll ? "navdialog-6-form" : "navdialog-7-form-plain", () =>
+				{
+					Microsoft.Maui.SailfishOS.Platform.SailfishKeyboard.Hide();
+					dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1500), () => AfterHide());
+				});
+			});
+
+			// A plain page is panned like Android's adjustPan; it must come back when the keyboard goes, since its
+			// flickable is not interactive and the user could not scroll it back.
+			void AfterHide()
+			{
+				var after = QtHost.QtHostRuntime.Eval($"(function(){{var t={DiagQml.ItemJs(DiagQml.HostOf(renderer, last!))};if(!t)return '';var p=t.mapToItem(null,0,0);return p.y+','+(p.y+t.height);}})()");
+				double Top(string v) => double.TryParse(v.Split(',')[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var y) ? y : double.NaN;
+				if (!scroll)
+					_qtNavDialogChecks.Check($"keyboard form S44 (plain content): the page comes back once the keyboard is hidden (last Entry y '{before}' before, '{after}' after)",
+						Math.Abs(Top(before) - Top(after)) <= 2);
+				{
+					var popped = navigation.PopAsync(false);
+					WaitFor(dispatcher, () => popped.IsCompleted, 4000, () =>
+					{
+						if (scroll)
+							KeyboardForm(renderer, dispatcher, navigation, scroll: false);
+						else
+							dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(1200), FinishNavDialog);
+					});
+				}
+			}
 		});
 	}
 

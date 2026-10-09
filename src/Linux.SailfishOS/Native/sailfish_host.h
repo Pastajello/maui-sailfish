@@ -193,6 +193,12 @@ int sailfish_host_apply_geometry(const char *geo_json);
  * maxW 0 = unbounded. Output is device pixels; paragraphs split on \n. Qt thread. */
 int sailfish_host_measure_text(const char *json, double *out_w, double *out_h);
 
+/* IImage on QImage (host_image.cpp, tracker S49): the decoded size of encoded image bytes, and a resize/re-encode
+ * (op JSON {w,h,mode,format,quality}) whose result is written to out when it fits cap; returns its size (call again
+ * with a larger buffer), negative on error. Any thread. */
+int sailfish_host_image_info(const unsigned char *data, int len, int *out_w, int *out_h);
+int sailfish_host_image_transform(const unsigned char *data, int len, const char *op, unsigned char *out, int cap);
+
 
 /* JSON {"window":{x,y,width,height,dpr},"screen":{name,x,y,width,height,dpr,orientation,
  * nativeOrientation}} in device pixels. Returns the JSON length. */

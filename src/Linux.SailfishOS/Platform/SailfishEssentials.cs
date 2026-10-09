@@ -124,6 +124,7 @@ internal static class SailfishEssentials
 	{
 		HostReady.TrySetResult();
 		SailfishTheme.Start();
+		SailfishLayoutDirection.OnHostReady();
 		SailfishCover.OnHostReady();
 		(IPlatformApplication.Current as SailfishMauiApplication)?.StartSystemService();
 		SailfishOpenUrl.OnHostReady();
@@ -152,14 +153,93 @@ public static class SailfishTheme
 {
 	private const string Service = "theme";
 	private static AppTheme _current = AppTheme.Unspecified;
+	private static Task<AppTheme>? _seed;
 
-	public static AppTheme Current => _current;
+	/// <summary>The ambience's theme. Before the Qt side is up (the app's constructor, CreateWindow) it is the
+	/// ambience's colour scheme as dconf stores it (<see cref="Seed"/>), so code that reads RequestedTheme once at
+	/// start gets the real one; Silica's Theme.colorScheme confirms or corrects it when the theme service starts.</summary>
+	public static AppTheme Current
+	{
+		get
+		{
+			if (_current == AppTheme.Unspecified && _seed is { } seed)
+			{
+				_seed = null;
+				if (seed.Wait(TimeSpan.FromMilliseconds(200)) && seed.Result != AppTheme.Unspecified)
+					_current = seed.Result;
+			}
+			return _current;
+		}
+	}
+
+	/// <summary>dconf key of the ambience's colour scheme (0 light text on dark, 1 dark text on light), what
+	/// Silica's Theme.colorScheme follows.</summary>
+	private const string ColorSchemeKey = "/desktop/jolla/theme/color_scheme";
+
+	/// <summary>Starts reading the ambience's colour scheme off the main thread at the very start of the app, while
+	/// MAUI builds the app (a dconf read takes about a millisecond on the phone).</summary>
+	internal static void Seed() => _seed ??= Task.Run(ReadColorScheme);
+
+	private static AppTheme ReadColorScheme()
+	{
+		var clock = System.Diagnostics.Stopwatch.StartNew();
+		var theme = ReadColorSchemeCore();
+		Console.Error.WriteLine($"[Sailfish] theme: seeded {theme} from dconf in {clock.ElapsedMilliseconds} ms");
+		return theme;
+	}
+
+	private static AppTheme ReadColorSchemeCore()
+	{
+		try
+		{
+			var start = new System.Diagnostics.ProcessStartInfo("dconf", "read " + ColorSchemeKey)
+			{
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+				UseShellExecute = false,
+			};
+			using var process = System.Diagnostics.Process.Start(start);
+			if (process is null)
+				return AppTheme.Unspecified;
+			var output = process.StandardOutput.ReadToEnd();
+			if (!process.WaitForExit(1000))
+				return AppTheme.Unspecified;
+			return ParseColorScheme(output);
+		}
+		catch (Exception)
+		{
+			return AppTheme.Unspecified;   // no dconf (desktop host, a sandbox without it): the theme service answers
+		}
+	}
+
+	/// <summary>dconf's answer for the colour scheme key ("0", "1", or empty when unset: Silica's default is light on
+	/// dark).</summary>
+	internal static AppTheme ParseColorScheme(string? dconf) => (dconf ?? string.Empty).Trim() switch
+	{
+		"1" => AppTheme.Light,
+		"0" or "" => AppTheme.Dark,
+		_ => AppTheme.Unspecified,
+	};
 
 	/// <summary>Tests: the action puts the current theme back.</summary>
 	internal static Action CaptureForTests()
 	{
 		var current = _current;
-		return () => _current = current;
+		var seed = _seed;
+		var colors = (HighlightColor, PrimaryColor, SecondaryColor, SecondaryHighlightColor);
+		return () =>
+		{
+			_current = current;
+			_seed = seed;
+			(HighlightColor, PrimaryColor, SecondaryColor, SecondaryHighlightColor) = colors;
+		};
+	}
+
+	/// <summary>Tests: a seed that answers <paramref name="theme"/>.</summary>
+	internal static void SeedForTests(AppTheme theme)
+	{
+		_current = AppTheme.Unspecified;
+		_seed = Task.FromResult(theme);
 	}
 
 	internal static void Start() =>
@@ -169,10 +249,50 @@ public static class SailfishTheme
 			QtObject {
 			    property bool light: Theme.colorScheme === Theme.DarkOnLight
 			    onLightChanged: window.mauiAppNotify("svc-theme-changed", JSON.stringify({ light: light }))
+			    property string palette: Theme.highlightColor + "|" + Theme.primaryColor + "|" + Theme.secondaryColor + "|" + Theme.secondaryHighlightColor
+			    onPaletteChanged: window.mauiAppNotify("svc-theme-palette", JSON.stringify({ palette: palette }))
 			}
 			""",
-			() => Apply(QtHostServices.Eval(Service, "s.light") == "true" ? AppTheme.Light : AppTheme.Dark),
-			(ShellEvents.ThemeChanged, e => Apply(ThemeOf(ThemeChangedPayload.Parse(e).Scheme))));
+			() =>
+			{
+				ApplyPalette(QtHostServices.Eval(Service, "s.palette"));
+				Apply(QtHostServices.Eval(Service, "s.light") == "true" ? AppTheme.Light : AppTheme.Dark);
+			},
+			(ShellEvents.ThemeChanged, e => Apply(ThemeOf(ThemeChangedPayload.Parse(e).Scheme))),
+			(ShellEvents.ThemePalette, e => ApplyPalette(
+				e.ValueKind == JsonValueKind.Object && e.TryGetProperty("palette", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null)));
+
+	/// <summary>The ambience's highlight colour (Silica Theme.highlightColor): what Silica controls use for selection,
+	/// focus and pressed states. Null until the theme service started.</summary>
+	public static Color? HighlightColor { get; private set; }
+
+	/// <summary>The ambience's primary text colour (Theme.primaryColor).</summary>
+	public static Color? PrimaryColor { get; private set; }
+
+	/// <summary>The ambience's secondary text colour (Theme.secondaryColor).</summary>
+	public static Color? SecondaryColor { get; private set; }
+
+	/// <summary>The ambience's secondary highlight colour (Theme.secondaryHighlightColor).</summary>
+	public static Color? SecondaryHighlightColor { get; private set; }
+
+	/// <summary>Raised (main thread) when the ambience's colours changed: another ambience, even one with the same
+	/// light/dark scheme (which <see cref="IApplication.ThemeChanged"/> would not report).</summary>
+	public static event Action? ColorsChanged;
+
+	/// <summary>"highlight|primary|secondary|secondaryHighlight", Qt colour strings.</summary>
+	internal static void ApplyPalette(string? palette)
+	{
+		var parts = (palette ?? string.Empty).Split('|');
+		if (parts.Length != 4)
+			return;
+		Color? Parse(string text) => text.StartsWith('#') ? Color.FromArgb(text) : null;
+		var (highlight, primary, secondary, secondaryHighlight) = (Parse(parts[0]), Parse(parts[1]), Parse(parts[2]), Parse(parts[3]));
+		if (Equals(highlight, HighlightColor) && Equals(primary, PrimaryColor) && Equals(secondary, SecondaryColor) &&
+		    Equals(secondaryHighlight, SecondaryHighlightColor))
+			return;
+		(HighlightColor, PrimaryColor, SecondaryColor, SecondaryHighlightColor) = (highlight, primary, secondary, secondaryHighlight);
+		ColorsChanged?.Invoke();
+	}
 
 	/// <summary>The MAUI theme of a Silica colour scheme: dark text on light is Light.</summary>
 	internal static AppTheme ThemeOf(SailfishColorScheme scheme) =>
@@ -191,6 +311,35 @@ public static class SailfishTheme
 		(Microsoft.Maui.Controls.Application.Current as IApplication)?.ThemeChanged();
 		Changed?.Invoke(theme);
 	}
+}
+
+/// <summary>AppInfo.RequestedLayoutDirection: Qt's application layout direction (from the locale), read once the host
+/// runs; the current UI culture before.</summary>
+internal static class SailfishLayoutDirection
+{
+	private static LayoutDirection? _qt;
+
+	internal static LayoutDirection Current =>
+		_qt ?? (CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft ? LayoutDirection.RightToLeft : LayoutDirection.LeftToRight);
+
+	internal static void OnHostReady() => _qt = Parse(QtHostRuntime.Eval("Qt.application.layoutDirection"));
+
+	/// <summary>Qt.LeftToRight is 0, Qt.RightToLeft 1; anything else (no answer) leaves the culture's.</summary>
+	internal static LayoutDirection? Parse(string? qt) => qt?.Trim() switch
+	{
+		"1" => LayoutDirection.RightToLeft,
+		"0" => LayoutDirection.LeftToRight,
+		_ => null,
+	};
+
+	/// <summary>Tests: the action puts the Qt answer back.</summary>
+	internal static Action CaptureForTests()
+	{
+		var qt = _qt;
+		return () => _qt = qt;
+	}
+
+	internal static void SetForTests(LayoutDirection? qt) => _qt = qt;
 }
 
 /// <summary>Device info from /etc/hw-release and /etc/sailfish-release.</summary>

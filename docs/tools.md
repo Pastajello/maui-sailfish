@@ -74,8 +74,41 @@ trace, QML and page-load analyzers, `tools/screenrec/` the recorder's source. `t
 VS Code's `pipeTransport` for the `coreclr` attach (with `py/sf-debug-dap-filter.py`, which drops the
 SHA384/SHA512 breakpoint checksums vsdbg rejects). `tools/sf-{setup,deploy,run,preflight,debug-attach}.sh`
 are the former names, kept for the `.vscode` files of apps generated before `tools/sf`.
-The NuGet package ships the device-loop subset (setup, pair, detect, doctor, deploy, verify, run, kill, screenshot,
-debug-attach); the other commands need a checkout.
+The NuGet package does not ship these scripts. It carries the `sailfish` device tool instead
+(`src/Linux.SailfishOS.Tools`, also its own package `Microsoft.Maui.Platforms.SailfishOS.Tools` for
+`dotnet tool install -g`). The tool is C# over the system OpenSSH, so it needs no bash, `expect` or python3 and runs on
+Windows. Its commands are `setup`, `deploy [--run] [--follow]`, `run [--follow] [--env N=V]`, `kill`, `logs [--follow]`
+and `screenshot [-o file]`. It reads and writes the same `connect.info` and drives the same phone-side scripts
+(`tools/remote`, embedded). `SailfishRun`, `SailfishSetup`, `DeployToDevice` and `dotnet run` call it (`SailfishToolDll`
+picks another build). In a checkout the targets run the build output in `artifacts/sailfish-tool/`. Debugging from
+VS Code goes through the MAUI Sailfish Tools extension (below), which has its own SSH layer.
+
+**A sandboxed run.** `tools/sf run --env SF_SAILJAIL=1` (or `SF_MATRIX_EXTRA_ENV="SF_SAILJAIL=1" tools/sf matrix …`,
+or `sailfish run --env SF_SAILJAIL=1`) starts the app through `sailjail -p <package>`: inside its sandbox, with the
+permissions of its desktop entry, as an app-grid launch does. Without it the helper runs `/usr/bin/<package>`
+unsandboxed. The package must be built sandboxed, for example the sample with
+`SF_PUBLISH_PROPS="-p:SailfishSandboxing=true -p:SailfishPermissions=Contacts%3BLocation%3BSensors" tools/sf deploy`
+(`%3B` is MSBuild's `;`). Permissions beyond Internet need the user's consent once: start the app from the app grid
+and allow them. Until then sailjaild reports the launch as undecided, and a launch over SSH waits and ends with no
+output.
+
+## CI and code style
+
+`tools/ci/host-ci.sh [style] [build] [test] [pack] [template]` is the host-only CI. It needs no phone and no native
+toolchain, and `.github/workflows/host-ci.yml` runs the same script: a Linux job that gates, and a Windows job under
+Git Bash that does not gate yet. With no arguments it runs every stage:
+
+| Stage | What |
+|---|---|
+| `style` | `dotnet run tools/ci/style-check.cs`: LF line endings, a final newline, no trailing whitespace, C# indented with tabs. `--fix` repairs all of it except indentation. |
+| `build` | `tools/ci/Linux.Sailfish.ci.slnf` in Release: everything except the template app, whose Android/iOS heads need MAUI workloads |
+| `test` | `tests/Linux.SailfishOS.Tests` |
+| `pack` | every package into `artifacts/ci/feed`, the backend without the native shim (`SailfishAllowMissingShim=true`) |
+| `template` | `dotnet new maui-sailfish --sailfish-only` from the packed template, with its own NuGet cache, template hive and workload manifest (`DOTNETSDK_WORKLOAD_MANIFEST_ROOTS`), then `dotnet build` and a Release `dotnet publish` that must write the RPM |
+
+`.editorconfig` holds the conventions and `.gitattributes` keeps LF in every checkout, Windows too. `dotnet format
+whitespace` is not used: on tab-indented code it moves comments and aligned continuation lines to wrong columns.
+The device matrix (`tools/sf matrix`) stays manual until a self-hosted runner with a phone exists.
 
 ## VS Code
 

@@ -21,6 +21,7 @@ namespace Microsoft.Maui.SailfishOS.Platform;
 ///   N. Last parity keys: accessibility, Label TextType/TextTransform, text alignment, Slider thumb image,
 ///      Page background image, FlowDirection RTL on leaf controls (QtHostDiagnosticsRunner.F3Parity.cs).
 ///   E. WebView (Gecko): HTML/URL navigation, EvaluateJavaScriptAsync, GoBack.
+///   N. HybridWebView: its HybridRoot page, JS ↔ .NET messages, InvokeDotNet and InvokeJavaScriptAsync (S48).
 /// </summary>
 internal sealed partial class QtHostDiagnosticsRunner
 {
@@ -1291,7 +1292,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 								if (!_f3Web.CanGoBack)
 								{
 									_qtF3Checks.Check("E GoBack: no history after an HTML-string load (Gecko keeps loadHtml out of the session history) — skipped", true);
-									FinishF3();
+									F3HybridN(renderer, dispatcher);
 									return;
 								}
 								var navigated1 = _f3WebNavigated;
@@ -1304,7 +1305,7 @@ internal sealed partial class QtHostDiagnosticsRunner
 										var text3 = eval3.IsCompletedSuccessfully ? eval3.Result : $"<{eval3.Status}>";
 										_qtF3Checks.Check($"E GoBack → Navigated +{_f3WebNavigated - navigated1}>=1, document '{text3}'=='Hello MAUI'",
 											_f3WebNavigated > navigated1 && text3 == "Hello MAUI");
-										FinishF3();
+										F3HybridN(renderer, dispatcher);
 									});
 								});
 							});

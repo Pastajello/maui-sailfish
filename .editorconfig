@@ -1,0 +1,38 @@
+# Code style of the repository (tracker S57). CI checks the whitespace rules below with tools/ci/style-check.cs
+# (dotnet run tools/ci/style-check.cs [--fix]); the C# settings describe the layout the code follows. dotnet format
+# whitespace is not used as a gate: it re-aligns comments and continuation lines in tab-indented code.
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,sh}]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+[*.{csproj,props,targets,slnx,xml,xaml,qml,js,py,json,yml,yaml}]
+indent_style = space
+
+[*.{csproj,props,targets,slnx,xml,yml,yaml}]
+indent_size = 2
+
+[*.{qml,js,py,xaml}]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_preserve_single_line_statements = true
+csharp_preserve_single_line_blocks = true
+dotnet_sort_system_directives_first = true

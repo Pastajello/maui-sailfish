@@ -182,13 +182,21 @@ else
     export DOTNET_EnableDiagnostics=0
 fi
 
+# SF_SAILJAIL=1 (in the forwarded environment) starts the app inside its Sailjail sandbox, with the desktop
+# entry's permissions, as an app-grid launch of a sandboxed package does; otherwise it runs unsandboxed.
+set --
+if [ "${SF_SAILJAIL:-0}" = "1" ]; then
+    echo "--- launching in the Sailjail sandbox (sailjail -p $PKG) ---"
+    set -- sailjail -p "$PKG" --
+fi
+
 # Its own session and no inherited stdin: nothing ties the app to this ssh session, so ssh can
 # close as soon as this helper ends. setsid execs in place (a background job is no group leader),
-# so $! stays the app's PID.
+# so $! stays the app's PID (sailjail's under SF_SAILJAIL; it waits for the sandboxed app).
 if command -v setsid >/dev/null 2>&1; then
-    setsid "$LAUNCHER" >"$LOG" 2>&1 </dev/null &
+    setsid "$@" "$LAUNCHER" >"$LOG" 2>&1 </dev/null &
 else
-    "$LAUNCHER" >"$LOG" 2>&1 </dev/null &
+    "$@" "$LAUNCHER" >"$LOG" 2>&1 </dev/null &
 fi
 
 APP_PID=$!

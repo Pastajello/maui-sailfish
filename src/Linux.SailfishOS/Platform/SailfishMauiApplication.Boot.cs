@@ -19,6 +19,8 @@ public abstract partial class SailfishMauiApplication
 		_arguments = args ?? Array.Empty<string>();
 		EnsureOnDevice();
 		Console.Error.WriteLine("[Sailfish] Run() entered");
+		// The ambience's light/dark before anything reads RequestedTheme (the app's constructor, CreateWindow).
+		SailfishTheme.Seed();
 		// Unhandled exceptions, unobserved tasks and the exit leave a trace on the device (stderr + trace file).
 		SailfishCrashTrace.Install();
 		IPlatformApplication.Current = this;

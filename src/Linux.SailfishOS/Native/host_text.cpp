@@ -77,6 +77,96 @@ static double text_line_width(const QFont &font, const QString &s)
     return width;
 }
 
+// A run's font: the base font with the run's family, pixel size, weight, slant and spacing (absent keys keep the base).
+static QFont run_font(const QFont &base, const QJsonObject &r)
+{
+    QFont f = base;
+    const QString family = r.value(QStringLiteral("family")).toString();
+    if (!family.isEmpty())
+        f.setFamily(family);
+    if (r.contains(QStringLiteral("px")))
+        f.setPixelSize(qMax(1, qRound(r.value(QStringLiteral("px")).toDouble(0))));
+    if (r.contains(QStringLiteral("bold")))
+        f.setBold(r.value(QStringLiteral("bold")).toInt(0) != 0);
+    if (r.contains(QStringLiteral("italic")))
+        f.setItalic(r.value(QStringLiteral("italic")).toInt(0) != 0);
+    const double ls = r.value(QStringLiteral("ls")).toDouble(0);
+    if (ls != 0.0)
+        f.setLetterSpacing(QFont::AbsoluteSpacing, ls);
+    return f;
+}
+
+// Mixed-font text (FormattedText spans, tracker S43): one QTextLayout per paragraph with a format range per run, as
+// the rich-text label lays it out, so a line is as tall as its tallest run (ascent + descent + leading of the line)
+// and wraps where the wider runs push it. "runs": [{"s": start, "n": length, family/px/bold/italic/ls}], offsets in
+// UTF-16 code units of "text".
+static void measure_runs(const QString &text, const QFont &base, const QJsonArray &runs, int wrap, double maxW,
+                         double lh, int maxLines, double *out_w, double *out_h)
+{
+    double widest = 0;
+    double height = 0;
+    int totalLines = 0;
+    int paraStart = 0;
+    const QStringList paragraphs = text.split(QLatin1Char('\n'));
+    for (int p = 0; p < paragraphs.size(); ++p) {
+        const QString &para = paragraphs.at(p);
+        const int paraEnd = paraStart + para.size();
+        QVector<QTextLayout::FormatRange> formats;
+        QFont first = base;
+        bool haveFirst = false;
+        for (const QJsonValue &v : runs) {
+            const QJsonObject r = v.toObject();
+            const int s = r.value(QStringLiteral("s")).toInt(0);
+            const int e = s + r.value(QStringLiteral("n")).toInt(0);
+            const int from = qMax(s, paraStart), to = qMin(e, paraEnd);
+            if (to <= from && !(para.isEmpty() && s <= paraStart && paraStart <= e))
+                continue;
+            const QFont f = run_font(base, r);
+            if (!haveFirst) {
+                first = f;   // an empty paragraph is as tall as the run it sits in
+                haveFirst = true;
+            }
+            if (to > from) {
+                QTextLayout::FormatRange range;
+                range.start = from - paraStart;
+                range.length = to - from;
+                range.format.setFont(f);
+                formats.append(range);
+            }
+        }
+        QTextLayout layout(para.isEmpty() ? QStringLiteral(" ") : para, first);
+        layout.setFormats(formats);
+        QTextOption option;
+        option.setUseDesignMetrics(true);
+        option.setWrapMode(wrap == 0 || maxW <= 0 ? QTextOption::NoWrap
+                           : wrap == 2 ? QTextOption::WrapAnywhere : QTextOption::WordWrap);
+        layout.setTextOption(option);
+        layout.beginLayout();
+        bool capped = false;
+        for (;;) {
+            QTextLine line = layout.createLine();
+            if (!line.isValid())
+                break;
+            line.setLeadingIncluded(true);
+            line.setLineWidth(wrap == 0 || maxW <= 0 ? 1e7 : maxW);
+            if (!para.isEmpty())
+                widest = qMax(widest, line.naturalTextWidth());
+            height += std::ceil(line.height() - 0.001) * lh;
+            ++totalLines;
+            if (maxLines > 0 && totalLines >= maxLines) {
+                capped = true;
+                break;
+            }
+        }
+        layout.endLayout();
+        if (capped)
+            break;
+        paraStart = paraEnd + 1;   // the '\n'
+    }
+    *out_w = std::ceil(widest - 0.001);
+    *out_h = height;
+}
+
 // Layout measurement and QML Text share Qt metrics and its line breaker (QTextLayout, Text.WordWrap /
 // Text.WrapAnywhere); lh multiplies the line height like Text.ProportionalHeight. Qt thread.
 int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
@@ -111,6 +201,11 @@ int sailfish_host_measure_text(const char *json, double *out_w, double *out_h)
     const int maxLines = o.value(QStringLiteral("maxLines")).toInt(0);
     const int wrap = o.value(QStringLiteral("wrap")).toInt(1);
     const double maxW = o.value(QStringLiteral("maxW")).toDouble(0);
+    const QJsonArray runs = o.value(QStringLiteral("runs")).toArray();
+    if (!runs.isEmpty()) {
+        measure_runs(text, font, runs, wrap, maxW, lh, maxLines, out_w, out_h);
+        return 0;
+    }
 
     // Widths are whole-line design-metric widths, rounded up: QQuickText wraps when the
     // fractional natural width exceeds the item, so summed integer word widths broke lines
