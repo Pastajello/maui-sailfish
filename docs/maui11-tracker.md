@@ -1630,7 +1630,9 @@ Notes:
   - Fix: the two samples moved out of the slnf into a new `samples` stage after `pack` (`-f net11.0-sailfish`, Kitchen's iOS head stays out).
   - Every restore is now hermetic: `artifacts/ci/nuget.config` with `<clear/>`, the CI feed and nuget.org, via `RestoreConfigFile`; `NUGET_PACKAGES` under `artifacts/ci/packages`. The pack drops cached `microsoft.maui.platforms.sailfishos*` so later restores take the new packages.
   - Reproduced the runner: fresh copy, the SDK's manifest moved aside, an empty NuGet cache, and the developer's global sources out of play (`RestoreConfigFile`). All six stages passed: 641 tests, both samples built, smoke RPM.
-  - Not yet seen: the next GitHub run, in particular Windows.
+  - Third GitHub run: Windows passed. Linux failed in `test`: 16 SkiaSharp tests failed with `DllNotFoundException: libSkiaSharp`, then the test host crashed. The `SkiaSharp` package carries native libraries for macOS and Windows only. Fix: the test project references `SkiaSharp.NativeAssets.Linux.NoDependencies` 3.116.1, the version the backend builds on; no fontconfig is needed.
+  - Reproduced on the Mac with `libSkiaSharp.dylib` hidden from the test output: the same 16 failures, 261 passes and host crash. So the crash is the same cause, a native SkiaSharp call without the library. With the library back: 641/641.
+  - Not yet seen: the Linux run after this fix.
 - Verified: a fresh copy of the working tree (tracked + untracked files, no artifacts/bin/obj) runs `tools/ci/host-ci.sh` end to end on this Mac: style 591 files clean, build, 637 tests, 8 packages, template RPM 16.7 MB. Not run on GitHub: the user commits and pushes. Open: "passes on a branch" and the first Windows result.
 
 <a id="s58"></a>
