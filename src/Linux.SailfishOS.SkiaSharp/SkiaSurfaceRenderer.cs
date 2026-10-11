@@ -186,6 +186,7 @@ internal sealed class SkiaTouch
 	private readonly Func<SurfaceTouch, bool> _onTouch;
 	private NativeElementHost? _host;
 	private bool _enabled;
+	private bool _keepsDrag = true;
 	private Action<SKTouchEventArgs>? _sink;
 
 	public SkiaTouch(Func<bool> ignorePixelScaling)
@@ -194,10 +195,11 @@ internal sealed class SkiaTouch
 		_onTouch = OnTouch;
 	}
 
-	public void Update(bool enabled, Action<SKTouchEventArgs> sink)
+	public void Update(bool enabled, Action<SKTouchEventArgs> sink, bool keepsDrag = true)
 	{
 		_enabled = enabled;
 		_sink = sink;
+		_keepsDrag = keepsDrag;
 		Apply();
 	}
 
@@ -219,7 +221,7 @@ internal sealed class SkiaTouch
 	private void Apply()
 	{
 		if (_host is { } host)
-			QtHostSurface.SetTouch(host, _enabled ? _onTouch : null);
+			QtHostSurface.SetTouch(host, _enabled ? _onTouch : null, _keepsDrag);
 	}
 
 	internal bool OnTouch(SurfaceTouch touch)

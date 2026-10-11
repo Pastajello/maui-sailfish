@@ -68,7 +68,12 @@ public static class QtHostSurface
 	/// <see cref="SurfaceTouchAction.Pressed"/> of a gesture decides whether the surface keeps the gesture (true) or it
 	/// goes on to whatever is below and to the parents, as an unhandled <c>ACTION_DOWN</c> on Android. Call it again
 	/// after <see cref="NativeElementHost.Attached"/>: a re-created QML object starts with touch off.</summary>
-	public static void SetTouch(NativeElementHost host, Func<SurfaceTouch, bool>? handler)
+	public static void SetTouch(NativeElementHost host, Func<SurfaceTouch, bool>? handler) => SetTouch(host, handler, keepsDrag: true);
+
+	/// <summary>As <see cref="SetTouch(NativeElementHost, Func{SurfaceTouch, bool}?)"/>; <paramref name="keepsDrag"/>
+	/// false lets Silica take a sideways drag the view handled (the back swipe), as
+	/// <c>SailfishOSSpecific.VisualElement.KeepsDrag=false</c> does for a view's recognizers.</summary>
+	public static void SetTouch(NativeElementHost host, Func<SurfaceTouch, bool>? handler, bool keepsDrag)
 	{
 		ArgumentNullException.ThrowIfNull(host);
 		if (TouchByHost.TryGetValue(host, out var target))
@@ -88,7 +93,7 @@ public static class QtHostSurface
 				TouchByHandle[host.NativeHandle] = target;
 		}
 		if (host.IsAttached)
-			QtHostRuntime.SurfaceSetTouch(host.NativeHandle, handler is not null, _touch ??= OnNativeTouch);
+			QtHostRuntime.SurfaceSetTouch(host.NativeHandle, handler is not null, _touch ??= OnNativeTouch, keepsDrag);
 	}
 
 	private static int OnNativeTouch(long handle, int action, int pointer, double x, double y, double pressure,

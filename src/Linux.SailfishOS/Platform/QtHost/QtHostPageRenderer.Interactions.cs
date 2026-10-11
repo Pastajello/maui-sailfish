@@ -66,7 +66,7 @@ internal sealed partial class QtHostPageRenderer
 			props[_pushHost] = new Dictionary<string, object?> { ["mauiItems"] = MenuItemsJson(push) };
 			desired.Add(_pushHost);
 		}
-		if (_contextFlyouts.Count > 0 || ShellFlyoutWantsMenu)
+		if (_contextFlyouts.Count > 0 || ShellFlyoutWantsMenu || _pageHasRowFlyouts)
 		{
 			if (_ctxMenuHost is null) allocated.Add("context-menu");
 			_ctxMenuHost ??= new NativeElementHost(SyntheticPrefix + "ctxmenu", "context-menu", page);
@@ -405,7 +405,9 @@ internal sealed partial class QtHostPageRenderer
 	{
 		for (var v = element; v is not null; v = v.Parent as VisualElement)
 		{
-			if (_contextFlyouts.TryGetValue(v, out var f))
+			// Collection rows never pass through the page walk that fills the registry: read the attached property.
+			if (_contextFlyouts.TryGetValue(v, out var f) ||
+			    (f = FlyoutBase.GetContextFlyout(v) as MenuFlyout) is { Count: > 0 })
 			{
 				owner = v;
 				flyout = f;

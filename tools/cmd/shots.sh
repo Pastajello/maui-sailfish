@@ -7,7 +7,7 @@
 # Usage: ./tools/sf shots [--out DIR] [--hold MS] --env NAME=VALUE [--env ...]
 #   e.g. ./tools/sf shots --env MAUI_SAILFISH_QT_HOST_PULLEY_DIAG=1
 #
-# Stops when the app exits or after 300 s. Default out: tools/screenshots/shots-<timestamp>;
+# Stops when the app exits or after 300 s (SF_SHOTS_SECONDS for a longer tour). Default out: tools/screenshots/shots-<timestamp>;
 # in-app filmstrip frames (/tmp/sf-film) land in <out>/sf-film.
 
 set -euo pipefail
@@ -42,18 +42,28 @@ sf_ssh "rm -f /tmp/sf_run.log; rm -rf /tmp/sf-shot-ack; mkdir -p /tmp/sf-shot-ac
 sf_push_helper "$_SF_TOOLS_DIR/remote/sf-screenshot-remote.sh"
 _SF_SHOT_PUSHED=1
 TAKEN=" "
-DEADLINE=$(( $(date +%s) + 300 ))
+DEADLINE=$(( $(date +%s) + ${SF_SHOTS_SECONDS:-300} ))
+AWAKE_AT=0
 sleep 5
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-	state="$(sf_ssh_out "grep -o 'SF-SHOT [A-Za-z0-9_-]*' /tmp/sf_run.log 2>/dev/null | cut -d' ' -f2 | tr '\n' ' '; grep -q 'event loop exited' /tmp/sf_run.log 2>/dev/null && echo EXITED" 2>/dev/null || true)"
+	# Keep the display on (as sf run and sf record do): a long tour without touches let it blank, the shots came out
+	# dark, and the sleeping phone answered SSH so slowly that a soak's shots were taken up to 15 min late.
+	if [ $(( $(date +%s) - AWAKE_AT )) -ge 30 ]; then
+		SF_TIMEOUT=20 sf_keep_awake
+		AWAKE_AT=$(date +%s)
+	fi
+	# Short timeouts: the app waits 20 s for each acknowledgement, so one ssh call stalled for the default 300 s (a
+	# busy phone during a stress part) put every later shot minutes behind the app (the tour had moved on).
+	state="$(SF_TIMEOUT=20 sf_ssh_out "grep -o 'SF-SHOT [A-Za-z0-9_-]*' /tmp/sf_run.log 2>/dev/null | cut -d' ' -f2 | tr '\n' ' '; grep -q 'event loop exited' /tmp/sf_run.log 2>/dev/null && echo EXITED" 2>/dev/null || true)"
 	for name in ${state//EXITED/}; do
 		case "$TAKEN" in *" $name "*) continue ;; esac
 		TAKEN="$TAKEN$name "
-		( sf_screenshot "$OUT/$name.png" ) >>"$OUT/shots.log" 2>&1 \
+		echo "$(date +%T) shot $name" >>"$OUT/shots.log"
+		( SF_TIMEOUT=30 sf_screenshot "$OUT/$name.png" ) >>"$OUT/shots.log" 2>&1 \
 			&& sf_ok "shot $name -> $OUT/$name.png" \
 			|| sf_fail "shot $name failed"
 		# Release the held state (the app waits for this before it moves on).
-		sf_ssh "touch /tmp/sf-shot-ack/$name" >/dev/null 2>&1 || true
+		SF_TIMEOUT=20 sf_ssh "touch /tmp/sf-shot-ack/$name" >/dev/null 2>&1 || true
 	done
 	case "$state" in *EXITED*) break ;; esac
 	sleep 0.5

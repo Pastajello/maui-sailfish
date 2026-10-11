@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Trailhead.Features.Diagnostics"
+             x:Class="Trailhead.Features.Diagnostics.DiagnosticsPage"
+             x:DataType="local:DiagnosticsViewModel"
+             Title="Diagnostics">
+
+    <ContentPage.Resources>
+        <DataTemplate x:Key="RowTemplate" x:DataType="local:DiagnosticsRow">
+            <Grid ColumnDefinitions="0.4*,0.6*" Padding="0,6">
+                <Label Text="{Binding Name}" Opacity="0.7" />
+                <Label Grid.Column="1" Text="{Binding Value}" HorizontalTextAlignment="End" />
+            </Grid>
+        </DataTemplate>
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,8" Spacing="4">
+            <Label Text="Build" FontAttributes="Bold" Margin="0,8,0,0" />
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Build}"
+                                 BindableLayout.ItemTemplate="{StaticResource RowTemplate}" />
+            <Label Text="Permissions" FontAttributes="Bold" Margin="0,16,0,0" />
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Permissions}"
+                                 BindableLayout.ItemTemplate="{StaticResource RowTemplate}" />
+            <Label Text="Sensors" FontAttributes="Bold" Margin="0,16,0,0" />
+            <VerticalStackLayout BindableLayout.ItemsSource="{Binding Sensors}"
+                                 BindableLayout.ItemTemplate="{StaticResource RowTemplate}" />
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

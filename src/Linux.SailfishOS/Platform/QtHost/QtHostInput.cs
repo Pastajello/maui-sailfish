@@ -116,6 +116,7 @@ internal sealed partial class QtHostInputRouter
 	private long _holdStartMs;
 	private double _holdPressDpX, _holdPressDpY;
 	private bool _holdFired;                   // release after a fire = no tap
+	private bool _holdInRow;                   // armed from a collection row (its tap arrives from the ListView)
 	private int _holdSeq;                      // the armed hold's sequence (its own fire timer checks it)
 
 	// Page swipe between tabs, tracked independently of MAUI capture.
@@ -185,6 +186,8 @@ internal sealed partial class QtHostInputRouter
 			return;
 		_holdFired = true;
 		LongPressFired++;
+		if (_holdInRow)
+			_rowGestureTook = true;   // the ListView reports the release as a tap: not one
 		var flyout = _holdFlyout;
 		var hostId = _holdHostId!;
 		_holdFlyout = null;
@@ -271,6 +274,7 @@ internal sealed partial class QtHostInputRouter
 		_holdFlyout = null;
 		_holdFired = false;
 		_holdHostId = null;
+		_holdInRow = false;
 		if (host.Element is VisualElement holdVe &&
 		    _renderer.TryContextFlyout(holdVe, out _, out var holdFlyout))
 		{
@@ -395,6 +399,9 @@ internal sealed partial class QtHostInputRouter
 		// The delegate's press report can arrive after the release (events queued behind a fast tap): nothing to capture.
 		if (!_fingerDown || _captured is not null)
 			return false;
+		// A ContextFlyout in the row (or around the list) opens Silica's ContextMenu on a press and hold, as on any
+		// view; when it fires, the release is no tap and no selection (TakeRowGesture).
+		ArmRowHold(hit);
 		// A DragGestureRecognizer in the row's template arms a drag as anywhere else (tracker S40).
 		var dragArmed = ArmRowDrag(hit, cellRoot, hold, ghostName, dragging);
 		if (!TryFindRecognizers(hit, out var owner, out _, out var pans, out var swipes,
@@ -409,15 +416,36 @@ internal sealed partial class QtHostInputRouter
 		RowCaptures++;
 		_rowCapture = true;
 		BeginCapture(owner, _lastPressDpX, _lastPressDpY, new Rect(_lastPressDpX, _lastPressDpY, owner.Width, owner.Height));
-		if (pans is not null || swipes is not null || pinches is not null)
-		{
-			_rowHold = hold;
+		// A pan or swipe keeps the row from the ListView at once; a pinch only once its second finger is down, so one
+		// finger still scrolls the list (a carousel of zoomable photos).
+		_rowHold = hold;
+		if (pans is not null || swipes is not null)
 			hold(true);
-		}
 		if (_trace)
 			QtHostDiag.Trace(QtHostDiagChannel.Input, $"list row → gesture target {owner.GetType().Name} CAPTURED " +
 				$"(pan={pans?.Count ?? 0} swipe={swipes?.Count ?? 0} longPress={longPresses?.Count ?? 0} pointer={pointers?.Count ?? 0})");
 		return true;
+	}
+
+	private void ArmRowHold(View hit)
+	{
+		if (!_renderer.TryContextFlyout(hit, out var owner, out var flyout) || _renderer.HostIdOf(owner) is not { } hostId)
+			return;
+		_holdHostId = hostId;
+		_holdFlyout = flyout;
+		_holdFired = false;
+		_holdStartMs = Environment.TickCount64;
+		_holdPressDpX = _lastPressDpX;
+		_holdPressDpY = _lastPressDpY;
+		_holdInRow = true;
+		var seq = ++_holdSeq;
+		_dispatcher.DispatchDelayed(TimeSpan.FromMilliseconds(HoldFireMs), () =>
+		{
+			if (seq == _holdSeq)
+				PollHold();
+		});
+		if (_trace)
+			QtHostDiag.Trace(QtHostDiagChannel.Input, $"list row → context-flyout hold armed on {owner.GetType().Name} ({hostId})");
 	}
 
 	/// <summary>Whether a row long press fired or a row pan started since the last press (once): the row's tap that the
@@ -600,8 +628,8 @@ internal sealed partial class QtHostInputRouter
 			_dragging = true;
 			if (_pans is not null)
 				CancelLongPress();   // the pan owns a moving finger
-			if (_rowCapture && (_pans is not null || _swipes is not null))
-				_rowGestureTook = true;
+			if (_rowCapture)
+				_rowGestureTook = true;   // a finger that moved is no tap, whatever the row recognizes
 			DispatchPan(GestureStatus.Started);
 		}
 		if (_dragging)
@@ -684,10 +712,24 @@ internal sealed partial class QtHostInputRouter
 
 	private void DispatchTap()
 	{
-		var taps = _taps;
-		var owner = _captured;
-		if (taps is null || owner is null)
-			return;
+		if (_taps is { } taps && _captured is { } owner)
+			DispatchTaps(taps, owner, PositionOf(new Point(_pressDpX, _pressDpY)));
+	}
+
+	/// <summary>
+	/// A tap on a CollectionView row's template, which the ListView reports (list-item-tapped): counted with the
+	/// press the router saw, so a row's double-tap recognizer waits for its second tap and a single tap does not fire
+	/// it, as anywhere else.
+	/// </summary>
+	internal void DispatchRowTap(IReadOnlyList<TapGestureRecognizer> taps, View owner, Point position)
+	{
+		_pressDpX = _lastPressDpX;
+		_pressDpY = _lastPressDpY;
+		DispatchTaps(taps, owner, _ => position);
+	}
+
+	private void DispatchTaps(IReadOnlyList<TapGestureRecognizer> taps, View owner, Func<IElement?, Point?> getPosition)
+	{
 		var now = Environment.TickCount64;
 		var near = Math.Abs(_pressDpX - _lastTapDpX) <= MultiTapSlopDp && Math.Abs(_pressDpY - _lastTapDpY) <= MultiTapSlopDp;
 		_tapCount = ReferenceEquals(owner, _tapCountOwner) && now - _lastTapMs <= MultiTapMs && near ? _tapCount + 1 : 1;
@@ -702,7 +744,6 @@ internal sealed partial class QtHostInputRouter
 			most = Math.Max(most, t.NumberOfTapsRequired);
 		if (count >= most)
 			_tapCountOwner = null;   // the longest sequence is complete: the next tap starts a new one
-		var getPosition = PositionOf(new Point(_pressDpX, _pressDpY));
 		void Fire()
 		{
 			foreach (var t in taps)
@@ -825,6 +866,7 @@ internal sealed partial class QtHostInputRouter
 			_holdFlyout = null;
 			_pinching = true;
 			_pinched = true;
+			_rowHold?.Invoke(true);
 			_pinchDistance = distance;
 			DispatchPinch(GestureStatus.Started, 1, origin);
 		}

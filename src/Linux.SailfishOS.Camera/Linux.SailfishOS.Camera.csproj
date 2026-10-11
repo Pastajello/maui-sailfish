@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A camera view for Sailfish OS on QtMultimedia (in every Sailfish OS install, allowed in Harbour): a live preview
+       that takes photos, shaped like CommunityToolkit.Maui's CameraView, which cannot run on a platform outside the
+       toolkit (docs/trailhead-plan.md, D4). The app calls UseSailfishCamera(). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>Microsoft.Maui.SailfishOS.Camera</RootNamespace>
+    <AssemblyName>Microsoft.Maui.SailfishOS.Camera</AssemblyName>
+    <PackageId>Microsoft.Maui.Platforms.SailfishOS.Camera</PackageId>
+    <Version>$(PlatformMauiSailfishVersion)</Version>
+    <Description>A camera view for Sailfish OS on QtMultimedia: live preview, photos, front/back camera, flash, zoom. Call UseSailfishCamera() in the Sailfish head.</Description>
+    <PackageTags>maui;sailfish;sailfishos;camera</PackageTags>
+    <IsPackable>true</IsPackable>
+    <IsShipping>true</IsShipping>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Linux.SailfishOS/Linux.SailfishOS.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Linux.SailfishOS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="buildTransitive/**" Pack="true"
+          PackagePath="buildTransitive/net11.0/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

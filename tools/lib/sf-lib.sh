@@ -257,6 +257,15 @@ sf_use_rpm_shims() {
 # profile and SF_PUBLISH_PROPS; wipes the previous RPM staging first. Sets SF_BUILT_RPM.
 sf_publish_rpm() {
 	rm -rf "$SF_SAMPLE_DIR/obj/SailfishRpm" "$SF_RPM_DIR"
+	# A payload profile switch on the same output dir (trimr2r -> jit) kept the trimmed framework assemblies, newer than
+	# the untrimmed ones, so publish did not copy over them: the JIT app then died at startup (TypeLoadException,
+	# System.OperatingSystem). The dir remembers its profile; another profile starts from a clean dir.
+	local outdir="$SF_SAMPLE_DIR/bin/$SF_CONFIGURATION/$SF_TFM/$SF_RID"
+	local profile="$SF_PROFILE ${SF_PROFILE_PROPS:-}" stamp="$outdir/.sf-profile"
+	if [ -d "$outdir" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$profile" ]; then
+		sf_note "payload profile changed ($(cat "$stamp" 2>/dev/null || echo unknown) -> $SF_PROFILE): wiping $outdir and its obj"
+		rm -rf "$outdir" "$SF_SAMPLE_DIR/obj/$SF_CONFIGURATION/$SF_TFM/$SF_RID"
+	fi
 	# The net11.0-sailfish leg takes its RID from SailfishRuntimeIdentifier: a global -r would also reach the project's
 	# other heads (net10.0-android has no linux-arm64 runtime pack, NU1102). The bare net11.0 sample needs -r.
 	local rid_args=(-r "$SF_RID")
@@ -270,6 +279,7 @@ sf_publish_rpm() {
 		$SF_PROFILE_PROPS ${SF_PUBLISH_PROPS:-} \
 		--nologo -v minimal) \
 		|| sf_die "dotnet publish failed (release $1)"
+	mkdir -p "$outdir" && printf '%s' "$profile" > "$stamp"
 	SF_BUILT_RPM="$(ls -1 "$SF_RPM_DIR"/*-"$1"."$SF_RPM_ARCH".rpm 2>/dev/null | head -1)"
 	[ -n "$SF_BUILT_RPM" ] || sf_die "publish produced no RPM for release $1 in $SF_RPM_DIR"
 	# A payload assembly missing from deps.json fails only at its first use on the phone (tracker S61).

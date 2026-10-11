@@ -64,9 +64,15 @@ public class NativeContractTests
 			if (definitions != 1)
 				problems.Add($"{name}: {definitions} definitions");
 		}
-		foreach (Match m in Regex.Matches(imports, @"extern\s+[\w<>?\[\]]+\s+(sailfish_host_\w+)\s*\("))
-			if (!declared.Contains(m.Groups[1].Value))
-				problems.Add($"{m.Groups[1].Value}: imported but not in sailfish_host.h");
+		// An import may be an alias of an export (EntryPoint = "...": the same function with another parameter type).
+		foreach (Match m in Regex.Matches(imports,
+			         @"\[DllImport\((?<attr>[^\]]*)\)\]\s*public static extern\s+[\w<>?\[\]]+\s+(?<name>sailfish_host_\w+)\s*\("))
+		{
+			var entry = Regex.Match(m.Groups["attr"].Value, @"EntryPoint\s*=\s*""(?<entry>\w+)""");
+			var export = entry.Success ? entry.Groups["entry"].Value : m.Groups["name"].Value;
+			if (!declared.Contains(export))
+				problems.Add($"{m.Groups["name"].Value}: imported but {export} is not in sailfish_host.h");
+		}
 		Assert.Empty(problems);
 	}
 

@@ -73,8 +73,11 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 			return (null, ToolbarRow);
 		for (var t = type; t is not null; t = t.BaseType)
 		{
+			// A replaced library handler first: MAUI's own libraries (Controls.Maps' MapHandler) are "stock" too.
+			if (Registered(t) is { } replacedDescriptor && Replacement(DescriptorType(replacedDescriptor)) is { } replacement)
+				return (null, replacement);
 			if (Registered(t) is { } descriptor && !IsStock(DescriptorType(descriptor)))
-				return Replacement(DescriptorType(descriptor)) is { } replaced ? (null, replaced) : (descriptor, null);
+				return (descriptor, null);
 			if (isView && ExactRow(t) is { } row)
 				return (null, row);
 			// A stock registration of a non-view element: the Sailfish application/window handlers, else the no-op one.
@@ -85,8 +88,14 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		}
 		// Interface registrations, as MAUI resolves them after the class chain.
 		foreach (var contract in type.GetInterfaces())
-			if (Registered(contract) is { } descriptor && !IsStock(DescriptorType(descriptor)))
-				return Replacement(DescriptorType(descriptor)) is { } replaced ? (null, replaced) : (descriptor, null);
+		{
+			if (Registered(contract) is not { } descriptor)
+				continue;
+			if (Replacement(DescriptorType(descriptor)) is { } replaced)
+				return (null, replaced);
+			if (!IsStock(DescriptorType(descriptor)))
+				return (descriptor, null);
+		}
 		return isView ? (null, FallbackRow(type)) : (null, null);
 	}
 
@@ -118,6 +127,10 @@ public sealed class SailfishHandlersFactory : IMauiHandlersFactory
 		if (assembly == typeof(SailfishHandlersFactory).Assembly)
 			return false;
 		var name = assembly.GetName().Name ?? string.Empty;
+		// The backend's own packages (Microsoft.Maui.SailfishOS.Camera, .Maps, .SkiaSharp) are Sailfish handlers, not
+		// stock ones: a camera view registered by UseSailfishCamera() fell back to an empty container.
+		if (name.StartsWith("Microsoft.Maui.SailfishOS", StringComparison.Ordinal))
+			return false;
 		return name == "Microsoft.Maui" || name.StartsWith("Microsoft.Maui.", StringComparison.Ordinal);
 	}
 

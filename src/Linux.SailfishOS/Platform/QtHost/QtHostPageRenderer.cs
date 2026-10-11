@@ -153,6 +153,11 @@ internal sealed partial class QtHostPageRenderer
 	// Context flyouts are rebuilt per reconcile. Synthetic page-level hosts (pulley menus, context menu,
 	// panels) reconcile like tree hosts but skip the geometry pass: Silica positions them (mauiDetached).
 	private readonly Dictionary<Element, MenuFlyout> _contextFlyouts = new();
+
+	// Lists whose row templates carry a ContextFlyout (learnt as rows map, since templates are opaque until then), and
+	// whether the page being walked holds one: the page then needs its Silica ContextMenu host like any flyout.
+	private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemsView, object> _rowFlyoutLists = new();
+	private bool _pageHasRowFlyouts;
 	private MenuFlyout? _openFlyout;
 	private List<(string Text, bool Enabled, MenuItem? Item)>? _openFlyoutRows;   // the open menu's rows, by QML index
 	private NativeElementHost? _ctxMenuHost;
@@ -896,6 +901,7 @@ internal sealed partial class QtHostPageRenderer
 		_scrollRefreshHostWalk = null;
 		_refreshWalk = null;
 		_contextFlyouts.Clear();   // flyout registry follows the tree
+		_pageHasRowFlyouts = false;
 		// The walk re-adds every shape still waiting for a size, so the set holds only shapes on the page as it is now.
 		// Shapes the previous pass skipped go first in a chunked create (see below).
 		var awaitedBefore = _awaitingArrange.Count == 0 ? null : new HashSet<Element>(_awaitingArrange);

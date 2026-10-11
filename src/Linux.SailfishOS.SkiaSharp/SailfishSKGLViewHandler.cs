@@ -65,7 +65,9 @@ public class SailfishSKGLViewHandler : SailfishViewHandler<ISKGLView>
 	}
 
 	public static void MapEnableTouchEvents(SailfishSKGLViewHandler handler, ISKGLView view) =>
-		handler._renderer.Touch.Update(view.EnableTouchEvents && !view.InputTransparent, view.OnTouch);
+		handler._renderer.Touch.Update(view.EnableTouchEvents && !view.InputTransparent, view.OnTouch,
+			view is not BindableObject bindable ||
+			Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.GetKeepsDrag(bindable));
 
 	public static void MapIgnorePixelScaling(SailfishSKGLViewHandler handler, ISKGLView view) =>
 		handler._renderer.Invalidate();

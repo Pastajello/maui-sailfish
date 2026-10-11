@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             xmlns:local="clr-namespace:Trailhead.Features.Lab"
+             x:Class="Trailhead.Features.Lab.BehaviorsLabPage"
+             x:DataType="local:BehaviorsLabPage"
+             Title="Behaviors">
+
+    <ContentPage.Resources>
+        <Style x:Key="Invalid" TargetType="Entry">
+            <Setter Property="TextColor" Value="#FF7B7B" />
+        </Style>
+        <Style x:Key="Valid" TargetType="Entry" />
+    </ContentPage.Resources>
+
+    <!-- CommunityToolkit.Maui behaviors on Sailfish's native fields. A behavior does not inherit the page's
+         BindingContext, so the ones with bindings get it in code (BehaviorsLabPage.xaml.cs). -->
+    <ScrollView>
+        <VerticalStackLayout Padding="16,8" Spacing="14">
+            <Label Text="E-mail (EmailValidationBehavior)" FontSize="14" TextColor="{DynamicResource Highlight}" />
+            <Entry x:Name="Email" Placeholder="you@example.com" Keyboard="Email">
+                <Entry.Behaviors>
+                    <toolkit:EmailValidationBehavior x:Name="EmailValidation" Flags="ValidateOnValueChanged"
+                                                     InvalidStyle="{StaticResource Invalid}" ValidStyle="{StaticResource Valid}" />
+                </Entry.Behaviors>
+            </Entry>
+
+            <Label Text="Altitude in metres (NumericValidationBehavior, 0–8848)" FontSize="14" TextColor="{DynamicResource Highlight}" />
+            <Entry x:Name="Altitude" Placeholder="1987" Keyboard="Numeric">
+                <Entry.Behaviors>
+                    <toolkit:NumericValidationBehavior x:Name="AltitudeValidation" MinimumValue="0" MaximumValue="8848"
+                                                       MaximumDecimalPlaces="0" Flags="ValidateOnValueChanged"
+                                                       InvalidStyle="{StaticResource Invalid}" ValidStyle="{StaticResource Valid}" />
+                </Entry.Behaviors>
+            </Entry>
+
+            <Label Text="Emergency number (MaskedBehavior)" FontSize="14" TextColor="{DynamicResource Highlight}" />
+            <Entry x:Name="Phone" Placeholder="+48 XXX XXX XXX" Keyboard="Telephone">
+                <Entry.Behaviors>
+                    <toolkit:MaskedBehavior Mask="+XX XXX XXX XXX" />
+                </Entry.Behaviors>
+            </Entry>
+
+            <Label Text="Search places (UserStoppedTypingBehavior: waits for a pause)" FontSize="14" TextColor="{DynamicResource Highlight}" />
+            <Entry x:Name="Search" Placeholder="Kasprowy…">
+                <Entry.Behaviors>
+                    <toolkit:UserStoppedTypingBehavior x:Name="StoppedTyping" StoppedTypingTimeThreshold="600"
+                                                       MinimumLengthThreshold="2" ShouldDismissKeyboardAutomatically="False"
+                                                       Command="{Binding SearchCommand}" />
+                </Entry.Behaviors>
+            </Entry>
+            <Label Text="{Binding SearchResult}" FontSize="13" TextColor="{DynamicResource Secondary}" />
+
+            <Label Text="Tap to animate (AnimationBehavior)" FontSize="14" TextColor="{DynamicResource Highlight}" />
+            <Label x:Name="Bouncer" Text="⛰ Tap me" FontSize="28" HorizontalOptions="Center" />
+
+            <!-- The toolkit's platform behaviors (SelectAllTextBehavior, IconTintColorBehavior, StatusBarBehavior) exist only
+                 in its Android/iOS/Windows builds, not in the plain net one Sailfish uses. -->
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

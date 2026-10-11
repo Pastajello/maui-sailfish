@@ -50,7 +50,7 @@ platform are marked "inherited".
 | Material 3 on Android | n/a (Android) | — |
 | `BoxView.Fill` brush | done (`QtHostShapes.cs:251`, MAUI's Fill → Background → Color order) | — |
 | `LongPressGestureRecognizer` (Duration, movement threshold, `GestureState`, Command) | implemented (`QtHostInput.cs:81,120-122`) | M17 verifies the semantics against the RC1 type |
-| `Map` enhancements | n/a: `Microsoft.Maui.Controls.Maps` has no Sailfish implementation | document; a Mapbox/QtLocation adapter is out of scope |
+| `Map` enhancements | `Microsoft.Maui.Controls.Maps` on QtLocation: package `Microsoft.Maui.Platforms.SailfishOS.Maps` (2026-10, Trailhead T08; clustering, elements, info windows; no `MapStyle`, no traffic) | done |
 | Windows CollectionView2, Android Shell handler, iOS Navigation/Tabbed/Flyout handlers | n/a (their platforms); note the **event-timing change**: on iOS `Appearing` now fires before the push, as it already does here | — |
 | `Microsoft.Maui.Controls.Compatibility` package removed | fine: not referenced. Consequence: legacy `ListView`/`TableView`/cells have **no renderer anywhere**, so a platform must ship its own (M4) | M4 |
 | `TabbedPage.BadgeText/BadgeColor/BadgeTextColor` attached properties | **missing** (no "Badge" in `src/`) | M15 |

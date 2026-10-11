@@ -358,9 +358,24 @@ public static class SailfishNotifications
 		        var n = factory.createObject(this, {
 		            appName: o.appName, appIcon: o.icon, summary: o.summary, body: o.body,
 		            previewSummary: o.preview ? o.summary : "", previewBody: o.preview ? o.body : "" });
+		        // An empty preview equals the default, so the plugin sends no preview hint and lipstick (SFOS 5) pops a
+		        // banner anyway; a low urgency is what keeps it quiet (checked on the device with raw D-Bus hints).
+		        if (!o.preview) n.urgency = Notification.Low;
 		        n.publish();
 		        live[n.replacesId] = n;
 		        return n.replacesId;
+		    }
+		    function update(json) {
+		        var o = JSON.parse(json);
+		        var n = live[o.id];
+		        if (!n) return "missing";
+		        n.summary = o.summary;
+		        n.body = o.body;
+		        n.previewSummary = "";
+		        n.previewBody = "";
+		        n.urgency = Notification.Low;   // a replaced notification pops a banner again otherwise
+		        n.publish();
+		        return "updated";
 		    }
 		    function close(id) {
 		        var n = live[id];
@@ -372,8 +387,8 @@ public static class SailfishNotifications
 		}
 		""";
 
-	/// <summary>Publishes a notification (with a banner when
-	/// <paramref name="preview"/>); returns its id, 0 when unavailable.</summary>
+	/// <summary>Publishes a notification (with a banner when <paramref name="preview"/>; without one it goes out at low
+	/// urgency, the only way lipstick skips the banner); returns its id, 0 when unavailable.</summary>
 	public static uint Show(string summary, string body, bool preview = true, string? icon = null)
 	{
 		if (!QtHostServices.Ensure(Service, Qml))
@@ -390,7 +405,52 @@ public static class SailfishNotifications
 		return uint.TryParse(QtHostServices.Eval(Service, $"s.show({QtHostServices.Js(json)})"), out var id) ? id : 0;
 	}
 
+	/// <summary>Changes the text of a published notification in place, without a new banner (a progress line such as
+	/// "Recording · 2.4 km"; it goes out at low urgency from then on); false when the id is unknown.</summary>
+	public static bool Update(uint id, string summary, string body)
+	{
+		var json = BridgeJson.Write(w =>
+		{
+			w.WriteNumber("id", id);
+			w.WriteString("summary", summary);
+			w.WriteString("body", body);
+		});
+		return QtHostServices.Eval(Service, $"s.update({QtHostServices.Js(json)})") == "updated";
+	}
+
 	/// <summary>Removes a published notification; false when unknown.</summary>
 	public static bool Close(uint id) =>
 		QtHostServices.Eval(Service, $"s.close({id})") == "closed";
+}
+
+/// <summary>
+/// Keeps the app running while the screen is off and the phone would suspend (Nemo.KeepAlive's <c>KeepAlive</c>, allowed
+/// under Sailjail and in Harbour): a workout or navigation recording with the phone in a pocket. MAUI has no API for
+/// it; Android apps use a foreground service. Turn it off when the work ends: it costs battery.
+/// </summary>
+public static class SailfishBackground
+{
+	private const string Service = "keepalive";
+	private static bool _keepAlive;
+
+	private const string Qml = """
+		import QtQuick 2.6
+		import Nemo.KeepAlive 1.2
+		KeepAlive { enabled: false }
+		""";
+
+	/// <summary>True: the phone does not suspend the app (the screen may still blank).</summary>
+	public static bool KeepAlive
+	{
+		get => _keepAlive;
+		set
+		{
+			_keepAlive = value;
+			if (QtHostServices.Ensure(Service, Qml))
+				QtHostServices.Eval(Service, $"s.enabled = {(value ? "true" : "false")}");
+		}
+	}
+
+	/// <summary>The native KeepAlive state (diagnostics).</summary>
+	public static string NativeState => QtHostServices.Eval(Service, "s.enabled");
 }

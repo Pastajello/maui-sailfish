@@ -235,4 +235,93 @@ public sealed class RouterRowTests
 
 		Assert.Null(list.SelectedItem);
 	}
+
+	// The row path took the first tap recognizer whatever its NumberOfTapsRequired: one tap fired a double-tap (a
+	// photo carousel zoomed on every swipe). Row taps now count like any other.
+	[Fact]
+	public void A_double_tap_recognizer_in_a_row_needs_two_taps()
+	{
+		var doubled = 0;
+		var list = RowList(label =>
+		{
+			var tap = new TapGestureRecognizer { NumberOfTapsRequired = 2 };
+			tap.Tapped += (_, _) => doubled++;
+			label.GestureRecognizers.Add(tap);
+		});
+		var (h, router, loop) = Start(Page(list));
+		using var _ = h;
+		var native = h.Shim.ByUri("list-view").Single();
+		var area = BoundsOf(h, list);
+		var press = new Point(area.X + 100, area.Y + 40);
+		var payload = FormattableString.Invariant($"{{\"id\":\"{native.Id}\",\"row\":0,\"cell\":0,\"x\":{Px(100)},\"y\":{Px(40)}}}");
+
+		void Tap()
+		{
+			router.OnPointer(0, Px(press.X), Px(press.Y), 0, 0);
+			router.OnPointer(1, Px(press.X), Px(press.Y), 0, 0);
+			h.Renderer.HandleNativeEvent("list-item-tapped", payload);
+			loop.DrainQueue();
+		}
+
+		Tap();
+		Assert.Equal(0, doubled);
+		Tap();
+		Assert.Equal(1, doubled);
+	}
+
+	// A pinch needs two fingers: one finger dragging across a zoomable row belongs to the list (a carousel swipe),
+	// and its release is no tap.
+	[Fact]
+	public void A_one_finger_drag_on_a_pinch_row_is_left_to_the_list()
+	{
+		var list = RowList(label => label.GestureRecognizers.Add(new PinchGestureRecognizer()), SelectionMode.Single);
+		var (h, router, loop) = Start(Page(list));
+		using var _ = h;
+		var native = h.Shim.ByUri("list-view").Single();
+		var area = BoundsOf(h, list);
+		var press = new Point(area.X + 100, area.Y + 40);
+		var payload = FormattableString.Invariant($"{{\"id\":\"{native.Id}\",\"row\":0,\"cell\":0,\"x\":{Px(100)},\"y\":{Px(40)}}}");
+
+		router.OnPointer(0, Px(press.X), Px(press.Y), 0, 0);
+		h.Renderer.HandleNativeEvent("list-item-pressed", payload);
+		h.Poll();
+		Assert.NotEqual("0", native.Text("mauiHoldRow"));
+		for (var i = 1; i <= 5; i++)
+			router.OnPointer(2, Px(press.X + 20 * i), Px(press.Y), 0, 0);
+		Assert.NotEqual("0", native.Text("mauiHoldRow"));
+		router.OnPointer(1, Px(press.X + 100), Px(press.Y), 0, 0);
+		h.Renderer.HandleNativeEvent("list-item-tapped", payload);
+		loop.DrainQueue();
+
+		Assert.Null(list.SelectedItem);
+	}
+
+	// Press and hold a row whose template has a ContextFlyout: Silica's ContextMenu opens, and the release the ListView
+	// reports as a click selects nothing.
+	[Fact]
+	public void Press_and_hold_on_a_row_opens_its_context_menu_and_does_not_select()
+	{
+		var list = RowList(label => FlyoutBase.SetContextFlyout(label, new MenuFlyout { new MenuFlyoutItem { Text = "Delete" } }),
+			SelectionMode.Single);
+		var (h, router, loop) = Start(Page(list));
+		using var _ = h;
+		var native = h.Shim.ByUri("list-view").Single();
+		var area = BoundsOf(h, list);
+		var press = new Point(area.X + 100, area.Y + 40);
+		var payload = FormattableString.Invariant($"{{\"id\":\"{native.Id}\",\"row\":0,\"cell\":0,\"x\":{Px(100)},\"y\":{Px(40)}}}");
+		string? opened = null;
+		h.Shim.EvalHook = js => js.Contains("__openContextMenu", StringComparison.Ordinal) ? (opened = js) is null ? null : "true" : null;
+
+		router.OnPointer(0, Px(press.X), Px(press.Y), 0, 0);
+		h.Renderer.HandleNativeEvent("list-item-pressed", payload);
+		Thread.Sleep(700);
+		router.PollHold();
+		router.OnPointer(1, Px(press.X), Px(press.Y), 0, 0);
+		h.Renderer.HandleNativeEvent("list-item-tapped", payload);
+		loop.DrainQueue();
+
+		Assert.NotNull(opened);
+		Assert.Contains("Delete", opened);
+		Assert.Null(list.SelectedItem);
+	}
 }

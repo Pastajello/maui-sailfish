@@ -2,6 +2,8 @@
 
 #include "host_internal.h"
 
+#include <QStyleHints>
+
 using namespace sfhost;
 
 extern "C" {
@@ -125,8 +127,13 @@ public:
 
     // Touch follows SkiaSharp's Android SKTouchHandler: the first press decides whether the item keeps the gesture
     // (handled) or Qt passes it on to the items below and the parents, as an unhandled ACTION_DOWN does on Android.
-    void setTouchEnabled(bool enabled)
+    // keepDrag (the view's KeepsDrag, D17): a gesture the view handled stays its own against Silica's page gestures (the
+    // back swipe, which takes a sideways drag anywhere on a page, and the pulley), as a view with pan recognizers keeps
+    // its drags. A drag that turns out vertical is released at once, so a list or page around the canvas still
+    // scrolls, as Android's ScrollView intercepts vertical moves from a child.
+    void setTouchEnabled(bool enabled, bool keepDrag)
     {
+        m_keepDrag = keepDrag;
         if (m_touch == enabled)
             return;
         m_touch = enabled;
@@ -161,6 +168,7 @@ protected:
                 e->ignore();
                 return;
             }
+            holdDrag(points.first().pos());
             watchAncestors();
             e->accept();
             return;
@@ -192,6 +200,7 @@ protected:
             for (const QTouchEvent::TouchPoint &p : points)
                 if (m_points.contains(p.id()) && (p.state() == Qt::TouchPointMoved || p.state() == Qt::TouchPointStationary)) {
                     m_points[p.id()] = p.pos();
+                    decideDrag(p.pos());
                     send(1, p.id(), p.pos(), p.pressure(), 0, 0);
                 }
         for (const QTouchEvent::TouchPoint &p : points)
@@ -199,8 +208,10 @@ protected:
                 send(2, p.id(), p.pos(), p.pressure(), 0, 0);
         if (e->type() == QEvent::TouchEnd)
             m_points.clear();
-        if (m_points.isEmpty())
+        if (m_points.isEmpty()) {
             unwatchAncestors();
+            releaseDrag();
+        }
         e->accept();
     }
 
@@ -220,6 +231,7 @@ protected:
             return;
         }
         m_mouseDown = true;
+        holdDrag(e->localPos());
         e->accept();
     }
 
@@ -229,6 +241,7 @@ protected:
             e->ignore();
             return;
         }
+        decideDrag(e->localPos());
         send(1, 0, e->localPos(), 1.0, 1, m_mouseButton);
         e->accept();
     }
@@ -240,12 +253,14 @@ protected:
             return;
         }
         m_mouseDown = false;
+        releaseDrag();
         send(2, 0, e->localPos(), 0.0, 1, m_mouseButton);
         e->accept();
     }
 
     void mouseUngrabEvent() override
     {
+        releaseDrag();
         if (!m_mouseDown)
             return;
         m_mouseDown = false;
@@ -314,6 +329,36 @@ protected:
     }
 
 private:
+    void holdDrag(const QPointF &pos)
+    {
+        m_dragStart = pos;
+        m_dragDecided = !m_keepDrag;
+        if (m_keepDrag) {
+            setKeepTouchGrab(true);
+            setKeepMouseGrab(true);
+        }
+    }
+
+    // Once the finger has moved past the drag threshold: vertical gives the drag back to the scrolling ancestors.
+    void decideDrag(const QPointF &pos)
+    {
+        if (m_dragDecided)
+            return;
+        const QPointF d = pos - m_dragStart;
+        const int threshold = QGuiApplication::styleHints()->startDragDistance();
+        if (qAbs(d.x()) < threshold && qAbs(d.y()) < threshold)
+            return;
+        m_dragDecided = true;
+        if (qAbs(d.y()) > qAbs(d.x()))
+            releaseDrag();
+    }
+
+    void releaseDrag()
+    {
+        setKeepTouchGrab(false);
+        setKeepMouseGrab(false);
+    }
+
     bool send(int action, int pointer, const QPointF &pos, qreal pressure, int device, int button)
     {
         if (device == 1)
@@ -385,6 +430,9 @@ private:
     }
 
     bool m_touch = false;
+    bool m_keepDrag = true;
+    bool m_dragDecided = true;
+    QPointF m_dragStart;
     QHash<int, QPointF> m_points;   // touch points this item holds, by Qt id
     QTimer *m_stealCheck = nullptr;
     QList<QMetaObject::Connection> m_watched;
@@ -447,9 +495,10 @@ int sailfish_host_surface_set_touch(long long handle, int enabled)
     QQuickItem *host = qobject_cast<QQuickItem *>(require_handle(handle));
     if (!host)
         return SFHOST_E_DEAD_HANDLE;
+    // enabled: 0 off, 1 on and keeping its drags (KeepsDrag, the default), 2 on and letting Silica take them.
     SurfaceItem *surface = surface_for(host, enabled != 0);
     if (surface)
-        surface->setTouchEnabled(enabled != 0);
+        surface->setTouchEnabled(enabled != 0, enabled != 2);
     return SFHOST_OK;
 }
 

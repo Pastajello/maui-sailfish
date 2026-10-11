@@ -98,12 +98,15 @@ one · **n/a** = no MAUI concept to map · **open** = known gap.
 | Browser + URL scheme callback | `WebAuthenticator` | native (needs `SailfishUrlSchemes`) | unit |
 | — | `TextToSpeech`, `Geocoding`, `Passkeys` | n/a — `FeatureNotSupportedException` (no engine, geocoder or authenticator) | unit |
 | Sensors, location, battery, connectivity, haptics, keep-alive | Essentials | native | f4 C/D |
+| Staying awake with the screen off (`Nemo.KeepAlive` `KeepAlive`) | — | Sailfish API `SailfishBackground.KeepAlive` | Trailhead tour (record) |
+| QtLocation `Map` (OpenStreetMap / OpenTopoMap tiles), `MapQuickItem`, `MapPolyline`/`MapPolygon`/`MapCircle`, `PositionSource` | `Microsoft.Maui.Controls.Maps` (`Map`, pins, clustering, elements, `MoveToRegion`, `VisibleRegion`, clicks, user location) | native, package `Microsoft.Maui.Platforms.SailfishOS.Maps` (QtLocation from the jolla repo, not in Harbour) | Trailhead tour (map), host tests |
 | Open a URL in the browser | `Launcher`, `Browser` | native, not tested (it would move the test app to the background) | — |
 | Open a file in another app | `Launcher.OpenAsync(OpenFileRequest)` | native (the other app sees only its sandbox) | silica N |
 | Links and files handed to the app (`MimeType`, D-Bus `openUrl`) | `Application.OnAppLinkRequestReceived` (+ `SailfishUrlSchemes`/`SailfishMimeTypes`) | native | silica K |
 | Display on/off, lock screen, memory pressure (MCE) | — | Sailfish lifecycle events | silica J |
 | Keyboard, rotation, ambience, cover state events | — | Sailfish lifecycle events | silica M |
 | Camera capture | `MediaPicker.CapturePhotoAsync` | n/a — Sailfish has no in-app capture API | — |
+| QtMultimedia `Camera` + `VideoOutput` (live preview, still capture, flash, zoom, front/back) | — (CommunityToolkit's `CameraView` cannot run on a platform outside the toolkit) | package `Microsoft.Maui.Platforms.SailfishOS.Camera`: `SailfishCameraView` | Trailhead tour (camera) |
 
 ## Not tested on purpose
 

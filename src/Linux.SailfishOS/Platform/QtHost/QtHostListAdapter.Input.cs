@@ -127,8 +127,9 @@ internal sealed partial class QtHostListAdapter
 		return hit;
 	}
 
-	/// <summary>Whether a cell's template carries recognizers other than Tap (Pan, Swipe, LongPress, Pointer, Pinch):
-	/// the delegate then reports its presses ("list-item-pressed") so the input router can capture them.</summary>
+	/// <summary>Whether a cell's template carries recognizers other than Tap (Pan, Swipe, LongPress, Pointer, Pinch) or a
+	/// ContextFlyout: the delegate then reports its presses ("list-item-pressed") so the input router can capture them
+	/// (and time a press and hold for the flyout's Silica ContextMenu).</summary>
 	private bool RowHasGestures(Row row)
 	{
 		if (row.LazyCells)
@@ -141,6 +142,8 @@ internal sealed partial class QtHostListAdapter
 
 	private static bool RowHasGesturesView(View view)
 	{
+		if (FlyoutBase.GetContextFlyout(view) is MenuFlyout { Count: > 0 })
+			return true;
 		foreach (var recognizer in view.GestureRecognizers)
 			if (recognizer is not TapGestureRecognizer)
 				return true;
@@ -188,7 +191,11 @@ internal sealed partial class QtHostListAdapter
 			    out var tap, out var owner, out var position))
 		{
 			QtHostDiag.Trace(QtHostDiagChannel.Input, $"collection row {rowIndex} cell {cellIndex} tapped → {owner!.GetType().Name} TapGestureRecognizer");
-			QtHostInputRouter.SendTapped(tap!, owner, position);
+			var taps = owner.GestureRecognizers.OfType<TapGestureRecognizer>().ToList();
+			if (QtHostInputRouter.Active is { } router)
+				router.DispatchRowTap(taps, owner, position);
+			else if (taps.FirstOrDefault(t => t.NumberOfTapsRequired == 1) is { } single)
+				QtHostInputRouter.SendTapped(single, owner, position);
 			return;
 		}
 		if (View is not SelectableItemsView sel || sel.SelectionMode == SelectionMode.None)

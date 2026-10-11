@@ -128,6 +128,39 @@ internal static class QtHostNative
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_set_property(long handle, string name, string? valueJson);
 
+	/* The same entry points with the payload as NUL-terminated UTF-8 bytes (Utf8z): the runtime's string marshaller
+	 * converts an [In] string on the stack, and a 10,000-row list's rows JSON (about 480 KB) overflowed the 2 MB stack
+	 * the phone gives the main thread (Trailhead T18). A byte array is pinned, not copied. */
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "sailfish_host_set_property")]
+	public static extern int sailfish_host_set_property_utf8(long handle, string name, byte[] valueJson);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "sailfish_host_apply_props")]
+	public static extern int sailfish_host_apply_props_utf8(long handle, byte[] propsJson);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "sailfish_host_apply_geometry")]
+	public static extern int sailfish_host_apply_geometry_utf8(byte[] geoJson);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "sailfish_host_eval")]
+	public static extern int sailfish_host_eval_utf8(byte[] expression, IntPtr outBuf, int cap);
+
+	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "sailfish_host_invoke")]
+	public static extern int sailfish_host_invoke_utf8(long handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string method,
+		byte[]? arg, IntPtr output, int capacity);
+
+	/// <summary>Payloads longer than this cross as heap UTF-8 (<see cref="Utf8z"/>); shorter ones keep the plain string
+	/// path (its stack copy is small and allocates nothing).</summary>
+	public const int LargeArgChars = 4096;
+
+	public static bool IsLarge(string? s) => s is not null && s.Length > LargeArgChars;
+
+	/// <summary>NUL-terminated UTF-8 bytes of <paramref name="s"/>.</summary>
+	public static byte[] Utf8z(string s)
+	{
+		var bytes = new byte[System.Text.Encoding.UTF8.GetByteCount(s) + 1];
+		System.Text.Encoding.UTF8.GetBytes(s, 0, s.Length, bytes, 0);
+		return bytes;
+	}
+
 	/* Ordered [{"name":...,"value":...}] batch; returns the count not applied, -1 bad JSON, -3 dead handle. */
 	[DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
 	public static extern int sailfish_host_apply_props(long handle, string propsJson);

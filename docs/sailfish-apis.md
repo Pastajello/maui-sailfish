@@ -14,6 +14,7 @@ Every call is safe from any thread; callbacks run on the main thread.
 | [`SailfishRemorse`](#sailfishremorse) | `RemorsePopup`, `RemorseItem` | a destructive action the user can undo during a countdown, instead of an "Are you sure?" dialog |
 | [`SailfishBottomSheet`](#sailfishbottomsheet) | `DockedPanel` | a panel that slides in from a screen edge |
 | [`SailfishNotifications`](#sailfishnotifications) | `Nemo.Notifications` | a system notification with a banner |
+| [`SailfishBackground`](#sailfishbackground) | `Nemo.KeepAlive` `KeepAlive` | work that must go on with the screen off (a workout or route recording) |
 | [`SailfishCover`](#sailfishcover) | `CoverBackground`, `CoverActionList` | the app's card on the home screen |
 | [Lifecycle events](#lifecycle-events) | `QGuiApplication`, Silica window, MCE | cover state, orientation, ambience, keyboard, display, lock screen, memory pressure, quit |
 | [Opening URLs and files](#opening-urls-and-files) | `.desktop` `MimeType`, D-Bus `openUrl` | links and files other apps hand to yours |
@@ -72,9 +73,26 @@ uint id = SailfishNotifications.Show("Reminder", "Pay the rent today");
 SailfishNotifications.Close(id);
 ```
 
-`icon` takes a theme icon name or a path.
+`icon` takes a theme icon name or a path. `SailfishNotifications.Update(id, summary, body)` changes a published
+notification in place, without a new banner, for a running status ("Recording · 2.4 km"). `preview: false` and
+`Update` publish at low urgency: Sailfish OS 5 pops a banner for every normal notification, preview text or not.
 
 <img src="media/api/notification.gif" width="220" alt="A 'Reminder — Pay the rent today' banner drops in from the top">
+
+## SailfishBackground
+
+With the screen off a Sailfish phone suspends, and an app's timers and location updates stop with it. Work that
+must go on (recording a route with the phone in a pocket) keeps the app awake while it runs, as an Android app
+starts a foreground service:
+
+```csharp
+SailfishBackground.KeepAlive = true;    // recording starts
+// …
+SailfishBackground.KeepAlive = false;   // and ends: keeping the phone awake costs battery
+```
+
+The screen still blanks (`DeviceDisplay.KeepScreenOn` keeps it on). Nemo.KeepAlive is allowed under Sailjail and in
+the Jolla Store.
 
 ## SailfishCover
 

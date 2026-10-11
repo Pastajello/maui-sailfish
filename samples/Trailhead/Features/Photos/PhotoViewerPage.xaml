@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Trailhead.Features.Photos"
+             xmlns:detail="clr-namespace:Trailhead.Features.TripDetail"
+             xmlns:sailfish="clr-namespace:Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific;assembly=Microsoft.Maui.SailfishOS"
+             x:Class="Trailhead.Features.Photos.PhotoViewerPage"
+             x:DataType="local:PhotoViewerViewModel"
+             Title="{Binding Title}"
+             sailfish:Page.AllowedOrientations="All">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Share" Clicked="OnShare" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="*,Auto">
+        <CarouselView x:Name="Carousel"
+                      ItemsSource="{Binding Photos}"
+                      Position="{Binding Position}"
+                      Loop="False"
+                      PositionChanged="OnPositionChanged">
+            <CarouselView.ItemTemplate>
+                <DataTemplate x:DataType="detail:PhotoItem">
+                    <local:ZoomableImage Source="{Binding Full}" />
+                </DataTemplate>
+            </CarouselView.ItemTemplate>
+        </CarouselView>
+        <Label Grid.Row="1" Text="{Binding Caption}" Padding="16,8,16,16" FontSize="14"
+               TextColor="{DynamicResource Secondary}" HorizontalTextAlignment="Center" />
+    </Grid>
+
+</ContentPage>

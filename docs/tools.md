@@ -49,8 +49,9 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf run` | launches the installed app with a launcher-like Wayland env; `--env NAME=VALUE` injects variables; tails logs; `--wait S` waits up to S s for the app to exit on its own and exits with the app's own code (from its last log line `[Sailfish] exit code N`: 2 = the shim or the QML did not load, 1 = startup threw; 124 = still running); `--follow` streams the log until the app exits, returns its exit code and stops the app on Ctrl+C (what `dotnet run -f net11.0-sailfish` runs) |
 | `sf kill` | kills every instance (launcher/invoker/firejail and direct-binary cmdlines differ); `--list` only lists them |
 | `sf debug-attach` | prepares managed debugging: pushes the linux-arm64 vsdbg to `/tmp/vsdbg`, checks it runs, relaxes ptrace |
+| `sf harbour-check` | checks an app RPM against the Jolla Store's own rule lists (sailfishos/sdk-harbour-rpmvalidator, cached in `~/.cache/maui-sailfish/harbour-rules`, `--update`): name and file locations, `Requires`, QML imports, every ELF file's libraries, Sailjail permissions and keys, icons; exits non-zero when the Store would refuse it. Standard library Python, any host |
 | `sf screenshot` | compositor screenshot → local PNG (lipstick `saveScreenshot`, elevated) |
-| `sf shots` | runs the app and takes a compositor screenshot for every `SF-SHOT <name>` marker it logs |
+| `sf shots` | runs the app and takes a compositor screenshot for every `SF-SHOT <name>` marker it logs (stops after 300 s, or when the app exits; `SF_SHOTS_SECONDS` for a longer tour; keeps the display on) |
 | `sf rec` | records the screen while you use the phone: `rec start [-f out.mp4]`, `rec stop [--gif]`, `rec status` |
 | `sf record` | runs the app (the sample's showcase tour by default) and records it → MP4; `--manual`, `--audio`, `--keep DIR`, `--app` (app's own window, no password) |
 | `sf trace` | EventPipe profile of the installed app from its start (file session, nothing installed on the phone) → `.nettrace`, speedscope file, device log and an analyzer report ([docs/profiling.md](profiling.md)) |
@@ -62,7 +63,7 @@ Every device and build tool is one command: `tools/sf <command>` (`tools/sf help
 | `sf native-build` | `zig c++` cross-build of `libsailfishhost.so`, the secrets bridge and the Harbour launcher against the device sysroot → `artifacts/native/<arch>/` (`SF_ARCH=aarch64` default, `armv7hl`) |
 | `sf sysroot` | assembles the aarch64 sysroot (Qt 5.6.3 headers + runtime libs) from public RPMs |
 | `sf screenrec-build` | `zig cc` cross-build of the on-phone recorder (lipstick recorder protocol → V4L2 H.264 → GStreamer MP4) |
-| `sf pack-local` | packs this checkout into the local NuGet feed (`Microsoft.Maui.SailfishOS`, the workload manifest and its `sailfish-workload` tool, the template), registers the source, clears the cached 0.1.0 — what SailfishKitchen and template apps restore from |
+| `sf pack-local` | packs this checkout into the local NuGet feed (`Microsoft.Maui.SailfishOS` with its `.SkiaSharp`, `.Maps` and `.Camera` packages, the workload manifest and its `sailfish-workload` tool, the template), registers the source, clears the cached 0.1.0 — what SailfishKitchen and template apps restore from |
 | `sf workload-install` | teaches the local SDK the `net11.0-sailfish` TFM (without a clone: `dnx Microsoft.Maui.Platforms.SailfishOS.Workload install`) |
 
 Layout: `tools/cmd/` holds the commands, `tools/lib/sf-lib.sh` the shared helpers (connection, transports,
@@ -115,6 +116,17 @@ every stage:
 `.editorconfig` holds the conventions and `.gitattributes` keeps LF in every checkout, Windows too. `dotnet format
 whitespace` is not used: on tab-indented code it moves comments and aligned continuation lines to wrong columns.
 The device matrix (`tools/sf matrix`) stays manual until a self-hosted runner with a phone exists.
+
+## Scripted tours
+
+`Microsoft.Maui.SailfishOS.Diagnostics` has `SailfishUiDriver` for an app's own scripted walk on the phone (the
+Trailhead tour, `samples/Trailhead/Features/Tour/ShotTour.cs`, is the worked example): real touches through the
+compositor's input path (`TapAsync`, `DoubleTapAsync`, `LongPressAsync`, `DragAsync`, `Press`/`MoveToAsync`/`Release`)
+at an element's on-screen bounds (`SceneBounds`, `CollectionRowPoint`), read-backs of the native side (`Probe`,
+`NativeProperty` for any property including attached ones such as `Accessible.name`, `EvalOn`, `Eval`), and
+`ShotAsync(name)`, which logs the `SF-SHOT` marker and, under `tools/sf shots`, waits until the screenshot is taken.
+Under `sf shots` the app should quit when its walk ends (it sets `MAUI_SAILFISH_QT_HOST_AUTO_SHUTDOWN=1`), or
+`sf shots` waits for its deadline.
 
 ## VS Code
 

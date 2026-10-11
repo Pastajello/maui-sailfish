@@ -14,12 +14,11 @@ internal static class QtHostImages
 	/// <summary>Adapter URI (qml/adapters.json).</summary>
 	public const string AdapterUri = Handlers.SailfishKeys.Adapter.Image;
 
-	/// <summary>Sailfish theme and installed app icon directories, probed for icon-like names.</summary>
-	private static readonly string[] ThemeIconDirs =
-	{
-		"/usr/share/themes/sailfish/icons/z1.0",
-		"/usr/share/icons/hicolor/86x86/apps",
-	};
+	/// <summary>Silica's theme image provider. It picks the icon for the theme's pixel ratio and draws a monochrome
+	/// icon in the ambience's primary colour (a "?#rrggbb" suffix picks another), so an icon reads on light and dark
+	/// ambiences alike. The theme's directories differ between releases (SFOS 5: sailfish-default/silica/z*/…), so the
+	/// backend never probes them itself.</summary>
+	private const string ThemeImagePrefix = "image://theme/";
 
 	/// <summary>The image snapshot, or null when the source cannot be resolved. Takes IImage because
 	/// ImageButton does not derive from Image.</summary>
@@ -201,8 +200,10 @@ internal static class QtHostImages
 
 	private static string? ResolveStock(ImageSource? source) => source switch
 	{
+		FileImageSource { File: var themed } when themed.StartsWith(ThemeImagePrefix, StringComparison.Ordinal) => themed,
 		FileImageSource { File.Length: > 0 } file => FileUrl(file.File),
 		UriImageSource { Uri: { IsFile: true } local } => FileUrl(local.LocalPath),
+		UriImageSource { Uri: { Scheme: "image" } themed } => themed.OriginalString,
 		UriImageSource { Uri: { } uri } remote when uri.Scheme is "http" or "https" => WithCachePolicy(remote, uri),
 		FontImageSource glyph => GlyphUrl(glyph),
 		StreamImageSource stream => StreamUrl(stream),
@@ -531,14 +532,21 @@ internal static class QtHostImages
 		return dir;
 	}
 
+	/// <summary>A file the app ships or names; an icon-like name ("icon-m-gps", "image-…") the app does not ship is a
+	/// theme image, as a Silica app writes <c>image://theme/icon-m-gps</c>.</summary>
 	private static string? FileUrl(string file)
 	{
-		var path = ResolveFilePath(file);
-		return path is null ? null : new Uri(path).AbsoluteUri;
+		if (ResolveFilePath(file) is { } path)
+			return new Uri(path).AbsoluteUri;
+		var name = Path.GetFileName(file);
+		return file == name && (name.StartsWith("icon-", StringComparison.OrdinalIgnoreCase) ||
+		                        name.StartsWith("image-", StringComparison.OrdinalIgnoreCase))
+			? ThemeImagePrefix + Path.GetFileNameWithoutExtension(name)
+			: null;
 	}
 
-	/// <summary>Probes the given path, the output directory, images/ (where the RPM ships Resources/Images),
-	/// Resources/Images/, and the theme directories for icon-like names.</summary>
+	/// <summary>Probes the given path, the output directory, images/ (where the RPM ships Resources/Images) and
+	/// Resources/Images/.</summary>
 	private static string? ResolveFilePath(string file)
 	{
 		if (File.Exists(file))
@@ -546,22 +554,12 @@ internal static class QtHostImages
 
 		var baseDir = AppContext.BaseDirectory;
 		var name = Path.GetFileName(file);
-		var candidates = new List<string>
+		var candidates = new[]
 		{
 			Path.Combine(baseDir, file),
 			Path.Combine(baseDir, "images", name),
 			Path.Combine(baseDir, "Resources", "Images", name),
 		};
-		if (name.StartsWith("icon-", StringComparison.OrdinalIgnoreCase) ||
-		    name.StartsWith("image-", StringComparison.OrdinalIgnoreCase))
-		{
-			foreach (var dir in ThemeIconDirs)
-			{
-				candidates.Add(Path.Combine(dir, name));
-				if (!name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-					candidates.Add(Path.Combine(dir, name + ".png"));
-			}
-		}
 
 		foreach (var candidate in candidates)
 			if (File.Exists(candidate))

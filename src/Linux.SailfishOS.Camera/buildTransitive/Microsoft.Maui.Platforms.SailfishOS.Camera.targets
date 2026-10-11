@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Copies the camera's QML adapter into the app's qml/ (UseSailfishCamera registers it there); QtMultimedia is part
+       of every Sailfish OS install, so no Requires. -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)qml/**/*.qml" Link="qml/SailfishCamera/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <TrimmerRootAssembly Include="Microsoft.Maui.SailfishOS.Camera" />
+  </ItemGroup>
+
+</Project>

@@ -20,6 +20,7 @@ internal sealed partial class QtHostPageRenderer
 		try
 		{
 			MapElement(root, desired, props);
+			NoteRowFlyouts(root);
 			// The row root has no host parent: it lands in the delegate/slot placeholder.
 			var rootHost = desired.Count > first && ReferenceEquals(desired[first].Element, root) ? desired[first] : null;
 			if (rootHost is not null)
@@ -34,6 +35,37 @@ internal sealed partial class QtHostPageRenderer
 		// Row content isn't attached to the page tree, so the rendered page is the surround-colour fallback.
 		for (var i = first; i < desired.Count; i++)
 			MergeGenericState(desired[i], props, _rendered);
+	}
+
+	/// <summary>A row whose template has a ContextFlyout (on its root or inside): its list joins the lists whose page
+	/// needs a ContextMenu host, and the page is walked again the first time, so the host exists before a long press.</summary>
+	private void NoteRowFlyouts(VisualElement root)
+	{
+		if (!HasContextFlyout(root))
+			return;
+		for (var e = root.Parent; e is not null; e = e.Parent)
+		{
+			if (e is not ItemsView list)
+				continue;
+			if (!_rowFlyoutLists.TryGetValue(list, out _))
+			{
+				_rowFlyoutLists.Add(list, list);
+				RequestPoll();
+			}
+			return;
+		}
+	}
+
+	internal static bool HasContextFlyout(Element element)
+	{
+		if (element is VisualElement v && FlyoutBase.GetContextFlyout(v) is MenuFlyout { Count: > 0 })
+			return true;
+		if (element is ItemsView)
+			return false;   // a nested list's rows report their own
+		foreach (var child in ((IVisualTreeElement)element).GetVisualChildren())
+			if (child is Element e && HasContextFlyout(e))
+				return true;
+		return false;
 	}
 
 	/// <summary>The matrix of a root that sits directly on its canvas (the page canvas, a row placeholder): its own
@@ -110,6 +142,8 @@ internal sealed partial class QtHostPageRenderer
 		if (child is View flyoutView &&
 		    FlyoutBase.GetContextFlyout(flyoutView) is MenuFlyout flyout && flyout.Count > 0)
 			_contextFlyouts[flyoutView] = flyout;
+		if (child is ItemsView rowFlyoutList && _rowFlyoutLists.TryGetValue(rowFlyoutList, out _))
+			_pageHasRowFlyouts = true;
 
 		// TableView is not rendered (D2 b, tracker S35): said once instead of an empty area without a word.
 #pragma warning disable CS0618   // TableView is obsolete in MAUI 11; apps still ship it

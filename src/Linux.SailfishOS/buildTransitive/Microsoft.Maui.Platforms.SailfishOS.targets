@@ -109,10 +109,12 @@
     </ItemGroup>
   </Target>
 
-  <!-- Also for a plain net11.0 head that opens URLs: the app reads its D-Bus names from the meta. Heads only: a class
-       library's copy would land on the same qml/maui-appmeta.json path in the app (NETSDK1152). -->
+  <!-- Also for a plain net11.0 head (the in-repo samples, an app that imports these targets itself): without it the app
+       ran with no meta, so its version, build, cover, title and orientation from the project were ignored (AppInfo
+       said 1.0.0.0). Heads only: a class library's copy would land on the same qml/maui-appmeta.json path in the app
+       (NETSDK1152). -->
   <Target Name="_SailfishWriteAppMeta" BeforeTargets="BeforeBuild" DependsOnTargets="_SailfishOpenUrlNames"
-          Condition="'$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == 'sailfish' Or '$(SailfishHarbour)' == 'true' Or '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '')">
+          Condition="'$(_SailfishIsApp)' == 'true' And ('$(_SailfishLegPlatform)' == 'sailfish' Or '$(_SailfishLegPlatform)' == '' Or '$(SailfishHarbour)' == 'true' Or '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '')">
     <Error Condition="'$(SailfishCoverQml)' != '' And !Exists('$(SailfishCoverQml)')"
            Text="SailfishCoverQml '$(SailfishCoverQml)' does not exist (a QML item file relative to the project)." />
     <PropertyGroup>
@@ -565,6 +567,10 @@ Sandboxing=Disabled</_SailfishSailjailSection>
 Permissions=$(_SailfishPermissions.Replace(';', '%3B'))
 OrganizationName=$(SailfishOrganizationName)
 ApplicationName=$(SailfishPackageName)</_SailfishSailjailSection>
+      <!-- The Jolla Store refuses files under /usr/share/dbus-1: there sailjail starts the app for its D-Bus name
+           (OrganizationName.ApplicationName, the name the app registers for openUrl) from this key. -->
+      <_SailfishSailjailSection Condition="'$(_SailfishSandboxed)' == 'true' And '$(SailfishHarbour)' == 'true' And '$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">$(_SailfishSailjailSection)
+ExecDBus=$(SailfishPackageName)</_SailfishSailjailSection>
       <!-- A Debug build installs next to the Release one, so label its launcher entry. -->
       <_SailfishDesktopName>$(ApplicationTitle)</_SailfishDesktopName>
       <_SailfishDesktopName Condition="'$(Configuration)' == 'Debug'">$(ApplicationTitle) (Debug)</_SailfishDesktopName>
@@ -592,8 +598,9 @@ $(_SailfishSailjailSection)
                       Lines="$(_SailfishDesktopContent)"
                       Overwrite="true" />
 
-    <!-- D-Bus activation: a URL for an app that is not running starts it through the same launcher. -->
-    <PropertyGroup Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">
+    <!-- D-Bus activation: a URL for an app that is not running starts it through the same launcher (outside Harbour;
+         a Harbour build has ExecDBus in its [X-Sailjail] section instead). -->
+    <PropertyGroup Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '' And '$(SailfishHarbour)' != 'true'">
       <_SailfishInvokerType>generic</_SailfishInvokerType>
       <_SailfishInvokerType Condition="'$(SailfishHarbour)' == 'true'">silica-qt5</_SailfishInvokerType>
       <_SailfishDBusServiceContent>[D-BUS Service]
@@ -601,11 +608,11 @@ Name=$(_SailfishDBusName)
 Exec=/usr/bin/invoker --type=$(_SailfishInvokerType) --single-instance --desktop-file=$(SailfishPackageName).desktop /usr/bin/$(SailfishPackageName)
 </_SailfishDBusServiceContent>
     </PropertyGroup>
-    <MakeDir Directories="$(_SailfishBuildRoot)/usr/share/dbus-1/services" Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''" />
+    <MakeDir Directories="$(_SailfishBuildRoot)/usr/share/dbus-1/services" Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '' And '$(SailfishHarbour)' != 'true'" />
     <WriteLinesToFile File="$(_SailfishBuildRoot)/usr/share/dbus-1/services/$(_SailfishDBusName).service"
                       Lines="$(_SailfishDBusServiceContent)"
                       Overwrite="true"
-                      Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''" />
+                      Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '' And '$(SailfishHarbour)' != 'true'" />
 
     <Message Importance="normal" Text="SailfishRpm: Generated .desktop file" />
   </Target>
@@ -657,6 +664,24 @@ Exec=/usr/bin/invoker --type=$(_SailfishInvokerType) --single-instance --desktop
   </Target>
 
   <!-- ================= Generate Spec File ================= -->
+  <!-- SailfishRpmRequires: system packages the app needs that a default install lacks (QtLocation for the maps
+       package), as a semicolon list property and/or items (a library's buildTransitive adds items). Each becomes an RPM
+       "Requires:", so the phone's package manager installs them with the app. The Jolla Store accepts only its allowed
+       list: tools/sf harbour-check checks an RPM against it. -->
+  <Target Name="_SailfishCollectRpmRequires" BeforeTargets="_GenerateSailfishRpmSpec;CreateSailfishRpm">
+    <ItemGroup>
+      <_SailfishRpmRequiresAll Include="$(SailfishRpmRequires)" />
+      <_SailfishRpmRequiresAll Include="@(SailfishRpmRequires)" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_SailfishRpmRequiresAll)">
+      <Output TaskParameter="Filtered" ItemName="_SailfishRpmRequiresUnique" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <_SailfishRpmRequiresAll Remove="@(_SailfishRpmRequiresAll)" />
+      <_SailfishRpmRequiresAll Include="@(_SailfishRpmRequiresUnique)" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="_GenerateSailfishRpmSpec"
           Condition="'$(_SailfishRpmEnabled)' == 'true'"
           DependsOnTargets="_SailfishOpenUrlNames"
@@ -664,12 +689,14 @@ Exec=/usr/bin/invoker --type=$(_SailfishInvokerType) --single-instance --desktop
           BeforeTargets="CreateSailfishRpm">
 
     <PropertyGroup>
-      <_SailfishDBusServiceFile Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != ''">/usr/share/dbus-1/services/$(_SailfishDBusName).service</_SailfishDBusServiceFile>
+      <_SailfishDBusServiceFile Condition="'$(SailfishUrlSchemes)$(SailfishMimeTypes)' != '' And '$(SailfishHarbour)' != 'true'">/usr/share/dbus-1/services/$(_SailfishDBusName).service</_SailfishDBusServiceFile>
       <!-- Harbour rejects a Vendor tag -->
       <_SailfishVendorLine Condition="'$(SailfishHarbour)' != 'true'">Vendor: $(SailfishVendor)</_SailfishVendorLine>
       <!-- Harbour allows only these package names; the daemon pulls in libsailfishsecrets. -->
       <_SailfishRequiresLines Condition="'$(SailfishSecureStorage)' == 'Secrets'">Requires: sailfishsecretsdaemon
 Requires: sailfishsecretsdaemon-secretsplugins-default</_SailfishRequiresLines>
+      <_SailfishRequiresLines Condition="'@(_SailfishRpmRequiresAll)' != ''">$(_SailfishRequiresLines)
+@(_SailfishRpmRequiresAll->'Requires: %(Identity)', '%0A')</_SailfishRequiresLines>
       <_SailfishSpecContent>Name: $(SailfishPackageName)
 Version: $(SailfishVersion)
 Release: $(SailfishRelease)
@@ -722,6 +749,7 @@ $(_SailfishDBusServiceFile)
     <PropertyGroup>
       <_SailfishOutputPath>$(SailfishRpmOutputDir)/$(SailfishRpmFileName)</_SailfishOutputPath>
       <_SailfishRpmRequires Condition="'$(SailfishSecureStorage)' == 'Secrets'">sailfishsecretsdaemon, sailfishsecretsdaemon-secretsplugins-default</_SailfishRpmRequires>
+      <_SailfishRpmRequires Condition="'@(_SailfishRpmRequiresAll)' != ''">$(_SailfishRpmRequires), @(_SailfishRpmRequiresAll, ', ')</_SailfishRpmRequires>
     </PropertyGroup>
     <!-- The spec's %files list (_GenerateSailfishRpmSpec); /usr/bin/PKG is the apphost symlink outside Harbour. -->
     <ItemGroup>

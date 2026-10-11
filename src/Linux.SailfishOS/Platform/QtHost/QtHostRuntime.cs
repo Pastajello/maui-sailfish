@@ -343,7 +343,9 @@ public static class QtHostRuntime
 		try
 		{
 			CheckThread("eval");
-			var len = QtHostNative.sailfish_host_eval(expression, buf, cap);
+			var len = QtHostNative.IsLarge(expression)
+				? QtHostNative.sailfish_host_eval_utf8(QtHostNative.Utf8z(expression), buf, cap)
+				: QtHostNative.sailfish_host_eval(expression, buf, cap);
 			return len < 0 ? string.Empty : len >= cap ? WholeResult(len) : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
 		}
 		finally
@@ -384,7 +386,9 @@ public static class QtHostRuntime
 		var buf = Marshal.AllocHGlobal(cap);
 		try
 		{
-			rc = QtHostNative.sailfish_host_invoke(handle, method, arg, buf, cap);
+			rc = QtHostNative.IsLarge(arg)
+				? QtHostNative.sailfish_host_invoke_utf8(handle, method, QtHostNative.Utf8z(arg!), buf, cap)
+				: QtHostNative.sailfish_host_invoke(handle, method, arg, buf, cap);
 			if (rc < 0)
 				return null;
 			return rc >= cap ? WholeResult(rc) : Marshal.PtrToStringUTF8(buf) ?? string.Empty;
@@ -437,7 +441,8 @@ public static class QtHostRuntime
 
 	private static QtHostNative.SurfaceTouchFn? _surfaceTouchFn;
 
-	internal static int SurfaceSetTouch(long handle, bool enabled, QtHostNative.SurfaceTouchFn onTouch)
+	/// <param name="keepsDrag">The view keeps a sideways drag it handles from Silica's page gestures (D17).</param>
+	internal static int SurfaceSetTouch(long handle, bool enabled, QtHostNative.SurfaceTouchFn onTouch, bool keepsDrag = true)
 	{
 		if (TestShim is { } shim)
 			return shim.SurfaceSetTouch(handle, enabled);
@@ -447,7 +452,7 @@ public static class QtHostRuntime
 			_surfaceTouchFn = onTouch;
 			QtHostNative.sailfish_host_set_surface_touch_callback(_surfaceTouchFn, IntPtr.Zero);
 		}
-		return QtHostNative.sailfish_host_surface_set_touch(handle, enabled ? 1 : 0);
+		return QtHostNative.sailfish_host_surface_set_touch(handle, !enabled ? 0 : keepsDrag ? 1 : 2);
 	}
 
 	/// <summary>Diagnostics: one multi-touch event through Qt's real input path (window pixels; states are
@@ -576,7 +581,9 @@ public static class QtHostRuntime
 		if (TestShim is { } shim)
 			return shim.SetProperty(handle, name, valueJson);
 		CheckThread("set_property");
-		return QtHostNative.sailfish_host_set_property(handle, name, valueJson);
+		return QtHostNative.IsLarge(valueJson)
+			? QtHostNative.sailfish_host_set_property_utf8(handle, name, QtHostNative.Utf8z(valueJson!))
+			: QtHostNative.sailfish_host_set_property(handle, name, valueJson);
 	}
 
 	/// <summary>
@@ -589,7 +596,9 @@ public static class QtHostRuntime
 		if (TestShim is { } shim)
 			return shim.ApplyProperties(handle, propsJson);
 		CheckThread("apply_props");
-		return QtHostNative.sailfish_host_apply_props(handle, propsJson);
+		return QtHostNative.IsLarge(propsJson)
+			? QtHostNative.sailfish_host_apply_props_utf8(handle, QtHostNative.Utf8z(propsJson))
+			: QtHostNative.sailfish_host_apply_props(handle, propsJson);
 	}
 
 	/// <summary>The shim's last error text.</summary>
@@ -645,7 +654,9 @@ public static class QtHostRuntime
 		if (TestShim is { } shim)
 			return shim.ApplyGeometry(geoJson);
 		CheckThread("apply_geometry");
-		return QtHostNative.sailfish_host_apply_geometry(geoJson);
+		return QtHostNative.IsLarge(geoJson)
+			? QtHostNative.sailfish_host_apply_geometry_utf8(QtHostNative.Utf8z(geoJson))
+			: QtHostNative.sailfish_host_apply_geometry(geoJson);
 	}
 
 	/// <summary>

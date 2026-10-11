@@ -68,7 +68,9 @@ public class SailfishSKCanvasViewHandler : SailfishViewHandler<ISKCanvasView>
 	}
 
 	public static void MapEnableTouchEvents(SailfishSKCanvasViewHandler handler, ISKCanvasView view) =>
-		handler._renderer.Touch.Update(view.EnableTouchEvents && !view.InputTransparent, view.OnTouch);
+		handler._renderer.Touch.Update(view.EnableTouchEvents && !view.InputTransparent, view.OnTouch,
+			view is not BindableObject bindable ||
+			Microsoft.Maui.Controls.PlatformConfiguration.SailfishOSSpecific.VisualElement.GetKeepsDrag(bindable));
 
 	public static void MapIgnorePixelScaling(SailfishSKCanvasViewHandler handler, ISKCanvasView view) =>
 		handler._renderer.Invalidate();   // Android's IgnorePixelScaling setter re-sizes and invalidates

@@ -82,6 +82,7 @@ Microsoft.Maui.SailfishOS.Platform.QtHost.SailfishImageSourceServiceResult
 Microsoft.Maui.SailfishOS.Platform.QtHost.SurfaceTouch
 Microsoft.Maui.SailfishOS.Platform.QtHost.SurfaceTouchAction
 Microsoft.Maui.SailfishOS.Platform.SailfishApplicationState
+Microsoft.Maui.SailfishOS.Platform.SailfishBackground
 Microsoft.Maui.SailfishOS.Platform.SailfishBottomSheet
 Microsoft.Maui.SailfishOS.Platform.SailfishColorScheme
 Microsoft.Maui.SailfishOS.Platform.SailfishCover

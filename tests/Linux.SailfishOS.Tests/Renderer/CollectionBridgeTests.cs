@@ -352,4 +352,43 @@ public sealed class CollectionBridgeTests
 		Assert.Same(kept, rows[0].CellViews[0]);
 		Assert.IsType<BoxView>(rows[1].CellViews[0]);
 	}
+
+	// A ContextFlyout on a row template's root (the usual place: press and hold the row) was never registered, since a
+	// row maps its root outside the page walk: the hold was not armed, the release selected the row, and the page had no
+	// ContextMenu host. Now the row reports its presses (g=1), the flyout is found from the row, and the page gets the host.
+	[Fact]
+	public void A_context_flyout_on_a_row_template_root_opens_from_the_row()
+	{
+		var list = new CollectionView
+		{
+			ItemsSource = new[] { "alpha", "beta" },
+			ItemTemplate = new DataTemplate(() =>
+			{
+				var label = new Label();
+				label.SetBinding(Label.TextProperty, ".");
+				var row = new Grid { Children = { label } };
+				FlyoutBase.SetContextFlyout(row, new MenuFlyout { new MenuFlyoutItem { Text = "Delete" } });
+				return row;
+			}),
+			HeightRequest = 600,
+		};
+		using var h = new RendererHarness(Page(list));
+		var native = h.Shim.ByUri("list-view").Single();
+		for (var row = 0; row < 2; row++)
+		{
+			var dg = $"maui_{native.Id}__r{row}";
+			h.Shim.AddNative(dg);
+			h.Renderer.HandleNativeEvent("list-item-attached", $"{{\"id\":\"{native.Id}\",\"row\":{row},\"dg\":\"{dg}\"}}");
+		}
+		for (var i = 0; i < 6; i++)
+			h.Poll();
+
+		using (var doc = JsonDocument.Parse(native.Text("mauiRowsJson")!))
+			Assert.All(doc.RootElement.EnumerateArray(), r => Assert.Equal(1, r.GetProperty("g").GetInt32()));
+		var rowView = (VisualElement)h.Renderer.Collection.RowView(0)!;
+		Assert.True(h.Renderer.TryContextFlyout(((Grid)rowView).Children.OfType<Label>().Single(), out var owner, out var flyout));
+		Assert.Same(rowView, owner);
+		Assert.Equal("Delete", ((MenuFlyoutItem)flyout[0]).Text);
+		Assert.Contains(h.Shim.ByUri("context-menu"), m => !m.Destroyed);
+	}
 }

@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Trailhead: the showcase app (docs/trailhead-plan.md). Sailfish only; the backend comes by ProjectReference because
+       the app drives backend changes. Two flavors: the default (Full) and -p:SailfishHarbour=true (defines HARBOUR). -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Trailhead</RootNamespace>
+    <ApplicationId>com.maui.trailhead</ApplicationId>
+    <ApplicationTitle>Trailhead</ApplicationTitle>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultMauiItems>true</EnableDefaultMauiItems>
+    <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
+    <MauiXamlInflator>SourceGen</MauiXamlInflator>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SkiaVersion Condition="'$(SkiaVersion)' == ''">3.119.4</SkiaVersion>
+    <!-- CommunityToolkit.Mvvm: generated partial members we do not own. CA1416: CTK.Maui does not declare Linux. -->
+    <NoWarn>$(NoWarn);MVVMTK0034;CA1416</NoWarn>
+
+    <!-- Sandboxed in both flavors (plan D7): what the Full build can do, a Store build can do too, except the
+         packages Harbour refuses (QtLocation). -->
+    <SailfishPermissions>Location;Pictures;MediaIndexing;Camera;Sensors;Notifications;Sharing;Audio</SailfishPermissions>
+    <!-- The Jolla Store allows a shorter list (sdk-harbour-rpmvalidator allowed_permissions.conf): no Sensors,
+         Notifications or Sharing; tools/sf harbour-check says so for any RPM. -->
+    <SailfishPermissions Condition="'$(SailfishHarbour)' == 'true'">Location;Pictures;MediaIndexing;Camera;Audio</SailfishPermissions>
+    <SailfishCover>true</SailfishCover>
+    <SailfishCoverQml>Platforms/Sailfish/Cover.qml</SailfishCoverQml>
+    <!-- trailhead://trip/<id> opens a trip (and shared trips point here); GPX files from other apps import. -->
+    <SailfishUrlSchemes>trailhead</SailfishUrlSchemes>
+    <SailfishMimeTypes>application/gpx+xml</SailfishMimeTypes>
+    <SailfishNativeAssetsDir>$(MSBuildThisFileDirectory)../../artifacts/native</SailfishNativeAssetsDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SailfishHarbour)' == 'true'">
+    <DefineConstants>$(DefineConstants);HARBOUR</DefineConstants>
+  </PropertyGroup>
+
+  <!-- The map (plan D1, QtLocation: its package makes the RPM require it, from the jolla repo; allowed in Harbour too)
+       and the camera (QtMultimedia). -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/Linux.SailfishOS.Maps/Linux.SailfishOS.Maps.csproj" />
+    <PackageReference Include="Microsoft.Maui.Controls.Maps" Version="$(MauiVersion)" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.Camera/Linux.SailfishOS.Camera.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Linux.SailfishOS/Linux.SailfishOS.csproj" />
+    <ProjectReference Include="../../src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" />
+    <!-- SailfishUiDriver: the scripted tour (TRAILHEAD_TOUR=1) behind tools/sf shots. -->
+    <ProjectReference Include="../../src/Linux.SailfishOS.Diagnostics/Linux.SailfishOS.Diagnostics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="CommunityToolkit.Maui" Version="15.0.1" />
+    <!-- SkiaSharp and its Linux native library in the same version. -->
+    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="$(SkiaVersion)" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="$(SkiaVersion)" />
+  </ItemGroup>
+
+  <!-- The compass's QML adapter (Controls/CompassView), copied as a library's buildTransitive would. -->
+  <ItemGroup>
+    <Content Include="Platforms/Sailfish/qml/**/*.qml" Link="qml/Trailhead/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 172x172: the largest launcher size Sailfish asks for; the smaller ones are scaled down from it. -->
+    <MauiIcon Include="Resources\AppIcon\appicon.png" />
+  </ItemGroup>
+
+  <Import Project="../../src/Linux.SailfishOS/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.targets" />
+  <Import Project="../../src/Linux.SailfishOS.SkiaSharp/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.SkiaSharp.targets" />
+  <Import Project="../../src/Linux.SailfishOS.Maps/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.Maps.targets" />
+  <Import Project="../../src/Linux.SailfishOS.Camera/buildTransitive/Microsoft.Maui.Platforms.SailfishOS.Camera.targets" />
+
+</Project>

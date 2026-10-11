@@ -1,0 +1,18 @@
+<Project>
+
+  <!-- Names the registrar the Sailfish backend calls before CreateMauiApp (SailfishExtensions), copies the map's QML
+       adapter into the app's qml/, and makes the RPM require QtLocation, which a default Sailfish OS install lacks.
+       Both requirements are on the Jolla Store's allowed list (sdk-harbour-rpmvalidator allowed_requires.conf), so a
+       Harbour build carries them too; qml(QtLocation) is provided by qt5-qtdeclarative-import-location. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>Microsoft.Maui.SailfishOS.Extension</_Parameter1>
+      <_Parameter2>Microsoft.Maui.SailfishOS.Maps.SailfishMaps, Microsoft.Maui.SailfishOS.Maps</_Parameter2>
+    </AssemblyAttribute>
+    <TrimmerRootAssembly Include="Microsoft.Maui.SailfishOS.Maps" />
+    <Content Include="$(MSBuildThisFileDirectory)qml/**/*.qml" Link="qml/SailfishMaps/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <SailfishRpmRequires Include="qml(QtLocation);qt5-plugin-geoservices-osm" />
+  </ItemGroup>
+
+</Project>

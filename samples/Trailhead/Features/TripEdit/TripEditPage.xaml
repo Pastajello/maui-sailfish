@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:l="clr-namespace:Trailhead.Features.Shared"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             xmlns:local="clr-namespace:Trailhead.Features.TripEdit"
+             x:Class="Trailhead.Features.TripEdit.TripEditPage"
+             x:DataType="local:TripEditViewModel"
+             Title="{l:T Edit trip}"
+             Shell.NavBarIsVisible="False">
+
+    <ContentPage.Resources>
+        <Style x:Key="InvalidEntry" TargetType="Entry">
+            <Setter Property="TextColor" Value="#FF7B7B" />
+        </Style>
+        <!-- The toolkit keeps the current style when the matching one is null: without a ValidStyle the invalid look
+             would stay after the text became valid. -->
+        <Style x:Key="ValidEntry" TargetType="Entry" />
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Spacing="8" Padding="0,0,0,24">
+            <!-- Silica's DialogHeader: Cancel on the left, the accept action on the right, the title below. The backend has
+                 no Silica Dialog page yet (plan: backend gaps). -->
+            <Grid ColumnDefinitions="*,*" Padding="8,8,8,0">
+                <Button Text="{l:T Cancel}" Command="{Binding CancelCommand}" HorizontalOptions="Start" />
+                <Button Grid.Column="1" Text="{l:T Save}" Command="{Binding SaveCommand}" HorizontalOptions="End" />
+            </Grid>
+            <Label Text="{l:T Edit trip}" FontSize="24" TextColor="{DynamicResource Highlight}" HorizontalTextAlignment="End" Padding="16,0" />
+
+            <VerticalStackLayout Padding="16,8" Spacing="16">
+                <VerticalStackLayout Spacing="2">
+                    <Entry Text="{Binding Name}" Placeholder="{l:T Name}" ReturnType="Done">
+                        <Entry.Behaviors>
+                            <!-- Toolkit validation: 3–60 characters; IsValid flows to the view model's CanSave. -->
+                            <toolkit:TextValidationBehavior x:Name="NameValidation" MinimumLength="3" MaximumLength="60"
+                                                            Flags="ValidateOnValueChanged,ValidateOnAttaching"
+                                                            InvalidStyle="{StaticResource InvalidEntry}"
+                                                            ValidStyle="{StaticResource ValidEntry}"
+                                                            IsValid="{Binding IsNameValid, Mode=OneWayToSource}" />
+                            <!-- Enter on the keyboard saves, as the accept action of a dialog. -->
+                            <toolkit:EventToCommandBehavior x:Name="EnterSaves" EventName="Completed" Command="{Binding SaveCommand}" />
+                        </Entry.Behaviors>
+                    </Entry>
+                    <Label Text="{l:T 3 to 60 characters}" FontSize="13" TextColor="{DynamicResource Secondary}" />
+                </VerticalStackLayout>
+
+                <Picker Title="{l:T Activity}" ItemsSource="{Binding Activities}" SelectedIndex="{Binding ActivityIndex}" />
+                <!-- A neutral numeric date: the app runs with invariant globalization, whose default is US month/day/year. -->
+                <DatePicker Date="{Binding Date}" MaximumDate="{Binding Today}" Format="dd.MM.yyyy" />
+                <TimePicker Time="{Binding StartTime}" />
+                <Editor Text="{Binding Notes}" Placeholder="{l:T Notes}" AutoSize="TextChanges" MaxLength="500" />
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

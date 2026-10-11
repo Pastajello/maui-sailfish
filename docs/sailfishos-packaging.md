@@ -123,6 +123,13 @@ Size         : 86304638
 /usr/share/harbour-sample/...
 ```
 
+### Checking a Harbour RPM
+
+`tools/sf harbour-check [app.rpm]` checks an RPM against the Jolla Store's own rule lists (the ones its validator
+uses, from sailfishos/sdk-harbour-rpmvalidator) on any build host: name and file locations, `Requires`, QML imports,
+the libraries every ELF file links, Sailjail permissions and keys, icons. Build the RPM with
+`-p:SailfishHarbour=true` first; a clean result is `0 error(s)`.
+
 ## MSBuild properties
 
 | Property | Default | Description |
@@ -147,8 +154,9 @@ Size         : 86304638
 | `SailfishCover` | `false` | Generic cover with the app title |
 | `SailfishCoverQml` | *(empty)* | Your QML item as the cover content (see below) |
 | `SailfishIconSizes` | `86;108;128;172` | Launcher icon sizes generated from `MauiIcon` |
-| `SailfishUrlSchemes` | *(empty)* | URL schemes the app opens (`myapp;geo`): `.desktop` `MimeType=x-scheme-handler/…`, `Exec … %U`, the D-Bus `openUrl` method and its activation file; the URL reaches `Application.OnAppLinkRequestReceived` |
+| `SailfishUrlSchemes` | *(empty)* | URL schemes the app opens (`myapp;geo`): `.desktop` `MimeType=x-scheme-handler/…`, `Exec … %U`, the D-Bus `openUrl` method and its activation (a service file; in a Harbour build `[X-Sailjail] ExecDBus=<pkg>` instead, since the Store refuses files under `/usr/share/dbus-1`); the URL reaches `Application.OnAppLinkRequestReceived` |
 | `SailfishMimeTypes` | *(empty)* | File types the app opens (`text/plain;image/png`), the same way; files arrive as `file://` URIs |
+| `SailfishRpmRequires` | *(empty)* | System packages the app needs that a default install lacks (`qt5-qtdeclarative-import-location;…`): RPM `Requires:`, so installing the app installs them. Also an item (`<SailfishRpmRequires Include="…" />`), which a library's `buildTransitive` adds (the maps package does). The Jolla Store accepts only its allowed packages: `tools/sf harbour-check` checks an RPM |
 
 ### Payload
 

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Host tests of Trailhead's platform-free core (samples/Trailhead/Data/Core), compiled in by source link so the
+       tests need no MAUI app assembly. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../Trailhead/Data/Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="../Trailhead/Data/PhotoPainter.cs" Link="Core/PhotoPainter.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
+  </ItemGroup>
+
+</Project>

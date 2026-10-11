@@ -1,6 +1,6 @@
 #!/bin/bash
-# Packs this checkout into the local NuGet feed: Microsoft.Maui.Platforms.SailfishOS (+ .SkiaSharp), the workload
-# manifest (net11.0-sailfish), the sailfish-workload tool that installs it and the
+# Packs this checkout into the local NuGet feed: Microsoft.Maui.Platforms.SailfishOS (+ .SkiaSharp, .Maps, .Camera),
+# the workload manifest (net11.0-sailfish), the sailfish-workload tool that installs it and the
 # maui-sailfish template, which SailfishKitchen and template projects restore from.
 #
 # Usage: tools/sf pack-local [--no-template]
@@ -31,6 +31,9 @@ echo "==> Microsoft.Maui.Platforms.SailfishOS $VERSION → $FEED"
 dotnet pack "$REPO_ROOT/src/Linux.SailfishOS/Linux.SailfishOS.csproj" -c Release -o "$FEED" --nologo -v quiet
 echo "==> Microsoft.Maui.Platforms.SailfishOS.SkiaSharp $VERSION → $FEED"
 dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.SkiaSharp/Linux.SailfishOS.SkiaSharp.csproj" -c Release -o "$FEED" --nologo -v quiet
+echo "==> Microsoft.Maui.Platforms.SailfishOS.Maps and .Camera $VERSION → $FEED"
+dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.Maps/Linux.SailfishOS.Maps.csproj" -c Release -o "$FEED" --nologo -v quiet
+dotnet pack "$REPO_ROOT/src/Linux.SailfishOS.Camera/Linux.SailfishOS.Camera.csproj" -c Release -o "$FEED" --nologo -v quiet
 # The workload manifest too, so `tools/sf workload-install` (and a machine without this checkout, from the feed)
 # can teach the SDK the net11.0-sailfish TFM.
 echo "==> workload manifest → $FEED"
@@ -55,7 +58,8 @@ if ! dotnet nuget list source 2>/dev/null | grep -q "maui-sailfish-local"; then
 	dotnet nuget add source "$FEED" --name maui-sailfish-local >/dev/null
 fi
 
-rm -rf "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos/$VERSION" "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.skiasharp/$VERSION"
+rm -rf "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos/$VERSION" "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.skiasharp/$VERSION" \
+	"$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.maps/$VERSION" "$HOME/.nuget/packages/microsoft.maui.platforms.sailfishos.camera/$VERSION"
 dotnet build-server shutdown >/dev/null 2>&1 || true
 
 if [ "$TEMPLATE" = 1 ]; then

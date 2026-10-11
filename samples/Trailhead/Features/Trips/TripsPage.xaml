@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:l="clr-namespace:Trailhead.Features.Shared"
+             xmlns:local="clr-namespace:Trailhead.Features.Trips"
+             x:Class="Trailhead.Features.Trips.TripsPage"
+             x:DataType="local:TripsViewModel"
+             Title="{l:T Trips}">
+
+    <!-- Primary items → PullDownMenu (the last one sits nearest the content: the most used), Secondary → PushUpMenu. -->
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="{l:T Diagnostics}" Command="{Binding OpenDiagnosticsCommand}" />
+        <ToolbarItem Text="{l:T Settings}" Command="{Binding OpenSettingsCommand}" />
+        <ToolbarItem Text="{l:T Lab}" Command="{Binding OpenLabCommand}" />
+        <ToolbarItem Text="{l:T Import GPX}" Command="{Binding ImportGpxCommand}" />
+        <ToolbarItem Text="{l:T New trip}" Command="{Binding NewTripCommand}" />
+        <ToolbarItem Text="{l:T Statistics}" Order="Secondary" Command="{Binding OpenStatisticsCommand}" />
+        <ToolbarItem Text="{l:T Scroll to top}" Order="Secondary" Clicked="OnScrollToTop" />
+    </ContentPage.ToolbarItems>
+
+    <ContentPage.Resources>
+        <!-- Press and hold a row: Silica's ContextMenu. The row itself is the parameter, because a RemorseItem covers it. -->
+        <DataTemplate x:Key="WithPhoto" x:DataType="local:TripItem">
+            <Grid x:Name="Row" Padding="16,10" ColumnDefinitions="132,*" ColumnSpacing="16"
+                  SemanticProperties.Description="{Binding Spoken}">
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="{l:T Share}" Clicked="OnShare" CommandParameter="{x:Reference Row}" />
+                        <MenuFlyoutItem Text="{l:T Edit}" Clicked="OnEdit" CommandParameter="{x:Reference Row}" />
+                        <MenuFlyoutItem Text="{l:T Delete}" Clicked="OnDelete" CommandParameter="{x:Reference Row}" />
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+                <Image Source="{Binding Thumbnail}" Aspect="AspectFill" HeightRequest="99" WidthRequest="132"
+                       SemanticProperties.Description="{Binding Name}" />
+                <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                    <Label Text="{Binding Activity}" FontSize="12" TextColor="{DynamicResource SecondaryHighlight}" />
+                    <Label Text="{Binding Name}" LineBreakMode="TailTruncation" />
+                    <Label Text="{Binding Facts}" FontSize="14" TextColor="{DynamicResource Highlight}" />
+                    <Label Text="{Binding Where}" FontSize="13" TextColor="{DynamicResource Secondary}" LineBreakMode="TailTruncation" />
+                </VerticalStackLayout>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="Plain" x:DataType="local:TripItem">
+            <VerticalStackLayout x:Name="Row" Padding="16,10" Spacing="2" SemanticProperties.Description="{Binding Spoken}">
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="{l:T Share}" Clicked="OnShare" CommandParameter="{x:Reference Row}" />
+                        <MenuFlyoutItem Text="{l:T Edit}" Clicked="OnEdit" CommandParameter="{x:Reference Row}" />
+                        <MenuFlyoutItem Text="{l:T Delete}" Clicked="OnDelete" CommandParameter="{x:Reference Row}" />
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+                <Label Text="{Binding Name}" LineBreakMode="TailTruncation" />
+                <Label Text="{Binding Facts}" FontSize="14" TextColor="{DynamicResource Highlight}" />
+                <Label Text="{Binding Where}" FontSize="13" TextColor="{DynamicResource Secondary}" />
+            </VerticalStackLayout>
+        </DataTemplate>
+
+        <local:TripTemplateSelector x:Key="TripTemplates" WithPhoto="{StaticResource WithPhoto}" Plain="{StaticResource Plain}" />
+    </ContentPage.Resources>
+
+    <Grid>
+    <!-- A string EmptyView renders as Silica's ViewPlaceholder. -->
+    <CollectionView x:Name="List"
+                    ItemsSource="{Binding Groups}"
+                    IsGrouped="True"
+                    ItemTemplate="{StaticResource TripTemplates}"
+                    EmptyView="{Binding EmptyText}"
+                    SelectionMode="Single"
+                    SelectionChanged="OnSelectionChanged"
+                    RemainingItemsThreshold="10"
+                    RemainingItemsThresholdReachedCommand="{Binding LoadMoreCommand}">
+        <!-- While a recording runs: a banner on top of the list, back to the recording on a tap. -->
+        <CollectionView.Header>
+            <Label Text="{Binding RecordingBanner}" IsVisible="{Binding IsRecording}" Padding="16,12"
+                   FontSize="16" TextColor="{DynamicResource Highlight}">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding OpenRecordingCommand}" />
+                </Label.GestureRecognizers>
+            </Label>
+        </CollectionView.Header>
+        <CollectionView.GroupHeaderTemplate>
+            <!-- Silica's SectionHeader look: right-aligned, highlight colour. -->
+            <DataTemplate x:DataType="local:TripGroup">
+                <Grid Padding="16,20,16,4" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <Label Text="{Binding CountText}" FontSize="13" TextColor="{DynamicResource SecondaryHighlight}" VerticalOptions="End" />
+                    <Label Grid.Column="1" Text="{Binding Title}" FontSize="15" TextColor="{DynamicResource Highlight}" />
+                </Grid>
+            </DataTemplate>
+        </CollectionView.GroupHeaderTemplate>
+    </CollectionView>
+
+    <!-- First launch: Silica's pull-down hint (TouchInteractionHint + InteractionHintLabel), which MAUI has no
+         counterpart for: a glowing dot slides down from the top three times; the caption sits at the bottom, as
+         Silica's does, so it never lands on a row's text. It never takes a touch. -->
+    <Grid x:Name="Hint" InputTransparent="True" IsVisible="False" BackgroundColor="#B3000000">
+        <BoxView x:Name="HintDot" WidthRequest="64" HeightRequest="64" CornerRadius="32" Color="{DynamicResource Highlight}"
+                 HorizontalOptions="Center" VerticalOptions="Start" Opacity="0" />
+        <Label Text="{l:T 'Pull down for the menu'}" FontSize="32" TextColor="{DynamicResource Highlight}"
+               HorizontalOptions="Center" VerticalOptions="End" HorizontalTextAlignment="Center" Margin="32,0,32,96" />
+    </Grid>
+    </Grid>
+
+</ContentPage>

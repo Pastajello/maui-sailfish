@@ -210,5 +210,25 @@ public class ImageMeasureTests
 			h.Renderer.KickedPoll();   // the rows re-measure in the list's own pending pass
 		Assert.All(rows, image => Assert.Equal(60, Math.Round(image.Height)));
 	}
+
+	[Fact]
+	public void Theme_icons_go_to_the_silica_theme_provider()
+	{
+		// A name the app does not ship, with or without .png, and the explicit forms (XAML turns "image://…" into a
+		// UriImageSource). The colour suffix survives: Silica reads it after "?".
+		Assert.Equal("image://theme/icon-m-gps", QtHostImages.Resolve(new FileImageSource { File = "icon-m-gps" }));
+		Assert.Equal("image://theme/icon-m-gps", QtHostImages.Resolve(new FileImageSource { File = "icon-m-gps.png" }));
+		Assert.Equal("image://theme/icon-m-gps", QtHostImages.Resolve(ImageSource.FromFile("image://theme/icon-m-gps")));
+		Assert.Equal("image://theme/icon-m-gps?#ff0000",
+			QtHostImages.Resolve(new UriImageSource { Uri = new Uri("image://theme/icon-m-gps?#ff0000") }));
+		// Only bare icon-like names: a missing app image stays unresolved.
+		Assert.Null(QtHostImages.Resolve(new FileImageSource { File = "photos/icon-m-gps.png" }));
+		Assert.Null(QtHostImages.Resolve(new FileImageSource { File = "missing.png" }));
+		// Sized once the adapter reports the loaded icon, like a remote image.
+		Assert.Null(QtHostImages.IntrinsicSize(new FileImageSource { File = "icon-m-gps" }));
+		var density = SailfishDisplay.Density > 0 ? SailfishDisplay.Density : 1;
+		Assert.True(QtHostImages.ReportNaturalSize("image://theme/icon-m-gps", (int)(64 * density), (int)(64 * density)));
+		Assert.Equal(64, Math.Round(QtHostImages.IntrinsicSize(new FileImageSource { File = "icon-m-gps" })!.Value.Width));
+	}
 }
 
