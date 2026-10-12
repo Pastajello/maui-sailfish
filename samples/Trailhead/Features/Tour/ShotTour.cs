@@ -126,9 +126,41 @@ public static class ShotTour
 		await Task.Delay(700);
 		await SailfishUiDriver.ShotAsync("trips-context-menu");
 		Check("press and hold keeps the trips page (no navigation)", shell.CurrentPage is TripsPage);
-		var size = SailfishUiDriver.SceneSize;
-		await SailfishUiDriver.TapAsync(size.Width / 2, size.Height * 0.06);   // outside: closes it
-		await Task.Delay(600);
+
+		// A tap on a menu item must reach the menu, not the rows the open menu hangs over.
+		var held = SailfishUiDriver.CollectionRow(row)?.BindingContext as TripItem;
+		var edit = SailfishUiDriver.Eval(
+			"(function(){var ps=window.mauiPages||[];var a=null;for(var k=ps.length-1;k>=0&&!a;k--){var c0=ps[k].__ctxAnchor;" +
+			"if(c0&&c0.menu&&c0.menu.active)a=c0;}if(!a)return 'closed';" +
+			"var col=a.menu._contentColumn;for(var i=0;i<col.children.length;i++){var c=col.children[i];" +
+			$"if(c.text==={System.Text.Json.JsonSerializer.Serialize(L.T("Edit"))}){{var p=c.mapToItem(null,c.width/2,c.height/2);return p.x+','+p.y;}}}}return 'noitem';}})()");
+		Log($"context menu 'Edit' at {edit}");
+		var xy = edit.Split(',');
+		if (xy.Length == 2 && double.TryParse(xy[0], System.Globalization.CultureInfo.InvariantCulture, out var ex) &&
+		    double.TryParse(xy[1], System.Globalization.CultureInfo.InvariantCulture, out var ey))
+		{
+			// TRAILHEAD_CTX_AB=1: the held row back at its own z first (the order before the fix), as a negative control.
+			if (Environment.GetEnvironmentVariable("TRAILHEAD_CTX_AB") == "1")
+				Log("A/B: rows lowered → " + SailfishUiDriver.Eval(
+					"(function(){var ps=window.mauiPages||[];for(var k=0;k<ps.length;k++)if(ps[k].__ctxRaised&&ps[k].__ctxRaised.length){var n=ps[k].__ctxRaised.length;ps[k].__ctxLower();return n;}return 0;})()"));
+			await SailfishUiDriver.TapAsync(ex, ey);
+			await Task.Delay(1500);
+			var editing = (shell.CurrentPage?.BindingContext as TripEdit.TripEditViewModel)?.Id;
+			Check($"a tap on the menu's Edit opens the editor for the held trip ({shell.CurrentPage?.GetType().Name}, '{editing}' == '{held?.Id}')",
+				editing is not null && editing == held?.Id);
+			if (shell.CurrentPage is not TripsPage)
+			{
+				await shell.GoToAsync("..");
+				await Task.Delay(800);
+			}
+		}
+		else
+		{
+			Check($"the context menu shows Edit ({edit})", false);
+			var size = SailfishUiDriver.SceneSize;
+			await SailfishUiDriver.TapAsync(size.Width / 2, size.Height * 0.06);   // outside: closes it
+			await Task.Delay(600);
+		}
 	}
 
 	private static async Task DetailAsync(Shell shell)

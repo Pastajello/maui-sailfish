@@ -12,6 +12,9 @@ public partial class TripEditViewModel(TripStore store) : ObservableObject, IQue
 	private string _id = "";
 	private Trip? _trip;
 
+	/// <summary>The trip being edited (tour checks).</summary>
+	public string Id => _id;
+
 	public IReadOnlyList<string> Activities { get; } = Enum.GetValues<Activity>().Select(Format.ActivityName).ToList();
 
 	public DateTime Today => DateTime.Today;

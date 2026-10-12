@@ -931,10 +931,13 @@ Page {
 
     // Opens the page's context-menu adapter around the long-pressed host. itemsJson is
     // [{text,enabled}]. Returns false if the target or menu host is missing.
+    // Returns "true", or why the menu could not open (managed logs it and forgets the flyout).
     function __openContextMenu(hostId, itemsJson) {
         var target = __hosts[hostId];
-        if (!target || !target.item)
-            return false;
+        if (!target)
+            return "no-target";
+        if (!target.item)
+            return "no-item";
         var menu = null;
         for (var id in __hosts) {
             if (__hosts[id].uri === "context-menu") {
@@ -943,7 +946,7 @@ Page {
             }
         }
         if (!menu || menu.openFor === undefined)
-            return false;
+            return "no-menu";
         // Silica's ContextMenu anchors its bottom to its parent's bottom and expects the parent to grow by the menu's
         // height (a ListItem does), and it renders that parent through a layer sized for the grown height. A MAUI
         // host never grows (MAUI lays it out), so the menu hung above the target, outside the layer, and only the
@@ -956,8 +959,35 @@ Page {
         __ctxAnchor.y = t.y;
         __ctxAnchor.width = t.width;
         __ctxAnchor.baseHeight = t.height;
+        // The menu hangs over whatever follows the target: in a list the rows below, each its own delegate with a
+        // MouseArea over the whole row, and elsewhere the later children of every layout around it. Those stack above
+        // the target's branch, so they took the taps meant for the menu (a list's trip under "Edit" opened). Every
+        // ancestor of the stand-in goes above its siblings while the menu is open.
+        __ctxRaise(__ctxAnchor, menu);
         menu.openFor(__ctxAnchor, itemsJson);
         return true;
+    }
+    property var __ctxRaised: []
+    property var __ctxHooked: null
+    function __ctxRaise(anchor, menu) {
+        if (__ctxHooked !== menu) {
+            menu.activeChanged.connect(function() { if (!menu.active) __ctxLower(); });
+            __ctxHooked = menu;
+        }
+        __ctxLower();
+        var raised = [];
+        for (var p = anchor.parent; p && p !== page && p.parent; p = p.parent) {
+            raised.push({ item: p, z: p.z });
+            p.z = 10000;
+        }
+        __ctxRaised = raised;
+    }
+    // Back to the old z, unless something (a MAUI ZIndex) set a new one meanwhile.
+    function __ctxLower() {
+        for (var i = 0; i < __ctxRaised.length; ++i)
+            if (__ctxRaised[i].item && __ctxRaised[i].item.z === 10000)
+                __ctxRaised[i].item.z = __ctxRaised[i].z;
+        __ctxRaised = [];
     }
     // The stand-in a context menu opens on (created once), above its siblings.
     function __openContextMenuAnchor(menu) {
@@ -992,6 +1022,7 @@ Page {
         __ctxAnchor.y = flick.contentY + page.topInset;
         __ctxAnchor.width = page.width;
         __ctxAnchor.baseHeight = 0;
+        __ctxRaise(__ctxAnchor, menu);
         menu.openFor(__ctxAnchor, itemsJson);
         return true;
     }

@@ -425,10 +425,23 @@ internal sealed partial class QtHostPageRenderer
 		_openFlyout = flyout;
 		_openFlyoutRows = ContextEntries(flyout);
 		_shellFlyoutRows = null;
+		// The menu opens on the page that holds the target's host: the top model page as a rule, but a list row's
+		// hosts live on the page instance that owns the list, and the shell's last registered page is not always it
+		// (the trips list's rows were "no-target" there and the menu never opened).
 		var rc = QtHostRuntime.Eval(
-			$"{TopModelPageJs}.__openContextMenu('{hostId}',{BridgeValue.Quote(ContextItemsJson(_openFlyoutRows))})");
+			$"(function(){{var h='{hostId}';var p={TopModelPageJs};var how='top';" +
+			"if(!p||!p.__hosts||!p.__hosts[h]){var ps=(typeof window!=='undefined'&&window.mauiPages)||[];" +
+			"for(var i=ps.length-1;i>=0;i--){if(ps[i]&&ps[i].__hosts&&ps[i].__hosts[h]){p=ps[i];how='owner '+i+'/'+ps.length;break;}}}" +
+			$"if(!p||!p.__openContextMenu)return 'no-page';var rc=p.__openContextMenu(h,{BridgeValue.Quote(ContextItemsJson(_openFlyoutRows))});" +
+			"return rc===true||rc==='true'?(how==='top'?'true':'true ('+how+')'):String(rc)+' ('+how+')';})()");
 		QtHostDiag.Trace(QtHostDiagChannel.Input, $"long-press → Silica ContextMenu open rc={rc} " +
 			$"items={flyout.Count} target={hostId}");
+		if (!rc.StartsWith("true", StringComparison.Ordinal))
+		{
+			// No menu came up: navigation must not wait for one to close.
+			_openFlyout = null;
+			QtHostDiag.Warn(QtHostDiagChannel.Input, $"context menu did not open ({rc}) for host {hostId}");
+		}
 	}
 
 	/// <summary>A ContextMenu is open: native stack steps wait until it closes.</summary>

@@ -367,3 +367,12 @@ See the index; split into steps when they are next.
   same temporary file, an unobserved task failed and the process outlived its window. Draft writes are now one at a
   time from a synchronous snapshot, and a write that ends after the recording deletes the draft; the tour ends with
   a check that no task failed unobserved.
+- 2026-10-11: owner's bug: on the trips list, the context menu opened by a press and hold did not take taps; the
+  rows under it did (the trip below opened). Cause: the menu opens on a stand-in inside the held row's delegate and
+  hangs over the next rows, whose delegates (each with a MouseArea over the whole row) stack above it. Fix
+  (MauiModelPage.qml): while a context or flyout menu is open, every ancestor of the stand-in goes above its
+  siblings, and gets its z back when the menu closes. Found on the way: the menu sometimes did not open at all
+  ("no-target": the row's host was not on the shell's last registered page); it now opens on the page that holds
+  the host, says why when it cannot, and managed no longer waits for a menu that never came up. The tour's
+  `context` part now taps "Edit" in the open menu and checks the editor opens for the held trip; with the rows
+  lowered back (`TRAILHEAD_CTX_AB=1`, the negative control) the same tap opens the trip below, as reported.
